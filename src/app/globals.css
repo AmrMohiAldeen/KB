@@ -1,4 +1,6 @@
+@import '../features/editor/styles/tiptap-table.css';
 @import "tailwindcss";
+@plugin "@tailwindcss/typography";
 
 :root {
   --background: #ffffff;

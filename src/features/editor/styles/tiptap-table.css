@@ -1,0 +1,202 @@
+.tableWrapper {
+  position: relative;
+  overflow-x: auto;
+}
+
+.tiptap,
+.ProseMirror {
+  position: relative;
+}
+
+.tiptap table,
+.ProseMirror table {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  table-layout: fixed;
+  border-collapse: collapse;
+  overflow: hidden;
+  border-spacing: 0;
+}
+
+.tiptap table td,
+.ProseMirror table td,
+.tiptap table th,
+.ProseMirror table th {
+  position: relative;
+  box-sizing: border-box;
+  min-width: 40px;
+  height: 20px;
+  padding: 1px 6px;
+  border: 1px solid #8e8f93;
+  font-size: 14px;
+  line-height: 1.25;
+}
+
+.tiptap table td > p,
+.ProseMirror table td > p,
+.tiptap table th > p,
+.ProseMirror table th > p {
+  min-height: 1.25em;
+  margin: 0;
+}
+
+.tiptap table th,
+.ProseMirror table th {
+  background: #f3f4f6;
+  font-weight: 600;
+}
+
+/*resize handles*/
+.tiptap .row-resize-handle,
+.ProseMirror .row-resize-handle {
+  position: absolute;
+  z-index: 5;
+  height: 6px;
+  background-color: rgba(59, 130, 246, 0.5);
+  pointer-events: none;
+}
+
+.tiptap.resize-cursor-row,
+.ProseMirror.resize-cursor-row {
+  cursor: row-resize;
+}
+
+.tiptap .column-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -2px;
+  bottom: -2px;
+  width: 4px;
+  background-color: #adf;
+  pointer-events: none;
+}
+
+.tiptap.resize-cursor {
+  cursor: col-resize;
+}
+
+
+/* This is the visual handle we inject as a widget */
+.tiptap .table-outer-resize-handle,
+.ProseMirror .table-outer-resize-handle {
+  position: absolute;
+  z-index: 6;
+  width: 8px;
+  cursor: ew-resize;
+  background: rgba(59, 130, 246, 0.25);
+}
+
+.tiptap.resize-cursor-table-outer .table-outer-resize-handle,
+.ProseMirror.resize-cursor-table-outer .table-outer-resize-handle {
+  background: rgba(59, 130, 246, 0.5);
+}
+
+.tiptap.resize-cursor-table-outer,
+.ProseMirror.resize-cursor-table-outer {
+  cursor: ew-resize;
+}
+
+/*Custom border toggle logice*/
+/* -- HIDE OUTER BORDER ONLY (Inner is ON) -- */
+.no-outer-border table tr:first-child td,
+.no-outer-border table tr:first-child th {
+  border-top-color: transparent !important;
+}
+
+.no-outer-border table tr:last-child td,
+.no-outer-border table tr:last-child th {
+  border-bottom-color: transparent !important;
+}
+
+.no-outer-border table tr td:first-child,
+.no-outer-border table tr th:first-child {
+  border-left-color: transparent !important;
+}
+
+.no-outer-border table tr td:last-child,
+.no-outer-border table tr th:last-child {
+  border-right-color: transparent !important;
+}
+
+/* -- HIDE INNER BORDERS -- */
+/* Make ALL cell borders transparent to clear out the inner grid lines */
+.no-inner-border table td,
+.no-inner-border table th {
+  border-color: transparent !important;
+}
+
+/* -- RESTORE OUTER EDGES (Outer is ON, Inner is OFF) -- */
+.tableWrapper.no-inner-border:not(.no-outer-border) table tr:first-child td,
+.tableWrapper.no-inner-border:not(.no-outer-border) table tr:first-child th {
+  border-top-color: #d1d5db !important;
+}
+
+.tableWrapper.no-inner-border:not(.no-outer-border) table tr:last-child td,
+.tableWrapper.no-inner-border:not(.no-outer-border) table tr:last-child th {
+  border-bottom-color: #d1d5db !important;
+}
+
+.tableWrapper.no-inner-border:not(.no-outer-border) table tr td:first-child,
+.tableWrapper.no-inner-border:not(.no-outer-border) table tr th:first-child {
+  border-left-color: #d1d5db !important;
+}
+
+.tableWrapper.no-inner-border:not(.no-outer-border) table tr td:last-child,
+.tableWrapper.no-inner-border:not(.no-outer-border) table tr th:last-child {
+  border-right-color: #d1d5db !important;
+}
+
+
+/*Highlight selected cells*/
+
+.ProseMirror td.selectedCell,
+.ProseMirror th.selectedCell,
+.tiptap td.selectedCell,
+.tiptap th.selectedCell {
+  background: rgba(59, 130, 246, 0.18); /* blue-ish */
+}
+
+/* Optional: show a focus ring */
+.ProseMirror td.selectedCell::after,
+.ProseMirror th.selectedCell::after,
+.tiptap td.selectedCell::after,
+.tiptap th.selectedCell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 2px solid rgba(59, 130, 246, 0.55);
+  pointer-events: none;
+}
+
+
+.tiptap .table-drag-handle,
+.ProseMirror .table-drag-handle {
+  position: absolute;
+  z-index: 10;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  transform: translateY(6px);
+  border-radius: 5px;
+  border: 1px solid #9ca3af;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+  cursor: grab;
+}
+
+.tiptap .table-drag-handle:active,
+.ProseMirror .table-drag-handle:active {
+  cursor: grabbing;
+}
+
+.tiptap .table-drag-handle::before,
+.ProseMirror .table-drag-handle::before {
+  content: '';
+  display: block;
+  width: 10px;
+  height: 10px;
+  margin: 4px auto;
+  background:
+    radial-gradient(#9ca3af 2px, transparent 3px) 0 0 / 5px 5px;
+}
