@@ -3,26 +3,25 @@
   overflow-x: auto;
 }
 
-.tiptap,
-.ProseMirror {
+:is(.tiptap, .ProseMirror) {
   position: relative;
 }
 
-.tiptap table,
-.ProseMirror table {
-  width: 100%;
+:is(.tiptap, .ProseMirror) table {
+  width: var(--table-width-pct, 100%) !important;
+  min-width: 0 !important;
   max-width: 100%;
-  margin: 0;
+  margin-top: 0;
+  margin-right: 0;
+  margin-bottom: 0;
+  margin-left: var(--table-offset-pct, 0%) !important;
   table-layout: fixed;
   border-collapse: collapse;
   overflow: hidden;
   border-spacing: 0;
 }
 
-.tiptap table td,
-.ProseMirror table td,
-.tiptap table th,
-.ProseMirror table th {
+:is(.tiptap, .ProseMirror) table :is(td, th) {
   position: relative;
   box-sizing: border-box;
   min-width: 40px;
@@ -33,32 +32,26 @@
   line-height: 1.25;
 }
 
-.tiptap table td > p,
-.ProseMirror table td > p,
-.tiptap table th > p,
-.ProseMirror table th > p {
+:is(.tiptap, .ProseMirror) table :is(td, th) > p {
   min-height: 1.25em;
   margin: 0;
 }
 
-.tiptap table th,
-.ProseMirror table th {
+:is(.tiptap, .ProseMirror) table th {
   background: #f3f4f6;
   font-weight: 600;
 }
 
-/*resize handles*/
-.tiptap .row-resize-handle,
-.ProseMirror .row-resize-handle {
+/* Resize handles */
+:is(.tiptap, .ProseMirror) .row-resize-handle {
   position: absolute;
   z-index: 5;
   height: 6px;
   background-color: rgba(59, 130, 246, 0.5);
-  pointer-events: none;
+  cursor: row-resize;
 }
 
-.tiptap.resize-cursor-row,
-.ProseMirror.resize-cursor-row {
+:is(.tiptap, .ProseMirror).resize-cursor-row {
   cursor: row-resize;
 }
 
@@ -76,10 +69,7 @@
   cursor: col-resize;
 }
 
-
-/* This is the visual handle we inject as a widget */
-.tiptap .table-outer-resize-handle,
-.ProseMirror .table-outer-resize-handle {
+:is(.tiptap, .ProseMirror) .table-outer-resize-handle {
   position: absolute;
   z-index: 6;
   width: 8px;
@@ -87,81 +77,80 @@
   background: rgba(59, 130, 246, 0.25);
 }
 
-.tiptap.resize-cursor-table-outer .table-outer-resize-handle,
-.ProseMirror.resize-cursor-table-outer .table-outer-resize-handle {
+:is(.tiptap, .ProseMirror).resize-cursor-table-outer .table-outer-resize-handle {
   background: rgba(59, 130, 246, 0.5);
 }
 
-.tiptap.resize-cursor-table-outer,
-.ProseMirror.resize-cursor-table-outer {
+:is(.tiptap, .ProseMirror).resize-cursor-table-outer {
   cursor: ew-resize;
 }
 
-/*Custom border toggle logice*/
-/* -- HIDE OUTER BORDER ONLY (Inner is ON) -- */
-.no-outer-border table tr:first-child td,
-.no-outer-border table tr:first-child th {
+/* Persistent table border visibility */
+:is(.tiptap, .ProseMirror)
+  table[data-table-border-top='false']
+  tr:first-child
+  > :is(td, th) {
   border-top-color: transparent !important;
 }
 
-.no-outer-border table tr:last-child td,
-.no-outer-border table tr:last-child th {
+:is(.tiptap, .ProseMirror)
+  table[data-table-border-bottom='false']
+  tr:last-child
+  > :is(td, th) {
   border-bottom-color: transparent !important;
 }
 
-.no-outer-border table tr td:first-child,
-.no-outer-border table tr th:first-child {
+:is(.tiptap, .ProseMirror)
+  table[data-table-border-left='false']
+  tr
+  > :is(td, th):first-child {
   border-left-color: transparent !important;
 }
 
-.no-outer-border table tr td:last-child,
-.no-outer-border table tr th:last-child {
+:is(.tiptap, .ProseMirror)
+  table[data-table-border-right='false']
+  tr
+  > :is(td, th):last-child {
   border-right-color: transparent !important;
 }
 
-/* -- HIDE INNER BORDERS -- */
-/* Make ALL cell borders transparent to clear out the inner grid lines */
-.no-inner-border table td,
-.no-inner-border table th {
+:is(.tiptap, .ProseMirror) table[data-table-border-inner='false'] :is(td, th) {
   border-color: transparent !important;
 }
 
-/* -- RESTORE OUTER EDGES (Outer is ON, Inner is OFF) -- */
-.tableWrapper.no-inner-border:not(.no-outer-border) table tr:first-child td,
-.tableWrapper.no-inner-border:not(.no-outer-border) table tr:first-child th {
-  border-top-color: #d1d5db !important;
+:is(.tiptap, .ProseMirror)
+  table[data-table-border-inner='false'][data-table-border-top='true']
+  tr:first-child
+  > :is(td, th) {
+  border-top-color: #8e8f93 !important;
 }
 
-.tableWrapper.no-inner-border:not(.no-outer-border) table tr:last-child td,
-.tableWrapper.no-inner-border:not(.no-outer-border) table tr:last-child th {
-  border-bottom-color: #d1d5db !important;
+:is(.tiptap, .ProseMirror)
+  table[data-table-border-inner='false'][data-table-border-bottom='true']
+  tr:last-child
+  > :is(td, th) {
+  border-bottom-color: #8e8f93 !important;
 }
 
-.tableWrapper.no-inner-border:not(.no-outer-border) table tr td:first-child,
-.tableWrapper.no-inner-border:not(.no-outer-border) table tr th:first-child {
-  border-left-color: #d1d5db !important;
+:is(.tiptap, .ProseMirror)
+  table[data-table-border-inner='false'][data-table-border-left='true']
+  tr
+  > :is(td, th):first-child {
+  border-left-color: #8e8f93 !important;
 }
 
-.tableWrapper.no-inner-border:not(.no-outer-border) table tr td:last-child,
-.tableWrapper.no-inner-border:not(.no-outer-border) table tr th:last-child {
-  border-right-color: #d1d5db !important;
+:is(.tiptap, .ProseMirror)
+  table[data-table-border-inner='false'][data-table-border-right='true']
+  tr
+  > :is(td, th):last-child {
+  border-right-color: #8e8f93 !important;
 }
 
-
-/*Highlight selected cells*/
-
-.ProseMirror td.selectedCell,
-.ProseMirror th.selectedCell,
-.tiptap td.selectedCell,
-.tiptap th.selectedCell {
-  background: rgba(59, 130, 246, 0.18); /* blue-ish */
+:is(.tiptap, .ProseMirror) :is(td, th).selectedCell {
+  background: rgba(59, 130, 246, 0.18);
 }
 
-/* Optional: show a focus ring */
-.ProseMirror td.selectedCell::after,
-.ProseMirror th.selectedCell::after,
-.tiptap td.selectedCell::after,
-.tiptap th.selectedCell::after {
+:is(.tiptap, .ProseMirror) :is(td, th).selectedCell::after {
   content: '';
   position: absolute;
   inset: 0;
@@ -169,29 +158,25 @@
   pointer-events: none;
 }
 
-
-.tiptap .table-drag-handle,
-.ProseMirror .table-drag-handle {
+:is(.tiptap, .ProseMirror) .table-drag-handle {
   position: absolute;
   z-index: 10;
-  left: 2px;
   width: 20px;
   height: 20px;
-  transform: translateY(6px);
+  padding: 0;
   border-radius: 5px;
   border: 1px solid #9ca3af;
   background: #fff;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
   cursor: grab;
+  user-select: none;
 }
 
-.tiptap .table-drag-handle:active,
-.ProseMirror .table-drag-handle:active {
+:is(.tiptap, .ProseMirror) .table-drag-handle:active {
   cursor: grabbing;
 }
 
-.tiptap .table-drag-handle::before,
-.ProseMirror .table-drag-handle::before {
+:is(.tiptap, .ProseMirror) .table-drag-handle::before {
   content: '';
   display: block;
   width: 10px;

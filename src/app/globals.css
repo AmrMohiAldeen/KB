@@ -1,5 +1,7 @@
 @import '../features/editor/styles/tiptap-table.css';
+@import '../features/editor/styles/tiptap-content-blocks.css';
 @import "tailwindcss";
+@import '../features/editor/styles/editor-global.css';
 @plugin "@tailwindcss/typography";
 
 :root {
@@ -10,8 +12,6 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
 }
 
 @media (prefers-color-scheme: dark) {

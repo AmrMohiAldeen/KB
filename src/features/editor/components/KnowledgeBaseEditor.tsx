@@ -1,42 +1,63 @@
-"use client"
-import { useEditor, EditorContent } from '@tiptap/react';
-import { getEditorExtensions } from '../extensions';
-import EditorToolbar from './EditorToolbar'; 
+"use client";
 
-export interface KnowledgeBaseEditorProps {
-  onChange: (json: object) => void;
-}
+import type { Content } from "@tiptap/core";
+import { EditorContent, useEditor } from "@tiptap/react";
+import { useEffect } from "react";
+import { getEditorExtensions } from "../extensions";
+import EditorToolbar from "./toolbar/EditorToolbar";
+import {
+  type EditorChangeHandler,
+  useDebouncedEditorUpdate,
+} from "./useDebouncedEditorUpdate";
 
-// DESIGN DECISION: Defined OUTSIDE the component function body.
-// This provides a stable reference across lifecycle updates, preventing 
-// Tiptap from seeing "new" extension arrays and throwing duplicate name warnings.
+const DEFAULT_CHANGE_DEBOUNCE_MS = 500;
 const extensions = getEditorExtensions();
 
-export default function KnowledgeBaseEditor({  onChange }: KnowledgeBaseEditorProps) {
+export interface KnowledgeBaseEditorProps {
+  onChange: EditorChangeHandler;
+  changeDebounceMs?: number;
+  content?: Content;
+  editable?: boolean;
+}
+
+export default function KnowledgeBaseEditor({
+  onChange,
+  changeDebounceMs = DEFAULT_CHANGE_DEBOUNCE_MS,
+  content,
+  editable = true,
+}: KnowledgeBaseEditorProps) {
+  const scheduleChange = useDebouncedEditorUpdate(onChange, changeDebounceMs);
+
   const editor = useEditor({
-    extensions, // Using the static reference defined above
-    immediatelyRender: false, // Standard Next.js best practice
+    extensions,
+    content,
+    immediatelyRender: false,
+    editable,
     editorProps: {
       attributes: {
-        class: 'focus:outline-none min-h-125 p-6 bg-white',
+        class: "min-h-125 bg-white p-6 focus:outline-none",
       },
     },
     onUpdate: ({ editor }) => {
-      onChange(editor.getJSON());
+      scheduleChange(editor);
     },
   });
 
+  useEffect(() => {
+    editor?.setEditable(editable, false);
+  }, [editable, editor]);
+
   if (!editor) {
-    return <div className="animate-pulse bg-gray-50 h-125 rounded-lg border border-gray-200" />;
+    return (
+      <div className="h-125 animate-pulse rounded-lg border border-gray-200 bg-gray-50" />
+    );
   }
 
   return (
-    <div className="flex flex-col border border-gray-300 rounded-lg shadow-sm overflow-hidden bg-white">
-      {/* Extracted Toolbar to prevent massive file bloat */}
-      <EditorToolbar editor={editor} />
-      
-      {/* Scrollable Editor Canvas */}
-      <div className="overflow-y-auto max-h-[70vh]">
+    <div className="flex flex-col overflow-hidden rounded-lg border border-gray-300 bg-white shadow-sm">
+      {editable && <EditorToolbar editor={editor} />}
+
+      <div className="max-h-[70vh] overflow-y-auto">
         <div className="prose prose-base max-w-none">
           <EditorContent editor={editor} />
         </div>
