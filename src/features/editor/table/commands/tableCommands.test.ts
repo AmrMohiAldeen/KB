@@ -2,7 +2,7 @@ import { Editor } from '@tiptap/core';
 import { closeHistory } from '@tiptap/pm/history';
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import { CellSelection, TableMap } from '@tiptap/pm/tables';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getEditorExtensions } from '../../extensions';
 import { getActiveTable } from '../dom/tableDom';
 import {
@@ -31,6 +31,8 @@ describe('table structure commands', () => {
   afterEach(() => {
     editor?.destroy();
     editor = null;
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
   });
 
   const createEditor = () => {
@@ -89,6 +91,20 @@ describe('table structure commands', () => {
     expect(insertTable(currentEditor, 2, 2)).toBe(false);
     expect(runTableActionCommand(currentEditor, 'deleteTable')).toBe(false);
     editor = null;
+  });
+
+  it('logs unexpected table command errors in development and still fails safely', () => {
+    vi.stubEnv('NODE_ENV', 'development');
+    const currentEditor = createEditor();
+    currentEditor.commands.insertTable({ rows: 2, cols: 2, withHeaderRow: true });
+    const error = new Error('Unexpected command failure');
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(currentEditor, 'can').mockImplementation(() => {
+      throw error;
+    });
+
+    expect(canRunTableCommand(currentEditor, 'mergeCells')).toBe(false);
+    expect(consoleError).toHaveBeenCalledWith('Table command failed:', error);
   });
 
   it('inserts valid tables through the safe command boundary', () => {

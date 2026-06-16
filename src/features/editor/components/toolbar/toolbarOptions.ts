@@ -32,14 +32,19 @@ export const HIGHLIGHT_COLORS: ToolbarOption[] = [
 
 export const FONT_FAMILIES: ToolbarOption[] = [
   { label: DEFAULT_FONT_FAMILY_LABEL, value: "" },
+
+  // Loaded by next/font/google
+  { label: "Inter", value: "var(--font-inter), Arial, sans-serif" },
+  { label: "Roboto", value: "var(--font-roboto), Arial, sans-serif" },
+  { label: "EB Garamond", value: "var(--font-eb-garamond), Georgia, serif" },
+
+  // System fonts
+  { label: "Arial", value: "Arial, Helvetica, sans-serif" },
   { label: "Helvetica", value: "Helvetica, Arial, sans-serif" },
-  { label: "Inter", value: "Inter, sans-serif" },
-  { label: "Roboto", value: "Roboto, sans-serif" },
-  { label: "Segoe UI", value: "Segoe UI, sans-serif" },
-  { label: "Times New Roman", value: "Times New Roman, serif" },
+  { label: "Segoe UI", value: '"Segoe UI", Tahoma, Geneva, Verdana, sans-serif' },
+  { label: "Times New Roman", value: '"Times New Roman", serif' },
   { label: "Georgia", value: "Georgia, serif" },
-  { label: "Garamond", value: "Garamond, serif" },
-  { label: "Courier New", value: "Courier New, monospace" },
+  { label: "Courier New", value: '"Courier New", monospace' },
   { label: "Consolas", value: "Consolas, monospace" },
   { label: "Monaco", value: "Monaco, monospace" },
 ];
@@ -59,7 +64,8 @@ export const FONT_SIZES: ToolbarOption[] = FONT_SIZE_VALUES.map((size) => ({
   value: `${size}px`,
 }));
 
-export function getFontFamilyLabel(fontFamily: string) {
+export function getFontFamilyLabel(fontFamily: string | null) {
+  if (fontFamily === null) return "";
   if (!fontFamily) return DEFAULT_FONT_FAMILY_LABEL;
 
   return (
@@ -68,16 +74,22 @@ export function getFontFamilyLabel(fontFamily: string) {
   );
 }
 
-export function getTextSizeLabel(state: {
+export function getTextBlockLabel(state: {
   isHeading1: boolean;
   isHeading2: boolean;
   isHeading3: boolean;
-  fontSize: string;
+  isTextBlockMixed?: boolean;
 }) {
+  if (state.isTextBlockMixed) return "";
   if (state.isHeading1) return "H1";
   if (state.isHeading2) return "H2";
   if (state.isHeading3) return "H3";
 
+  return "Normal";
+}
+
+export function getFontSizeLabel(state: { fontSize: string | null }) {
+  if (state.fontSize === null) return "";
   return state.fontSize.replace("px", "") || String(DEFAULT_FONT_SIZE);
 }
 
@@ -110,7 +122,12 @@ export function getNextFontSize(
 }
 
 export function applyFontSize(editor: Editor, size: number) {
-  const chain = editor.chain().focus().setParagraph();
+  const chain = editor
+    .chain()
+    .focus()
+    .setEmptyCellDefaultMark("textStyle", {
+      fontSize: size === DEFAULT_FONT_SIZE ? null : `${size}px`,
+    }); // Empty table cells need default marks so newly typed text keeps the selected size.
 
   if (size === DEFAULT_FONT_SIZE) {
     chain.unsetFontSize().run();

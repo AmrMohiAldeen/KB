@@ -13,13 +13,27 @@ import { tableExtensions } from '../table/extensions';
 import FontFamily from "@tiptap/extension-font-family";
 import { FontSizeShortcuts } from "./FontSizeShortcuts";
 import { contentBlockExtensions } from "../contentBlocks/extensions";
+import { BlockSelection } from "./BlockSelection";
+import { SlashCommandMenu } from "../slashMenu/SlashMenu";
+import { PasteSanitizer } from "./PasteSanitizer";
+import {
+  ListStyleCommands,
+  StyledBulletList,
+  StyledOrderedList,
+} from "./ListStyles";
 
 export const getEditorExtensions = () => [
   StarterKit.configure({
+    bulletList: false,
     heading: {
       levels: [1, 2, 3, 4],
     },
+    orderedList: false,
   }),
+
+  StyledBulletList,
+  StyledOrderedList,
+  ListStyleCommands,
   TextStyle,
   FontFamily,
   FontSize,
@@ -34,16 +48,23 @@ export const getEditorExtensions = () => [
     alignments: ['left', 'center', 'right', 'justify'],
   }),
   TaskItem.configure({
+    HTMLAttributes: {
+      class: 'kb-task-item',
+    },
     nested: true,
   }),
   Highlight.configure({
     multicolor: true,
   }),
+  PasteSanitizer,
   ...contentBlockExtensions,
+  SlashCommandMenu,
   TableKit.configure({
     table: false,
     tableCell: false,
     tableHeader: false,
+    tableRow: false,
   }),
   ...tableExtensions,
+  BlockSelection,
 ];

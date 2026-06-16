@@ -7,8 +7,9 @@ async function insertTable(page: Page, rows = 3, cols = 3) {
   await page.getByRole('button', { name: 'Insert', exact: true }).click();
 }
 
-async function tableGeometry(page: Page) {
-  return page.locator('.ProseMirror table').evaluate((table) => {
+async function tableGeometry(page: Page, table = page.locator('.ProseMirror table').first()) {
+  return table.evaluate((tableElement) => {
+    const table = tableElement as HTMLTableElement;
     const rect = table.getBoundingClientRect();
     return {
       left: rect.left,
@@ -22,8 +23,12 @@ async function tableGeometry(page: Page) {
   });
 }
 
-async function resizeOuterTable(page: Page, deltaWidthFraction: number) {
-  const initial = await tableGeometry(page);
+async function resizeOuterTable(
+  page: Page,
+  deltaWidthFraction: number,
+  table = page.locator('.ProseMirror table').first(),
+) {
+  const initial = await tableGeometry(page, table);
   const y = initial.top + initial.height / 2;
 
   await page.mouse.move(initial.right - 2, y);
@@ -42,6 +47,16 @@ async function documentBlockOrder(editor: Locator) {
       })
       .filter((node) => node != null),
   );
+}
+
+async function tableDragHandleCenter(page: Page) {
+  const handle = page.getByRole('button', { name: 'Drag table' });
+  const rect = await handle.boundingBox();
+  if (!rect) throw new Error('Table drag handle is not visible');
+  return {
+    x: rect.x + rect.width / 2,
+    y: rect.y + rect.height / 2,
+  };
 }
 
 test.beforeEach(async ({ page }) => {
@@ -63,6 +78,38 @@ test('toolbar commands support keyboard activation and restore editor focus', as
 
   await expect(editor.locator('strong')).toHaveText('Keyboard formatting');
   await expect(editor).toBeFocused();
+});
+
+test('manual table dimensions are clamped to supported limits', async ({ page }) => {
+  await page.getByRole('button', { name: 'Insert Table' }).click();
+  await page.getByPlaceholder('Rows').fill('0');
+  await page.getByPlaceholder('Cols').fill('999');
+  await page.getByRole('button', { name: 'Insert', exact: true }).click();
+
+  await expect(page.locator('.ProseMirror tr')).toHaveCount(1);
+  await expect(page.locator('.ProseMirror tr').first().locator('th, td')).toHaveCount(20);
+});
+
+test('table toolbar closes cleanly after deleting the active table', async ({ page }) => {
+  await insertTable(page, 2, 2);
+
+  const tableToolbar = page.getByRole('toolbar', { name: 'Table controls' });
+  await expect(tableToolbar).toBeVisible();
+  await page.getByRole('button', { name: 'Delete table row, column, or table' }).click();
+  await page.getByRole('menuitem', { name: 'Delete table' }).click();
+
+  await expect(page.locator('.ProseMirror table')).toHaveCount(0);
+  await expect(tableToolbar).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Insert Table' })).toBeVisible();
+});
+
+test('select all highlights the entire table block', async ({ page }) => {
+  const editor = page.locator('.ProseMirror');
+  await insertTable(page, 2, 2);
+  await editor.locator(':scope > p').last().click();
+  await page.keyboard.press('Control+A');
+
+  await expect(editor.locator('.tableWrapper')).toHaveClass(/kb-block-selection/);
 });
 
 test('toolbar dropdowns render in a portal and support keyboard selection', async ({
@@ -91,6 +138,91 @@ test('toolbar dropdowns render in a portal and support keyboard selection', asyn
 
   await expect(editor.locator('h1')).toHaveText('Portal heading');
   await expect(editor).toBeFocused();
+});
+
+test('slash menu escapes table clipping, keeps manual scroll, and inserts configured sizes', async ({
+  page,
+}) => {
+  const editor = page.locator('.ProseMirror');
+  await insertTable(page, 1, 1);
+  await editor.locator('th, td').first().click();
+  await page.keyboard.type('/');
+
+  const menu = page.getByRole('listbox', { name: 'Insert block' });
+  await expect(menu).toBeVisible();
+  await expect(menu.locator('xpath=ancestor::table')).toHaveCount(0);
+  expect(await menu.evaluate((element) => getComputedStyle(element).position)).toBe(
+    'fixed',
+  );
+
+  await menu.evaluate((element) => {
+    element.scrollTop = 60;
+    element
+      .querySelectorAll<HTMLElement>('[role="option"]')[5]
+      ?.dispatchEvent(new MouseEvent('mouseenter'));
+  });
+  expect(await menu.evaluate((element) => element.scrollTop)).toBe(60);
+
+  await page.keyboard.press('Escape');
+  await editor.locator(':scope > p').last().click();
+  await page.keyboard.type('/table:4x6');
+  await page.keyboard.press('Enter');
+
+  const configuredTable = editor.locator('table').last();
+  await expect(configuredTable.locator('tr')).toHaveCount(4);
+  await expect(configuredTable.locator('tr').first().locator('th, td')).toHaveCount(6);
+});
+
+test('toolbar exposes compact line heights, eraser, list variants, and inline task items', async ({
+  page,
+}) => {
+  const editor = page.locator('.ProseMirror');
+  await editor.click();
+  await page.keyboard.type('Formatted');
+  await page.keyboard.press('Control+A');
+  await page.getByRole('button', { name: 'Bold' }).click();
+  await expect(editor.locator('strong')).toHaveText('Formatted');
+  await page.getByRole('button', { name: 'Clear formatting' }).click();
+  await expect(editor.locator('strong')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Line height' }).click();
+  await expect(page.getByRole('menuitem', { name: '0.25', exact: true })).toBeVisible();
+  await page.getByRole('menuitem', { name: '0.75', exact: true }).click();
+  await expect(editor.locator('[style*="line-height: 0.75"]')).toContainText('Formatted');
+
+  await page.getByRole('button', { name: 'Lists' }).click();
+  await page.getByRole('menuitem', { name: 'Square', exact: true }).click();
+  await expect(editor.locator('ul[data-list-style="square"]')).toBeVisible();
+
+  await editor.locator(':scope > p').last().click();
+  await page.keyboard.type('Task item');
+  await page.getByRole('button', { name: 'Lists' }).click();
+  await page.getByRole('menuitem', { name: 'Task list', exact: true }).click();
+  const taskItem = editor.locator('li.kb-task-item');
+  await expect(taskItem).toBeVisible();
+  expect(await taskItem.evaluate((item) => getComputedStyle(item).display)).toBe('flex');
+});
+
+test('empty table cells retain font defaults and expose a background color control', async ({
+  page,
+}) => {
+  const editor = page.locator('.ProseMirror');
+  await insertTable(page, 1, 1);
+  const cell = editor.locator('th, td');
+  await cell.click();
+
+  await page.getByRole('button', { name: 'Font family' }).click();
+  await page.getByRole('menuitem', { name: 'Georgia', exact: true }).click();
+  await expect(cell).toHaveAttribute('data-cell-default-marks', /Georgia/);
+
+  await editor.locator(':scope > p').last().click();
+  await cell.click();
+  await page.keyboard.type('Inherited');
+  await expect(cell.locator('[style*="font-family: Georgia"]')).toHaveText('Inherited');
+
+  await page.getByRole('button', { name: 'Table cell background color' }).click();
+  await page.getByRole('menuitem', { name: 'Blue', exact: true }).click();
+  await expect(cell).toHaveAttribute('data-cell-background-color', '#bfdbfe');
 });
 
 test('link dialog rejects unsafe URLs and normalizes safe hostnames', async ({ page }) => {
@@ -128,6 +260,32 @@ test('outer table resizing is undoable as one history action', async ({ page }) 
   await page.getByRole('button', { name: 'Undo' }).click();
   await expect.poll(() => tableGeometry(page).then(({ storedWidth }) => storedWidth)).toBe(100);
   expect((await tableGeometry(page)).width).toBeCloseTo(initial.width, 0);
+});
+
+test('outer table resizing works inside tabs and accordions', async ({ page }) => {
+  const editor = page.locator('.ProseMirror');
+
+  await page.getByRole('button', { name: 'Insert content block' }).click();
+  await page.getByRole('menuitem', { name: /Tabs/ }).click();
+  await page.locator('.kb-tab-card__body p').first().click();
+  await insertTable(page, 2, 2);
+
+  const tabTable = page.locator('.kb-tab-card__body table').first();
+  await resizeOuterTable(page, -0.3, tabTable);
+  expect((await tableGeometry(page, tabTable)).storedWidth).toBeLessThan(90);
+
+  await editor.locator(':scope > p').last().click();
+  await page.getByRole('button', { name: 'Insert content block' }).click();
+  await page.getByRole('menuitem', { name: /Accordion/ }).click();
+  await page.locator('[data-kb-accordion-item]').first().evaluate((item) => {
+    (item as HTMLDetailsElement).open = true;
+  });
+  await page.locator('.kb-accordion__panel p').first().click();
+  await insertTable(page, 2, 2);
+
+  const accordionTable = page.locator('.kb-accordion__panel table').first();
+  await resizeOuterTable(page, -0.3, accordionTable);
+  expect((await tableGeometry(page, accordionTable)).storedWidth).toBeLessThan(90);
 });
 
 test('internal column resizing preserves the stored outer table width', async ({ page }) => {
@@ -223,9 +381,11 @@ test('drag handle moves the table as a ProseMirror node', async ({ page }) => {
   const paragraphRect = await paragraph.boundingBox();
   if (!paragraphRect) throw new Error('Paragraph drop target is not visible');
 
-  await handle.dragTo(paragraph, {
-    targetPosition: { x: 5, y: 1 },
-  });
+  const start = await tableDragHandleCenter(page);
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(paragraphRect.x + 5, paragraphRect.y + 1, { steps: 4 });
+  await page.mouse.up();
 
   const order = await documentBlockOrder(editor);
   expect(order[0]).toBe('table');
@@ -239,25 +399,11 @@ test('a small downward handle drag moves the table by one block', async ({ page 
   const editor = page.locator('.ProseMirror');
   await insertTable(page, 2, 2);
 
-  const handle = page.getByRole('button', { name: 'Drag table' });
-  const handleRect = await handle.boundingBox();
-  if (!handleRect) throw new Error('Table drag handle is not visible');
-  const dataTransfer = await page.evaluateHandle(() => new DataTransfer());
-  const startX = handleRect.x + handleRect.width / 2;
-  const startY = handleRect.y + handleRect.height / 2;
-
-  await handle.dispatchEvent('dragstart', { dataTransfer, clientX: startX, clientY: startY });
-  await handle.dispatchEvent('dragover', {
-    dataTransfer,
-    clientX: startX + 20,
-    clientY: startY + 8,
-  });
-  await handle.dispatchEvent('drop', {
-    dataTransfer,
-    clientX: startX + 20,
-    clientY: startY + 8,
-  });
-  await dataTransfer.dispose();
+  const start = await tableDragHandleCenter(page);
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(start.x + 4, start.y + 12, { steps: 2 });
+  await page.mouse.up();
 
   const order = await documentBlockOrder(editor);
   expect(order[0]).toBe('p');
@@ -274,26 +420,16 @@ test('drag handle positions a narrowed table horizontally and remains undoable',
   await resizeOuterTable(page, -0.4);
 
   const before = await tableGeometry(page);
-  const table = page.locator('.ProseMirror table');
-  const handle = page.getByRole('button', { name: 'Drag table' });
-  const handleRect = await handle.boundingBox();
-  if (!handleRect) throw new Error('Table drag handle is not visible');
-  const dataTransfer = await page.evaluateHandle(() => new DataTransfer());
-  const startX = handleRect.x + handleRect.width / 2;
-  const startY = handleRect.y + handleRect.height / 2;
-  const targetX = startX + Math.min(before.width - 10, 220);
+  const start = await tableDragHandleCenter(page);
+  const targetX = start.x + Math.min(before.width - 10, 220);
 
-  await handle.dispatchEvent('dragstart', { dataTransfer, clientX: startX, clientY: startY });
-  await table.dispatchEvent('dragover', {
-    dataTransfer,
-    clientX: targetX,
-    clientY: startY,
-  });
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(targetX, start.y, { steps: 4 });
 
   const live = await tableGeometry(page);
   expect(live.left).toBeGreaterThan(before.left + 20);
-  await table.dispatchEvent('drop', { dataTransfer, clientX: targetX, clientY: startY });
-  await dataTransfer.dispose();
+  await page.mouse.up();
 
   const persisted = await tableGeometry(page);
   expect(persisted.storedOffset).toBeGreaterThan(5);
@@ -304,15 +440,55 @@ test('drag handle positions a narrowed table horizontally and remains undoable',
   await expect.poll(() => tableGeometry(page).then(({ storedOffset }) => storedOffset)).toBe(0);
   expect((await tableGeometry(page)).left).toBeCloseTo(before.left, 0);
 
-  const editor = page.locator('.ProseMirror');
-  const editorRect = await editor.boundingBox();
-  if (!editorRect) throw new Error('Editor is not visible');
-
-  await handle.dragTo(editor, {
-    targetPosition: {
-      x: targetX - editorRect.x,
-      y: startY - editorRect.y,
-    },
-  });
+  const secondStart = await tableDragHandleCenter(page);
+  await page.mouse.move(secondStart.x, secondStart.y);
+  await page.mouse.down();
+  await page.mouse.move(secondStart.x + 120, secondStart.y, { steps: 3 });
+  await page.mouse.up();
   expect((await tableGeometry(page)).storedOffset).toBeGreaterThan(5);
+});
+
+test('2D table drag commits block movement and horizontal offset as one undo step', async ({
+  page,
+}) => {
+  const editor = page.locator('.ProseMirror');
+  await insertTable(page, 2, 2);
+  await resizeOuterTable(page, -0.4);
+
+  const start = await tableDragHandleCenter(page);
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(start.x + 140, start.y + 16, { steps: 4 });
+
+  await expect(page.locator('.kb-block-drop-indicator')).toBeVisible();
+  expect((await tableGeometry(page)).left).toBeGreaterThan(start.x);
+  await page.mouse.up();
+
+  expect((await documentBlockOrder(editor))[0]).toBe('p');
+  expect((await tableGeometry(page)).storedOffset).toBeGreaterThan(5);
+
+  await page.getByRole('button', { name: 'Undo' }).click();
+  expect((await documentBlockOrder(editor))[0]).toBe('table');
+  await expect.poll(() => tableGeometry(page).then(({ storedOffset }) => storedOffset)).toBe(0);
+});
+
+test('Escape cancels table drag previews and removes the drop indicator', async ({
+  page,
+}) => {
+  await insertTable(page, 2, 2);
+  await resizeOuterTable(page, -0.4);
+
+  const before = await tableGeometry(page);
+  const start = await tableDragHandleCenter(page);
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(start.x + 120, start.y + 16, { steps: 4 });
+
+  await expect(page.locator('.kb-block-drop-indicator')).toBeVisible();
+  expect((await tableGeometry(page)).left).toBeGreaterThan(before.left + 20);
+  await page.keyboard.press('Escape');
+
+  await expect(page.locator('.kb-block-drop-indicator')).toHaveCount(0);
+  expect((await tableGeometry(page)).storedOffset).toBe(before.storedOffset);
+  expect((await tableGeometry(page)).left).toBeCloseTo(before.left, 0);
 });

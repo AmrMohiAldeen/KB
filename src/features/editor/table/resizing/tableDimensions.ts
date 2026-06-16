@@ -88,7 +88,10 @@ export function applyTableOffsetPct(
 }
 
 export function normalizeRowHeight(value: unknown): number | null {
-  const height = Number(value);
+  const height =
+    typeof value === 'string' && value.trim().endsWith('px')
+      ? Number(value.trim().slice(0, -2))
+      : Number(value);
   return Number.isFinite(height) && height > 0
     ? Math.max(MIN_ROW_HEIGHT_PX, Math.round(height))
     : null;

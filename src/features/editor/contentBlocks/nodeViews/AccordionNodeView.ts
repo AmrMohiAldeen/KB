@@ -1,38 +1,21 @@
 import type { NodeViewRendererProps } from '@tiptap/core';
-import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import type { NodeView } from '@tiptap/pm/view';
 import {
-  ACCORDION_ITEM_NODE_NAME,
   ACCORDION_NODE_NAME,
-  createContentBlockItemId,
+  createAccordionItemNode,
 } from '../model';
-import { resolveNodeViewPosition } from '../transactions';
+import {
+  activateContentBlock,
+  appendItem,
+  resolveNodeViewPosition,
+} from '../transactions';
 import {
   applyHTMLAttributes,
   createIconButton,
   observeEditorEditable,
 } from './dom';
 
-function createAccordionItemNode(
-  props: NodeViewRendererProps,
-  title: string,
-): ProseMirrorNode | null {
-  const item = props.view.state.schema.nodes[ACCORDION_ITEM_NODE_NAME];
-  const paragraph = props.view.state.schema.nodes.paragraph;
-  if (!item || !paragraph) return null;
-
-  return item.create(
-    {
-      itemId: createContentBlockItemId('accordion'),
-      open: false,
-      title,
-    },
-    paragraph.create(),
-  );
-}
-
 export function createAccordionNodeView(props: NodeViewRendererProps): NodeView {
-  let currentNode = props.node;
   const dom = document.createElement('div');
   const contentDOM = document.createElement('div');
   const footer = document.createElement('div');
@@ -45,24 +28,36 @@ export function createAccordionNodeView(props: NodeViewRendererProps): NodeView 
   footer.contentEditable = 'false';
   dom.append(contentDOM);
 
+  const getContainerPosition = () => resolveNodeViewPosition(props.getPos);
+  const activateContainer = (focus = false) => {
+    const position = getContainerPosition();
+    return (
+      position != null &&
+      activateContentBlock(props.view, position, ACCORDION_NODE_NAME, { focus })
+    );
+  };
+
   const addItem = () => {
     if (!props.editor.isEditable) return;
 
-    const position = resolveNodeViewPosition(props.getPos);
+    const position = getContainerPosition();
     if (position == null) return;
 
     const accordion = props.view.state.doc.nodeAt(position);
     if (!accordion || accordion.type.name !== ACCORDION_NODE_NAME) return;
 
     const item = createAccordionItemNode(
-      props,
+      props.view.state.schema,
       `Section ${accordion.childCount + 1}`,
     );
     if (!item) return;
 
-    props.view.dispatch(
-      props.view.state.tr.insert(position + accordion.nodeSize - 1, item),
-    );
+    if (
+      activateContainer() &&
+      appendItem(props.view, position, ACCORDION_NODE_NAME, item)
+    ) {
+      props.view.focus();
+    }
   };
 
   const renderFooter = () => {
@@ -88,11 +83,7 @@ export function createAccordionNodeView(props: NodeViewRendererProps): NodeView 
     dom,
     contentDOM,
     update(updatedNode) {
-      if (updatedNode.type !== currentNode.type) return false;
-
-      currentNode = updatedNode;
-      renderFooter();
-      return true;
+      return updatedNode.type === props.node.type;
     },
     stopEvent(event) {
       return footer.contains(event.target as Node);

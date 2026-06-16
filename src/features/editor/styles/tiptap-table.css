@@ -157,31 +157,3 @@
   border: 2px solid rgba(59, 130, 246, 0.55);
   pointer-events: none;
 }
-
-:is(.tiptap, .ProseMirror) .table-drag-handle {
-  position: absolute;
-  z-index: 10;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border-radius: 5px;
-  border: 1px solid #9ca3af;
-  background: #fff;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
-  cursor: grab;
-  user-select: none;
-}
-
-:is(.tiptap, .ProseMirror) .table-drag-handle:active {
-  cursor: grabbing;
-}
-
-:is(.tiptap, .ProseMirror) .table-drag-handle::before {
-  content: '';
-  display: block;
-  width: 10px;
-  height: 10px;
-  margin: 4px auto;
-  background:
-    radial-gradient(#9ca3af 2px, transparent 3px) 0 0 / 5px 5px;
-}

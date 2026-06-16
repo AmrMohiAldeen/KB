@@ -101,4 +101,46 @@ describe("useDebouncedEditorUpdate", () => {
     expect(getJSON).toHaveBeenCalledTimes(1);
     expect(onChange).toHaveBeenCalledWith(content);
   });
+
+  it("does not serialize a pending update after the editor is destroyed", () => {
+    const getJSON = vi.fn();
+    const onChange = vi.fn();
+    const editor = { getJSON, isDestroyed: false } as unknown as Editor;
+    const scheduleChange = renderHarness(onChange);
+
+    act(() => {
+      scheduleChange(editor);
+      (editor as unknown as { isDestroyed: boolean }).isDestroyed = true;
+      vi.advanceTimersByTime(500);
+    });
+
+    expect(getJSON).not.toHaveBeenCalled();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("uses the latest change handler for a pending update", () => {
+    const content: JSONContent = { type: "doc", content: [] };
+    const firstOnChange = vi.fn();
+    const latestOnChange = vi.fn();
+    const editor = {
+      getJSON: vi.fn(() => content),
+      isDestroyed: false,
+    } as unknown as Editor;
+    const scheduleChange = renderHarness(firstOnChange);
+
+    act(() => scheduleChange(editor));
+    act(() => {
+      root?.render(
+        createElement(Harness, {
+          delayMs: 500,
+          onChange: latestOnChange,
+          onReady: () => {},
+        }),
+      );
+    });
+    act(() => vi.advanceTimersByTime(500));
+
+    expect(firstOnChange).not.toHaveBeenCalled();
+    expect(latestOnChange).toHaveBeenCalledWith(content);
+  });
 });

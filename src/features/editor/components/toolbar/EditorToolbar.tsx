@@ -2,6 +2,11 @@
 
 import { useEditorState, type Editor } from "@tiptap/react";
 import { ContentBlockPicker } from "../../contentBlocks/toolbar";
+import {
+  CALLOUT_VARIANTS,
+  getCalloutVariantLabel,
+  normalizeCalloutVariant,
+} from "../../contentBlocks/callout/model";
 import { insertTable } from "../../table/commands/tableCommands";
 import { TableControls, TableCreationPicker } from "../../table/toolbar";
 import { LinkControl } from "../LinkControl";
@@ -13,6 +18,14 @@ import {
 } from "./ToolbarPrimitives";
 import { RgbColorItem } from "./RgbColorItem";
 import {
+  BULLET_LIST_STYLES,
+  getListStyleLabel,
+  ORDERED_LIST_STYLES,
+  type BulletListStyle,
+  type ListTypeName,
+  type OrderedListStyle,
+} from "../../extensions/ListStyles";
+import {
   DEFAULT_FONT_SIZE,
   FONT_FAMILIES,
   FONT_SIZES,
@@ -22,8 +35,10 @@ import {
   applyFontSize,
   changeFontSize,
   getFontFamilyLabel,
-  getTextSizeLabel,
+  getFontSizeLabel,
+  getTextBlockLabel,
 } from "./toolbarOptions";
+import { getToolbarSelectionFormatting } from "./selectionFormatting";
 
 export interface EditorToolbarProps {
   editor: Editor;
@@ -32,63 +47,125 @@ export interface EditorToolbarProps {
 export default function EditorToolbar({ editor }: EditorToolbarProps) {
   const toolbarState = useEditorState({
     editor,
-    selector: ({ editor: currentEditor }) => ({
-      isEditable: currentEditor.isEditable,
+    selector: ({ editor: currentEditor }) => {
+      const selectionFormatting = getToolbarSelectionFormatting(currentEditor);
+      const selectedTextBlock = selectionFormatting.textBlock;
+      const selectedHeadingLevel = selectedTextBlock?.startsWith("heading:")
+        ? Number(selectedTextBlock.replace("heading:", ""))
+        : null;
 
-      canUndo: currentEditor.can().undo(),
-      canRedo: currentEditor.can().redo(),
-      canBlockquote: currentEditor.can().toggleBlockquote(),
-      canCodeBlock: currentEditor.can().toggleCodeBlock(),
-      canBold: currentEditor.can().toggleBold(),
-      canItalic: currentEditor.can().toggleItalic(),
-      canStrike: currentEditor.can().toggleStrike(),
-      canCode: currentEditor.can().toggleCode(),
+      return {
+        isEditable: currentEditor.isEditable,
 
-      isHeading: currentEditor.isActive("heading"),
-      isParagraph: currentEditor.isActive("paragraph"),
-      isHeading1: currentEditor.isActive("heading", { level: 1 }),
-      isHeading2: currentEditor.isActive("heading", { level: 2 }),
-      isHeading3: currentEditor.isActive("heading", { level: 3 }),
+        canUndo: currentEditor.can().undo(),
+        canRedo: currentEditor.can().redo(),
+        canBlockquote: currentEditor.can().toggleBlockquote(),
+        canCodeBlock: currentEditor.can().toggleCodeBlock(),
+        canBold: currentEditor.can().toggleBold(),
+        canItalic: currentEditor.can().toggleItalic(),
+        canStrike: currentEditor.can().toggleStrike(),
+        canCode: currentEditor.can().toggleCode(),
 
-      isBulletList: currentEditor.isActive("bulletList"),
-      isOrderedList: currentEditor.isActive("orderedList"),
-      isTaskList: currentEditor.isActive("taskList"),
-      isBlockquote: currentEditor.isActive("blockquote"),
-      isCodeBlock: currentEditor.isActive("codeBlock"),
+        isTextBlockMixed: selectedTextBlock === null,
+        isHeading: selectedHeadingLevel !== null,
+        isParagraph: selectedTextBlock === "paragraph",
+        isHeading1: selectedHeadingLevel === 1,
+        isHeading2: selectedHeadingLevel === 2,
+        isHeading3: selectedHeadingLevel === 3,
 
-      isBold: currentEditor.isActive("bold"),
-      isItalic: currentEditor.isActive("italic"),
-      isStrike: currentEditor.isActive("strike"),
-      isCode: currentEditor.isActive("code"),
-      isUnderline: currentEditor.isActive("underline"),
+        isBulletList: currentEditor.isActive("bulletList"),
+        isOrderedList: currentEditor.isActive("orderedList"),
+        isTaskList: currentEditor.isActive("taskList"),
+        canRemoveList:
+          currentEditor.can().liftListItem("listItem") ||
+          currentEditor.can().liftListItem("taskItem"),
+        bulletListStyle: String(
+          currentEditor.getAttributes("bulletList").listStyle ?? "disc",
+        ) as BulletListStyle,
+        orderedListStyle: String(
+          currentEditor.getAttributes("orderedList").listStyle ?? "decimal",
+        ) as OrderedListStyle,
+        isBlockquote: currentEditor.isActive("blockquote"),
+        isCodeBlock: currentEditor.isActive("codeBlock"),
+        isCallout: currentEditor.isActive("callout"),
+        calloutVariant: normalizeCalloutVariant(
+          currentEditor.getAttributes("callout").variant,
+        ),
 
-      textColor: String(currentEditor.getAttributes("textStyle").color ?? ""),
-      hasTextColor: Boolean(currentEditor.getAttributes("textStyle").color),
+        isBold: currentEditor.isActive("bold"),
+        isItalic: currentEditor.isActive("italic"),
+        isStrike: currentEditor.isActive("strike"),
+        isCode: currentEditor.isActive("code"),
+        isUnderline: currentEditor.isActive("underline"),
 
-      isHighlight: currentEditor.isActive("highlight"),
-      highlightColor: String(currentEditor.getAttributes("highlight").color ?? ""),
+        textColor: selectionFormatting.textColor,
+        hasTextColor: Boolean(selectionFormatting.textColor),
 
-      isLink: currentEditor.isActive("link"),
-      linkHref: String(currentEditor.getAttributes("link").href ?? ""),
+        isHighlight: Boolean(selectionFormatting.highlightColor),
+        highlightColor: selectionFormatting.highlightColor,
 
-      isSuperscript: currentEditor.isActive("superscript"),
-      isSubscript: currentEditor.isActive("subscript"),
+        isLink: currentEditor.isActive("link"),
+        linkHref: String(currentEditor.getAttributes("link").href ?? ""),
 
-      alignLeft: currentEditor.isActive({ textAlign: "left" }),
-      alignCenter: currentEditor.isActive({ textAlign: "center" }),
-      alignRight: currentEditor.isActive({ textAlign: "right" }),
-      alignJustify: currentEditor.isActive({ textAlign: "justify" }),
-      lineHeight: editor.getAttributes('textStyle').lineHeight ?? 'normal',
-      
-      fontFamily: String(currentEditor.getAttributes("textStyle").fontFamily ?? ""),
-      fontSize: String(currentEditor.getAttributes("textStyle").fontSize ?? ""),
-    }),
+        isSuperscript: currentEditor.isActive("superscript"),
+        isSubscript: currentEditor.isActive("subscript"),
+
+        alignLeft: currentEditor.isActive({ textAlign: "left" }),
+        alignCenter: currentEditor.isActive({ textAlign: "center" }),
+        alignRight: currentEditor.isActive({ textAlign: "right" }),
+        alignJustify: currentEditor.isActive({ textAlign: "justify" }),
+        lineHeight: selectionFormatting.lineHeight,
+
+        fontFamily: selectionFormatting.fontFamily,
+        fontSize: selectionFormatting.fontSize,
+      };
+    },
   });
 
   if (!toolbarState.isEditable) return null;
 
   const fontFamilyLabel = getFontFamilyLabel(toolbarState.fontFamily);
-  const textSizeLabel = getTextSizeLabel(toolbarState);
+  const textBlockLabel = getTextBlockLabel(toolbarState);
+  const fontSizeLabel = getFontSizeLabel(toolbarState);
+  const applyListStyle = (
+    type: ListTypeName,
+    style: BulletListStyle | OrderedListStyle,
+  ) => {
+    const chain = editor.chain().focus();
+
+    if (editor.isActive(type)) {
+      chain.setListStyle(type, style).run();
+      return;
+    }
+
+    if (type === "bulletList") {
+      chain.toggleBulletList().setListStyle(type, style).run();
+      return;
+    }
+
+    chain.toggleOrderedList().setListStyle(type, style).run();
+  };
+
+  const applyDefaultBulletList = () => {
+    applyListStyle("bulletList", "disc");
+  };
+
+  const applyDefaultOrderedList = () => {
+    applyListStyle("orderedList", "decimal");
+  };
+
+  const removeList = () => {
+    const chain = editor.chain().focus();
+
+    if (editor.isActive("taskList")) {
+      chain.liftListItem("taskItem").run();
+      return;
+    }
+
+    if (editor.isActive("bulletList") || editor.isActive("orderedList")) {
+      chain.liftListItem("listItem").run();
+    }
+  };
 
   return (
     <>
@@ -98,7 +175,7 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
         className="flex flex-wrap items-center gap-0.5 rounded-t-lg border-b border-gray-200 bg-white p-1.5 shadow-sm"
       >
         <ToolbarButton
-          title="Undo"
+          title="Undo (Ctrl+Z)"
           disabled={!toolbarState.canUndo}
           onActivate={() => editor.chain().focus().undo().run()}
         >
@@ -108,7 +185,7 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
         </ToolbarButton>
 
         <ToolbarButton
-          title="Redo"
+          title="Redo (Ctrl+Y or Ctrl+Shift+Z)"
           disabled={!toolbarState.canRedo}
           onActivate={() => editor.chain().focus().redo().run()}
         >
@@ -130,15 +207,29 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
               key={`${font.label}-${font.value}`}
               onActivate={() => {
                 if (font.value) {
-                  editor.chain().focus().setFontFamily(font.value).run();
+                  editor
+                    .chain()
+                    .focus()
+                    .setEmptyCellDefaultMark("textStyle", {
+                      fontFamily: font.value,
+                    })
+                    .setFontFamily(font.value)
+                    .run();
                 } else {
-                  editor.chain().focus().unsetFontFamily().run();
+                  editor
+                    .chain()
+                    .focus()
+                    .setEmptyCellDefaultMark("textStyle", {
+                      fontFamily: null,
+                    })
+                    .unsetFontFamily()
+                    .run();
                 }
               }}
               isActive={
                 font.value
                   ? toolbarState.fontFamily === font.value
-                  : !toolbarState.fontFamily
+                  : toolbarState.fontFamily === ""
               }
             >
               {font.label}
@@ -147,18 +238,20 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
         </ToolbarDropdown>
 
         <ToolbarDropdown
-          title="Text size"
-          label={<span className="w-10 truncate text-left">{textSizeLabel}</span>}
-          isActive={toolbarState.isHeading || Boolean(toolbarState.fontSize)}
-          menuClassName="w-26"
+          title="Text style"
+          label={<span className="w-16 truncate text-left">{textBlockLabel}</span>}
+          isActive={toolbarState.isHeading}
+          menuClassName="w-32"
         >
-          <div className="px-2 py-0.5 text-[11px] font-medium text-gray-500">
-            Headings
-          </div>
-
           <DropdownItem
-            onActivate={() => editor.chain().focus().setParagraph().unsetFontSize().run()}
-            isActive={toolbarState.isParagraph && !toolbarState.fontSize}
+            onActivate={() =>
+              editor
+                .chain()
+                .focus()
+                .setParagraph()
+                .run()
+            }
+            isActive={toolbarState.isParagraph}
           >
             Normal text
           </DropdownItem>
@@ -178,7 +271,6 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
                   editor
                     .chain()
                     .focus()
-                    .unsetFontSize()
                     .setHeading({ level: heading.level })
                     .run()
                 }
@@ -188,13 +280,14 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
               </DropdownItem>
             );
           })}
+        </ToolbarDropdown>
 
-          <div className="my-1 border-t border-gray-200" />
-
-          <div className="px-2 py-0.5 text-[11px] font-medium text-gray-500">
-            Font size
-          </div>
-
+        <ToolbarDropdown
+          title="Font size"
+          label={<span className="w-10 truncate text-left">{fontSizeLabel}</span>}
+          isActive={Boolean(toolbarState.fontSize)}
+          menuClassName="w-24"
+        >
           {FONT_SIZES.map((size) => {
             const sizeNumber = Number(size.label);
             const isDefaultSize = sizeNumber === DEFAULT_FONT_SIZE;
@@ -204,9 +297,8 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
                 key={size.value}
                 onActivate={() => applyFontSize(editor, sizeNumber)}
                 isActive={
-                  !toolbarState.isHeading &&
-                  (toolbarState.fontSize === size.value ||
-                    (!toolbarState.fontSize && isDefaultSize))
+                  toolbarState.fontSize === size.value ||
+                  (toolbarState.fontSize === "" && isDefaultSize)
                 }
               >
                 {size.label}
@@ -214,7 +306,6 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
             );
           })}
         </ToolbarDropdown>
-
         <ToolbarButton
           title="Decrease font size (Ctrl+Shift+<)"
           onActivate={() => changeFontSize(editor, -1)}
@@ -230,40 +321,84 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
         </ToolbarButton>
 
         
-        <ToolbarDropdown
-          title="Lists"
-          label={
-            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
-          }
-          isActive={
-            toolbarState.isBulletList ||
-            toolbarState.isOrderedList ||
-            toolbarState.isTaskList
-          }
-        >
-          <DropdownItem
-            onActivate={() => editor.chain().focus().toggleBulletList().run()}
+        <div className="flex items-center">
+          <ToolbarButton
+            title="Unordered list"
+            onActivate={() => applyDefaultBulletList()}
             isActive={toolbarState.isBulletList}
           >
-            Bullet list
-          </DropdownItem>
+            • List
+          </ToolbarButton>
 
-          <DropdownItem
-            onActivate={() => editor.chain().focus().toggleOrderedList().run()}
+          <ToolbarDropdown
+            title="Unordered list styles"
+            label=""
+            isActive={toolbarState.isBulletList}
+          >
+            {toolbarState.canRemoveList && toolbarState.isBulletList && (
+              <>
+                <DropdownItem onActivate={removeList}>Remove list</DropdownItem>
+                <div className="my-1 border-t border-gray-200" />
+              </>
+            )}
+            {BULLET_LIST_STYLES.map((style) => (
+              <DropdownItem
+                key={style}
+                onActivate={() => applyListStyle("bulletList", style)}
+                isActive={
+                  toolbarState.isBulletList &&
+                  toolbarState.bulletListStyle === style
+                }
+              >
+                {getListStyleLabel(style)}
+              </DropdownItem>
+            ))}
+          </ToolbarDropdown>
+        </div>
+
+        <div className="flex items-center">
+          <ToolbarButton
+            title="Ordered list"
+            onActivate={() => applyDefaultOrderedList()}
             isActive={toolbarState.isOrderedList}
           >
-            Ordered list
-          </DropdownItem>
+            1. List
+          </ToolbarButton>
 
-          <DropdownItem
-            onActivate={() => editor.chain().focus().toggleTaskList().run()}
-            isActive={toolbarState.isTaskList}
+          
+          <ToolbarDropdown
+            title="Ordered list styles"
+            label=""
+            isActive={toolbarState.isOrderedList}
           >
-            Task list
-          </DropdownItem>
-        </ToolbarDropdown>
+            {toolbarState.canRemoveList && toolbarState.isOrderedList && (
+              <>
+                <DropdownItem onActivate={removeList}>Remove list</DropdownItem>
+                <div className="my-1 border-t border-gray-200" />
+              </>
+            )}
+            {ORDERED_LIST_STYLES.map((style) => (
+              <DropdownItem
+                key={style}
+                onActivate={() => applyListStyle("orderedList", style)}
+                isActive={
+                  toolbarState.isOrderedList &&
+                  toolbarState.orderedListStyle === style
+                }
+              >
+                {getListStyleLabel(style)}
+              </DropdownItem>
+            ))}
+          </ToolbarDropdown>
+        </div>
+
+        <ToolbarButton
+          title="Task list"
+          onActivate={() => editor.chain().focus().toggleTaskList().run()}
+          isActive={toolbarState.isTaskList}
+        >
+          ☑
+        </ToolbarButton>
 
         <ToolbarButton
           title="Blockquote"
@@ -277,7 +412,7 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
         </ToolbarButton>
 
         <ToolbarButton
-          title="Code Block"
+          title="Code block (Ctrl+Alt+C)"
           isActive={toolbarState.isCodeBlock}
           disabled={!toolbarState.canCodeBlock}
           onActivate={() => editor.chain().focus().toggleCodeBlock().run()}
@@ -290,45 +425,100 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
         <Divider />
 
         <ToolbarButton
-          title="Bold"
+          title="Clear formatting"
+          onActivate={() =>
+            editor
+              .chain()
+              .focus()
+              .clearEmptyCellDefaultMarks()
+              .unsetAllMarks()
+              .clearNodes()
+              .run()
+          }
+        >
+          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="m4 20 6-6m0 0 7.5-7.5a2.12 2.12 0 0 1 3 3L13 17m-3-3 3 3m-3-3-4-4m7 7H9" />
+          </svg>
+        </ToolbarButton>
+
+        <ToolbarButton
+          title="Bold (Ctrl+B)"
           isActive={toolbarState.isBold}
           disabled={!toolbarState.canBold}
-          onActivate={() => editor.chain().focus().toggleBold().run()}
+          onActivate={() =>
+            editor
+              .chain()
+              .focus()
+              .setEmptyCellDefaultMark("bold", toolbarState.isBold ? null : {})
+              .toggleBold()
+              .run()
+          }
         >
           <span className="font-serif font-bold">B</span>
         </ToolbarButton>
 
         <ToolbarButton
-          title="Italic"
+          title="Italic (Ctrl+I)"
           isActive={toolbarState.isItalic}
           disabled={!toolbarState.canItalic}
-          onActivate={() => editor.chain().focus().toggleItalic().run()}
+          onActivate={() =>
+            editor
+              .chain()
+              .focus()
+              .setEmptyCellDefaultMark("italic", toolbarState.isItalic ? null : {})
+              .toggleItalic()
+              .run()
+          }
         >
           <span className="font-serif italic">I</span>
         </ToolbarButton>
 
         <ToolbarButton
-          title="Strikethrough"
+          title="Strikethrough (Ctrl+Shift+S)"
           isActive={toolbarState.isStrike}
           disabled={!toolbarState.canStrike}
-          onActivate={() => editor.chain().focus().toggleStrike().run()}
+          onActivate={() =>
+            editor
+              .chain()
+              .focus()
+              .setEmptyCellDefaultMark("strike", toolbarState.isStrike ? null : {})
+              .toggleStrike()
+              .run()
+          }
         >
           <span className="font-serif line-through">ab</span>
         </ToolbarButton>
 
         <ToolbarButton
-          title="Code"
+          title="Inline code (Ctrl+E)"
           isActive={toolbarState.isCode}
           disabled={!toolbarState.canCode}
-          onActivate={() => editor.chain().focus().toggleCode().run()}
+          onActivate={() =>
+            editor
+              .chain()
+              .focus()
+              .setEmptyCellDefaultMark("code", toolbarState.isCode ? null : {})
+              .toggleCode()
+              .run()
+          }
         >
           <span className="font-mono text-[10px]">{"</>"}</span>
         </ToolbarButton>
 
         <ToolbarButton
-          title="Underline"
+          title="Underline (Ctrl+U)"
           isActive={toolbarState.isUnderline}
-          onActivate={() => editor.chain().focus().toggleUnderline().run()}
+          onActivate={() =>
+            editor
+              .chain()
+              .focus()
+              .setEmptyCellDefaultMark(
+                "underline",
+                toolbarState.isUnderline ? null : {},
+              )
+              .toggleUnderline()
+              .run()
+          }
         >
           <span className="font-serif underline">U</span>
         </ToolbarButton>
@@ -352,7 +542,12 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
                 <DropdownItem
                   key={color.value}
                   onActivate={() => {
-                    editor.chain().focus().setColor(color.value).run();
+                    editor
+                      .chain()
+                      .focus()
+                      .setEmptyCellDefaultMark("textStyle", { color: color.value })
+                      .setColor(color.value)
+                      .run();
                     close();
                   }}
                   isActive={toolbarState.textColor === color.value}
@@ -369,7 +564,12 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
 
               <DropdownItem
                 onActivate={() => {
-                  editor.chain().focus().unsetColor().run();
+                  editor
+                    .chain()
+                    .focus()
+                    .setEmptyCellDefaultMark("textStyle", { color: null })
+                    .unsetColor()
+                    .run();
                   close();
                 }}
               >
@@ -380,7 +580,14 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
 
               <RgbColorItem
                 label="RGB color"
-                onApply={(color) => editor.chain().focus().setColor(color).run()}
+                onApply={(color) =>
+                  editor
+                    .chain()
+                    .focus()
+                    .setEmptyCellDefaultMark("textStyle", { color })
+                    .setColor(color)
+                    .run()
+                }
                 onClose={close}
               />
             </>
@@ -406,7 +613,12 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
                 <DropdownItem
                   key={color.value}
                   onActivate={() => {
-                    editor.chain().focus().setHighlight({ color: color.value }).run();
+                    editor
+                      .chain()
+                      .focus()
+                      .setEmptyCellDefaultMark("highlight", { color: color.value })
+                      .setHighlight({ color: color.value })
+                      .run();
                     close();
                   }}
                   isActive={toolbarState.highlightColor === color.value}
@@ -423,7 +635,12 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
 
               <DropdownItem
                 onActivate={() => {
-                  editor.chain().focus().unsetHighlight().run();
+                  editor
+                    .chain()
+                    .focus()
+                    .setEmptyCellDefaultMark("highlight", null)
+                    .unsetHighlight()
+                    .run();
                   close();
                 }}
               >
@@ -435,7 +652,12 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
               <RgbColorItem
                 label="RGB highlight"
                 onApply={(color) =>
-                  editor.chain().focus().setHighlight({ color }).run()
+                  editor
+                    .chain()
+                    .focus()
+                    .setEmptyCellDefaultMark("highlight", { color })
+                    .setHighlight({ color })
+                    .run()
                 }
                 onClose={close}
               />
@@ -454,7 +676,17 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
         <ToolbarButton
           title="Superscript"
           isActive={toolbarState.isSuperscript}
-          onActivate={() => editor.chain().focus().toggleSuperscript().run()}
+          onActivate={() =>
+            editor
+              .chain()
+              .focus()
+              .setEmptyCellDefaultMark(
+                "superscript",
+                toolbarState.isSuperscript ? null : {},
+              )
+              .toggleSuperscript()
+              .run()
+          }
         >
           <span>
             x<sup>2</sup>
@@ -464,7 +696,17 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
         <ToolbarButton
           title="Subscript"
           isActive={toolbarState.isSubscript}
-          onActivate={() => editor.chain().focus().toggleSubscript().run()}
+          onActivate={() =>
+            editor
+              .chain()
+              .focus()
+              .setEmptyCellDefaultMark(
+                "subscript",
+                toolbarState.isSubscript ? null : {},
+              )
+              .toggleSubscript()
+              .run()
+          }
         >
           <span>
             x<sub>2</sub>
@@ -526,44 +768,146 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
               />
             </svg>
           }
-          isActive={toolbarState.lineHeight && toolbarState.lineHeight !== 'normal'}
+          isActive={Boolean(toolbarState.lineHeight && toolbarState.lineHeight !== 'normal')}
         >
           <DropdownItem
-            onActivate={() => editor.chain().focus().unsetLineHeight().run()}
-            isActive={!toolbarState.lineHeight || toolbarState.lineHeight === 'normal'}
+            onActivate={() =>
+              editor
+                .chain()
+                .focus()
+                .setEmptyCellDefaultMark("textStyle", { lineHeight: null })
+                .unsetLineHeight()
+                .run()
+            }
+            isActive={toolbarState.lineHeight === 'normal'}
           >
             Default
           </DropdownItem>
 
           <DropdownItem
-            onActivate={() => editor.chain().focus().setLineHeight('1').run()}
+            onActivate={() =>
+              editor
+                .chain()
+                .focus()
+                .setEmptyCellDefaultMark("textStyle", { lineHeight: "0.25" })
+                .setLineHeight("0.25")
+                .run()
+            }
+            isActive={toolbarState.lineHeight === "0.25"}
+          >
+            0.25
+          </DropdownItem>
+
+          <DropdownItem
+            onActivate={() =>
+              editor
+                .chain()
+                .focus()
+                .setEmptyCellDefaultMark("textStyle", { lineHeight: "0.5" })
+                .setLineHeight("0.5")
+                .run()
+            }
+            isActive={toolbarState.lineHeight === "0.5"}
+          >
+            0.5
+          </DropdownItem>
+
+          <DropdownItem
+            onActivate={() =>
+              editor
+                .chain()
+                .focus()
+                .setEmptyCellDefaultMark("textStyle", { lineHeight: "0.75" })
+                .setLineHeight("0.75")
+                .run()
+            }
+            isActive={toolbarState.lineHeight === "0.75"}
+          >
+            0.75
+          </DropdownItem>
+
+          <DropdownItem
+            onActivate={() =>
+              editor
+                .chain()
+                .focus()
+                .setEmptyCellDefaultMark("textStyle", { lineHeight: "1" })
+                .setLineHeight("1")
+                .run()
+            }
             isActive={toolbarState.lineHeight === '1'}
           >
             1.0
           </DropdownItem>
 
           <DropdownItem
-            onActivate={() => editor.chain().focus().setLineHeight('1.15').run()}
+            onActivate={() =>
+              editor
+                .chain()
+                .focus()
+                .setEmptyCellDefaultMark("textStyle", { lineHeight: "1.15" })
+                .setLineHeight("1.15")
+                .run()
+            }
             isActive={toolbarState.lineHeight === '1.15'}
           >
             1.15
           </DropdownItem>
 
           <DropdownItem
-            onActivate={() => editor.chain().focus().setLineHeight('1.5').run()}
+            onActivate={() =>
+              editor
+                .chain()
+                .focus()
+                .setEmptyCellDefaultMark("textStyle", { lineHeight: "1.5" })
+                .setLineHeight("1.5")
+                .run()
+            }
             isActive={toolbarState.lineHeight === '1.5'}
           >
             1.5
           </DropdownItem>
 
           <DropdownItem
-            onActivate={() => editor.chain().focus().setLineHeight('2').run()}
+            onActivate={() =>
+              editor
+                .chain()
+                .focus()
+                .setEmptyCellDefaultMark("textStyle", { lineHeight: "2" })
+                .setLineHeight("2")
+                .run()
+            }
             isActive={toolbarState.lineHeight === '2'}
           >
             2.0
           </DropdownItem>
         </ToolbarDropdown>
         <Divider />
+
+        {toolbarState.isCallout && (
+          <ToolbarDropdown
+            title="Callout variant"
+            label={
+              <span>
+                {getCalloutVariantLabel(toolbarState.calloutVariant)}
+              </span>
+            }
+            isActive
+            menuClassName="w-44"
+          >
+            {CALLOUT_VARIANTS.map((variant) => (
+              <DropdownItem
+                key={variant}
+                onActivate={() =>
+                  editor.chain().focus().setCalloutVariant(variant).run()
+                }
+                isActive={toolbarState.calloutVariant === variant}
+              >
+                {getCalloutVariantLabel(variant)}
+              </DropdownItem>
+            ))}
+          </ToolbarDropdown>
+        )}
 
         <ContentBlockPicker editor={editor} />
 

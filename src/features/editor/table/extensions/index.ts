@@ -4,10 +4,12 @@ import { RowResizePlugin } from '../plugins/RowResizePlugin';
 import { TableDragHandlePlugin } from '../plugins/TableDragHandlePlugin';
 import { TableOuterResizePlugin } from '../plugins/TableOuterResizePlugin';
 import {
-  TableCellWithRowHeight,
-  TableHeaderWithRowHeight,
+  KnowledgeBaseTableCell,
+  KnowledgeBaseTableHeader,
 } from './TableCellExtensions';
 import { KnowledgeBaseTable } from './TableExtension';
+import { KnowledgeBaseTableRow } from './TableRowExtension';
+import { TableCellFormatting } from './TableCellFormatting';
 
 function createPluginExtension(name: string, createPlugin: () => Plugin) {
   return Extension.create({
@@ -24,8 +26,10 @@ export const tableExtensions = [
     cellMinWidth: 40,
     lastColumnResizable: false,
   }),
-  TableCellWithRowHeight,
-  TableHeaderWithRowHeight,
+  KnowledgeBaseTableRow,
+  KnowledgeBaseTableCell,
+  KnowledgeBaseTableHeader,
+  TableCellFormatting,
   createPluginExtension('rowResize', RowResizePlugin),
   createPluginExtension('tableOuterResize', TableOuterResizePlugin),
   createPluginExtension('tableDragHandle', TableDragHandlePlugin),

@@ -42,7 +42,7 @@ export function RgbColorItem({ label, onApply, onClose }: RgbColorItemProps) {
     b: "",
   });
 
-  const cssColor = useMemo(() => toRgbCssColor(rgb), [rgb]);
+  const cssColor = toRgbCssColor(rgb);
 
   const updateChannel = (channel: RgbChannel, value: string) => {
     setRgb((current) => ({

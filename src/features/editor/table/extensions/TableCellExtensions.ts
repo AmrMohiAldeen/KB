@@ -1,8 +1,10 @@
 import type { Attribute } from '@tiptap/core';
 import { TableCell, TableHeader } from '@tiptap/extension-table';
 import { normalizeRowHeight } from '../resizing/tableDimensions';
+import { cellDefaultMarksAttribute } from './TableCellFormatting';
 
-const rowHeightAttribute: Attribute = {
+// Kept only so older JSON/HTML can be migrated to the tableRow attribute.
+const legacyRowHeightAttribute: Attribute = {
   default: null,
   parseHTML: (element) => normalizeRowHeight(element.getAttribute('data-row-height')),
   renderHTML: (attributes) => {
@@ -16,20 +18,46 @@ const rowHeightAttribute: Attribute = {
   },
 };
 
-export const TableCellWithRowHeight = TableCell.extend({
+const backgroundColorAttribute: Attribute = {
+  default: null,
+  parseHTML: (element) =>
+    element.getAttribute('data-cell-background-color') ??
+    element.style.backgroundColor ??
+    null,
+  renderHTML: (attributes) => {
+    const backgroundColor =
+      typeof attributes.backgroundColor === 'string'
+        ? attributes.backgroundColor.trim()
+        : '';
+    return backgroundColor
+      ? {
+          'data-cell-background-color': backgroundColor,
+          style: `background-color: ${backgroundColor};`,
+        }
+      : {};
+  },
+};
+
+const cellAttributes = () => ({
+  rowHeight: legacyRowHeightAttribute,
+  backgroundColor: backgroundColorAttribute,
+  defaultMarks: cellDefaultMarksAttribute,
+});
+
+export const KnowledgeBaseTableCell = TableCell.extend({
   addAttributes() {
     return {
       ...this.parent?.(),
-      rowHeight: rowHeightAttribute,
+      ...cellAttributes(),
     };
   },
 });
 
-export const TableHeaderWithRowHeight = TableHeader.extend({
+export const KnowledgeBaseTableHeader = TableHeader.extend({
   addAttributes() {
     return {
       ...this.parent?.(),
-      rowHeight: rowHeightAttribute,
+      ...cellAttributes(),
     };
   },
 });

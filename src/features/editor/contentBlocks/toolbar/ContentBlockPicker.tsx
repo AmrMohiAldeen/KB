@@ -3,31 +3,22 @@
 import type { Editor } from "@tiptap/react";
 import {
   DropdownItem,
+  DropdownSubmenu,
   ToolbarDropdown,
 } from "../../components/toolbar/ToolbarPrimitives";
 import {
   insertContentBlock,
-  type ContentBlockKind,
 } from "../commands/contentBlockCommands";
-
-const ITEMS: Array<{
-  description: string;
-  kind: ContentBlockKind;
-  label: string;
-}> = [
-  {
-    kind: "tabs",
-    label: "Tabs",
-    description: "Switchable labeled panels",
-  },
-  {
-    kind: "accordion",
-    label: "Accordion",
-    description: "Expandable content sections",
-  },
-];
+import { CONTENT_BLOCK_OPTIONS } from "../catalog";
 
 export function ContentBlockPicker({ editor }: { editor: Editor }) {
+  const callouts = CONTENT_BLOCK_OPTIONS.filter((item) =>
+    item.kind.startsWith("callout-"),
+  );
+  const blocks = CONTENT_BLOCK_OPTIONS.filter(
+    (item) => !item.kind.startsWith("callout-"),
+  );
+
   return (
     <ToolbarDropdown
       title="Insert content block"
@@ -39,7 +30,7 @@ export function ContentBlockPicker({ editor }: { editor: Editor }) {
       }
       menuClassName="w-56"
     >
-      {ITEMS.map((item) => (
+      {blocks.map((item) => (
         <DropdownItem
           key={item.kind}
           onActivate={() => insertContentBlock(editor, item.kind)}
@@ -52,6 +43,30 @@ export function ContentBlockPicker({ editor }: { editor: Editor }) {
           </span>
         </DropdownItem>
       ))}
+      <DropdownSubmenu
+        label={
+          <span className="flex flex-col">
+            <span className="font-medium">Callouts</span>
+            <span className="text-[11px] font-normal text-gray-500">
+              Notices, tips, and warnings
+            </span>
+          </span>
+        }
+      >
+        {callouts.map((item) => (
+          <DropdownItem
+            key={item.kind}
+            onActivate={() => insertContentBlock(editor, item.kind)}
+          >
+            <span className="flex flex-col">
+              <span className="font-medium">{item.label}</span>
+              <span className="text-[11px] font-normal text-gray-500">
+                {item.description}
+              </span>
+            </span>
+          </DropdownItem>
+        ))}
+      </DropdownSubmenu>
     </ToolbarDropdown>
   );
 }

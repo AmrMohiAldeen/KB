@@ -13,7 +13,7 @@ import {
   useRole,
 } from "@floating-ui/react";
 import type { Editor } from "@tiptap/react";
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { normalizeLinkUrl } from "./linkUrl";
 import { ToolbarButton } from "./toolbar/ToolbarPrimitives";
 
@@ -29,7 +29,11 @@ export function LinkControl({
   const [isOpen, setIsOpen] = useState(false);
   const [url, setUrl] = useState(currentHref);
   const [error, setError] = useState("");
+
+  const inputId = useId();
   const errorId = useId();
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
   const { refs, floatingStyles, context } = useFloating({
     open: isOpen,
     onOpenChange: setIsOpen,
@@ -38,6 +42,7 @@ export function LinkControl({
     whileElementsMounted: autoUpdate,
     middleware: [offset(6), flip(), shift({ padding: 8 })],
   });
+
   const dismiss = useDismiss(context);
   const role = useRole(context, { role: "dialog" });
   const { getFloatingProps } = useInteractions([dismiss, role]);
@@ -55,12 +60,19 @@ export function LinkControl({
 
   const applyLink = () => {
     const result = normalizeLinkUrl(url);
+
     if (!result.ok) {
       setError(result.error);
       return;
     }
 
-    editor.chain().focus().extendMarkRange("link").setLink({ href: result.url }).run();
+    editor
+      .chain()
+      .focus()
+      .extendMarkRange("link")
+      .setLink({ href: result.url })
+      .run();
+
     close();
   };
 
@@ -79,7 +91,12 @@ export function LinkControl({
         ariaExpanded={isOpen}
         onActivate={() => (isOpen ? close() : open())}
       >
-        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg
+          className="h-4 w-4"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
           <path
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -91,7 +108,7 @@ export function LinkControl({
 
       {isOpen && (
         <FloatingPortal>
-          <FloatingFocusManager context={context}>
+          <FloatingFocusManager context={context} initialFocus={inputRef}>
             <form
               // Floating UI provides callback refs rather than mutable React refs.
               // eslint-disable-next-line react-hooks/refs
@@ -106,13 +123,15 @@ export function LinkControl({
               style={floatingStyles}
             >
               <label
-                htmlFor="editor-link-url"
+                htmlFor={inputId}
                 className="mb-1 block text-xs font-medium text-gray-700"
               >
                 Link URL
               </label>
+
               <input
-                id="editor-link-url"
+                ref={inputRef}
+                id={inputId}
                 type="text"
                 inputMode="url"
                 value={url}
@@ -125,11 +144,13 @@ export function LinkControl({
                 placeholder="https://example.com"
                 className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
               />
+
               {error && (
                 <p id={errorId} role="alert" className="mt-1 text-xs text-red-600">
                   {error}
                 </p>
               )}
+
               <div className="mt-3 flex justify-end gap-2">
                 {isActive && (
                   <button
@@ -140,6 +161,7 @@ export function LinkControl({
                     Remove
                   </button>
                 )}
+
                 <button
                   type="button"
                   onClick={close}
@@ -147,6 +169,7 @@ export function LinkControl({
                 >
                   Cancel
                 </button>
+
                 <button
                   type="submit"
                   className="rounded bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"

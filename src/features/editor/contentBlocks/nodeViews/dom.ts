@@ -132,7 +132,7 @@ export function createIconButton(
 
 export type ActionMenuItem = {
   danger?: boolean;
-  disabled?: boolean;
+  disabled?: boolean | (() => boolean);
   icon: ContentBlockIcon;
   label: string;
   onActivate: () => void;
@@ -141,16 +141,23 @@ export type ActionMenuItem = {
 export function createActionMenu(
   label: string,
   items: readonly ActionMenuItem[],
+  onInteract?: () => void,
 ): HTMLElement {
   const root = document.createElement('span');
   const trigger = createIconButton(label, 'more', () => {
+    onInteract?.();
     popup.hidden = !popup.hidden;
     trigger.setAttribute('aria-expanded', String(!popup.hidden));
     if (!popup.hidden) {
+      syncDisabledStates();
       popup.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
     }
   });
   const popup = document.createElement('span');
+  const itemButtons: Array<{
+    button: HTMLButtonElement;
+    item: ActionMenuItem;
+  }> = [];
 
   root.className = 'kb-content-block__action-menu';
   trigger.classList.add('kb-content-block__menu-trigger');
@@ -165,6 +172,15 @@ export function createActionMenu(
     trigger.setAttribute('aria-expanded', 'false');
   };
 
+  const syncDisabledStates = () => {
+    itemButtons.forEach(({ button, item }) => {
+      button.disabled =
+        typeof item.disabled === 'function'
+          ? item.disabled()
+          : Boolean(item.disabled);
+    });
+  };
+
   items.forEach((item) => {
     const button = document.createElement('button');
     const icon = createIcon(item.icon);
@@ -174,7 +190,10 @@ export function createActionMenu(
     button.className = item.danger
       ? 'kb-content-block__menu-item kb-content-block__menu-item--danger'
       : 'kb-content-block__menu-item';
-    button.disabled = Boolean(item.disabled);
+    button.disabled =
+      typeof item.disabled === 'function'
+        ? item.disabled()
+        : Boolean(item.disabled);
     button.setAttribute('role', 'menuitem');
     button.ariaLabel = item.label;
     text.textContent = item.label;
@@ -186,9 +205,11 @@ export function createActionMenu(
       if (button.disabled) return;
 
       close();
+      onInteract?.();
       item.onActivate();
     });
     popup.append(button);
+    itemButtons.push({ button, item });
   });
 
   root.addEventListener('click', (event) => {
@@ -199,11 +220,42 @@ export function createActionMenu(
     if (!root.contains(event.relatedTarget as Node | null)) close();
   });
   root.addEventListener('keydown', (event) => {
-    if (event.key !== 'Escape') return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      close();
+      trigger.focus();
+      return;
+    }
+
+    if (
+      popup.hidden ||
+      !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)
+    ) {
+      return;
+    }
+
+    const enabledButtons = itemButtons
+      .map(({ button }) => button)
+      .filter((button) => !button.disabled);
+    if (enabledButtons.length === 0) return;
 
     event.preventDefault();
-    close();
-    trigger.focus();
+    const currentIndex = enabledButtons.indexOf(
+      document.activeElement as HTMLButtonElement,
+    );
+    const targetIndex =
+      event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? enabledButtons.length - 1
+          : event.key === 'ArrowDown'
+            ? currentIndex < 0
+              ? 0
+              : (currentIndex + 1) % enabledButtons.length
+            : currentIndex < 0
+              ? enabledButtons.length - 1
+              : (currentIndex - 1 + enabledButtons.length) % enabledButtons.length;
+    enabledButtons[targetIndex].focus();
   });
   root.append(trigger, popup);
   return root;

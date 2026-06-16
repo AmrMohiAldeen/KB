@@ -1,8 +1,15 @@
 import type { Attribute } from '@tiptap/core';
 import { Table, TableView } from '@tiptap/extension-table';
-import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
-import { deleteCellSelection } from '@tiptap/pm/tables';
+import { Fragment, type Node as ProseMirrorNode } from '@tiptap/pm/model';
+import {
+  deleteCellSelection,
+  selectedRect,
+  selectionCell,
+  splitCell as splitTableCell,
+  TableMap,
+} from '@tiptap/pm/tables';
 import type { EditorView } from '@tiptap/pm/view';
+import { logDevError } from '../../utils/logDevError';
 import {
   applyTableBorderAttributes,
   DEFAULT_TABLE_BORDER_ATTRIBUTES,
@@ -68,6 +75,67 @@ class KnowledgeBaseTableView extends TableView {
     );
     applyTableBorderAttributes(this.table, node.attrs);
   }
+}
+
+function splitCellContent(
+  state: Parameters<typeof splitTableCell>[0],
+  dispatch?: Parameters<typeof splitTableCell>[1],
+): boolean {
+  let rect: ReturnType<typeof selectedRect>;
+  let cell: ProseMirrorNode | null | undefined;
+
+  try {
+    rect = selectedRect(state);
+    cell = selectionCell(state).nodeAfter;
+  } catch {
+    return false;
+  }
+
+  if (!cell || (cell.attrs.colspan === 1 && cell.attrs.rowspan === 1)) {
+    return false;
+  }
+
+  const targetCount = (rect.right - rect.left) * (rect.bottom - rect.top);
+  const blocks = Array.from({ length: cell.childCount }, (_, index) => cell!.child(index));
+  const paragraph = state.schema.nodes.paragraph?.createAndFill();
+  if (!paragraph) return splitTableCell(state, dispatch);
+
+  const groups = Array.from({ length: targetCount }, (_, index) => {
+    if (index === targetCount - 1) {
+      return blocks.slice(index);
+    }
+    return blocks[index] ? [blocks[index]] : [];
+  });
+
+  return splitTableCell(state, (transaction) => {
+    const table = transaction.doc.nodeAt(rect.tableStart - 1);
+    if (!table) {
+      dispatch?.(transaction);
+      return;
+    }
+
+    const map = TableMap.get(table);
+    const cells = Array.from(
+      { length: rect.bottom - rect.top },
+      (_, rowOffset) =>
+        Array.from({ length: rect.right - rect.left }, (_, columnOffset) => {
+          const row = rect.top + rowOffset;
+          const column = rect.left + columnOffset;
+          const pos = rect.tableStart + map.map[row * map.width + column];
+          return { pos, group: groups[rowOffset * (rect.right - rect.left) + columnOffset] };
+        }),
+    )
+      .flat()
+      .sort((left, right) => right.pos - left.pos);
+
+    cells.forEach(({ pos, group }) => {
+      const currentCell = transaction.doc.nodeAt(pos);
+      if (!currentCell) return;
+      const content = Fragment.fromArray(group.length > 0 ? group : [paragraph]);
+      transaction.replaceWith(pos + 1, pos + 1 + currentCell.content.size, content);
+    });
+    dispatch?.(transaction);
+  });
 }
 
 export const KnowledgeBaseTable = Table.extend({
@@ -139,7 +207,8 @@ export const KnowledgeBaseTable = Table.extend({
         return deleteCellSelection(this.editor.state, (tr) => {
           this.editor.view.dispatch(tr);
         });
-      } catch {
+      } catch (error) {
+        logDevError('Table clear-selection command failed:', error);
         return false;
       }
     };
@@ -150,6 +219,16 @@ export const KnowledgeBaseTable = Table.extend({
       'Mod-Backspace': clearSelectedCells,
       Delete: clearSelectedCells,
       'Mod-Delete': clearSelectedCells,
+    };
+  },
+
+  addCommands() {
+    return {
+      ...this.parent?.(),
+      splitCell:
+        () =>
+        ({ state, dispatch }) =>
+          splitCellContent(state, dispatch),
     };
   },
 }).configure({

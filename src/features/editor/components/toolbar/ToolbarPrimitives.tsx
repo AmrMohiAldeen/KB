@@ -8,12 +8,15 @@ import {
   FloatingPortal,
   offset,
   shift,
+  safePolygon,
   useClick,
   useDismiss,
   useFloating,
+  useHover,
   useInteractions,
   useListItem,
   useListNavigation,
+  useMergeRefs,
   useRole,
 } from "@floating-ui/react";
 import React, {
@@ -28,13 +31,16 @@ import React, {
 
 export const ICON_SIZE = "h-4 w-4";
 
+// Combines conditional CSS class names into one className string,
+// ignoring false, null, and undefined values.
+// cn short for className 
 const cn = (...classes: Array<string | false | null | undefined>) =>
   classes.filter(Boolean).join(" ");
 
 type DropdownContextValue = {
   activeIndex: number | null;
   close: () => void;
-  getItemProps: ReturnType<typeof useInteractions>["getItemProps"];
+  getItemProps: ReturnType<typeof useInteractions>["getItemProps"]; // applying Floating UI item props without losing keyboard/ARIA behavior
 };
 
 const DropdownContext = createContext<DropdownContextValue | null>(null);
@@ -264,6 +270,108 @@ export function DropdownItem({
     >
       {children}
     </button>
+  );
+}
+
+export function DropdownSubmenu({
+  label,
+  children,
+}: {
+  label: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const parent = useContext(DropdownContext);
+  const [isOpen, setIsOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const listRef = useRef<Array<HTMLElement | null>>([]);
+  const { ref: listItemRef, index } = useListItem();
+  const { refs, floatingStyles, context, placement } = useFloating({
+    open: isOpen,
+    onOpenChange: setIsOpen,
+    placement: "right-start",
+    strategy: "fixed",
+    whileElementsMounted: autoUpdate,
+    middleware: [offset({ mainAxis: 4, alignmentAxis: -4 }), flip(), shift({ padding: 8 })],
+  });
+  // Floating UI provides callback refs rather than mutable React refs.
+  // eslint-disable-next-line react-hooks/refs
+  const mergedReferenceRef = useMergeRefs([listItemRef, refs.setReference]);
+  const { getReferenceProps, getFloatingProps, getItemProps } = useInteractions([
+    useHover(context, { handleClose: safePolygon() }),
+    useClick(context),
+    useDismiss(context),
+    useRole(context, { role: "menu" }),
+    useListNavigation(context, {
+      activeIndex,
+      listRef,
+      loop: true,
+      focusItemOnOpen: true,
+      onNavigate: setActiveIndex,
+    }),
+  ]);
+  const close = useCallback(() => {
+    setIsOpen(false);
+    parent?.close();
+  }, [parent]);
+  const triggerProps = parent?.getItemProps(
+    getReferenceProps({
+      onMouseDown: (event) => event.preventDefault(),
+    }),
+  );
+
+  return (
+    <>
+      <button
+        ref={mergedReferenceRef}
+        type="button"
+        role="menuitem"
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        tabIndex={!parent || parent.activeIndex === index ? 0 : -1}
+        {...triggerProps}
+        className={cn(
+          "flex w-full items-center justify-between gap-2 rounded px-2 py-1 text-left text-sm text-gray-700",
+          "transition-colors hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+        )}
+      >
+        {label}
+        <svg
+          className="h-3 w-3 text-gray-400"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="2"
+            d={placement.startsWith("left") ? "m15 5-7 7 7 7" : "m9 5 7 7-7 7"}
+          />
+        </svg>
+      </button>
+
+      {isOpen && (
+        <FloatingPortal>
+          <FloatingFocusManager context={context} initialFocus={-1} modal={false}>
+            <FloatingList elementsRef={listRef}>
+              <DropdownContext.Provider value={{ activeIndex, close, getItemProps }}>
+                <div
+                  // Floating UI provides callback refs rather than mutable React refs.
+                  // eslint-disable-next-line react-hooks/refs
+                  ref={refs.setFloating}
+                  {...getFloatingProps()}
+                  className="z-60 w-56 rounded-md bg-white p-1 shadow-lg ring-1 ring-black/10"
+                  style={floatingStyles}
+                >
+                  {children}
+                </div>
+              </DropdownContext.Provider>
+            </FloatingList>
+          </FloatingFocusManager>
+        </FloatingPortal>
+      )}
+    </>
   );
 }
 

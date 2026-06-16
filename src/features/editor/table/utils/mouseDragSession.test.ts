@@ -48,4 +48,19 @@ describe('startMouseDragSession', () => {
 
     expect(onCancel).toHaveBeenCalledOnce();
   });
+
+  it('cancels when Escape is pressed', () => {
+    const onCancel = vi.fn();
+    startMouseDragSession({
+      window,
+      onMove: vi.fn(),
+      onCommit: vi.fn(),
+      onCancel,
+    });
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    window.dispatchEvent(new MouseEvent('mouseup'));
+
+    expect(onCancel).toHaveBeenCalledOnce();
+  });
 });

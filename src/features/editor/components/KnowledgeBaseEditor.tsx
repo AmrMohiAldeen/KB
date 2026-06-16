@@ -7,14 +7,16 @@ import { getEditorExtensions } from "../extensions";
 import EditorToolbar from "./toolbar/EditorToolbar";
 import {
   type EditorChangeHandler,
+  type EditorUpdateErrorHandler,
   useDebouncedEditorUpdate,
 } from "./useDebouncedEditorUpdate";
 
-const DEFAULT_CHANGE_DEBOUNCE_MS = 500;
+const DEFAULT_CHANGE_DEBOUNCE_MS = 1000;
 const extensions = getEditorExtensions();
 
 export interface KnowledgeBaseEditorProps {
   onChange: EditorChangeHandler;
+  onChangeError?: EditorUpdateErrorHandler;
   changeDebounceMs?: number;
   content?: Content;
   editable?: boolean;
@@ -22,11 +24,12 @@ export interface KnowledgeBaseEditorProps {
 
 export default function KnowledgeBaseEditor({
   onChange,
+  onChangeError,
   changeDebounceMs = DEFAULT_CHANGE_DEBOUNCE_MS,
   content,
   editable = true,
 }: KnowledgeBaseEditorProps) {
-  const scheduleChange = useDebouncedEditorUpdate(onChange, changeDebounceMs);
+  const scheduleChange = useDebouncedEditorUpdate(onChange, changeDebounceMs, onChangeError,);
 
   const editor = useEditor({
     extensions,

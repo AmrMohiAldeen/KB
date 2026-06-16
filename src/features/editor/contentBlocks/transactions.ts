@@ -1,5 +1,16 @@
+import { closeHistory, redo, undo } from '@tiptap/pm/history';
 import { Fragment, type Node as ProseMirrorNode } from '@tiptap/pm/model';
+import { NodeSelection, type Transaction } from '@tiptap/pm/state';
 import type { EditorView } from '@tiptap/pm/view';
+import { logDevError } from '../utils/logDevError';
+import {
+  ACCORDION_ITEM_NODE_NAME,
+  TAB_ITEM_NODE_NAME,
+  TABS_NODE_NAME,
+  type ContentBlockContainerNodeName,
+  type ContentBlockItemAttributesByNodeName,
+  type ContentBlockItemNodeName,
+} from './model';
 
 export type ItemContext = {
   index: number;
@@ -8,19 +19,85 @@ export type ItemContext = {
   parentPos: number;
 };
 
+export function dispatchContentBlockTransaction(
+  view: EditorView,
+  transaction: Transaction,
+  options: { addToHistory?: boolean } = {},
+): void {
+  view.dispatch(
+    options.addToHistory === false
+      ? transaction.setMeta('addToHistory', false)
+      : closeHistory(transaction),
+  );
+}
+
+function getItemTypeName(
+  parentTypeName: ContentBlockContainerNodeName,
+): typeof ACCORDION_ITEM_NODE_NAME | typeof TAB_ITEM_NODE_NAME {
+  return parentTypeName === TABS_NODE_NAME
+    ? TAB_ITEM_NODE_NAME
+    : ACCORDION_ITEM_NODE_NAME;
+}
+
 export function resolveNodeViewPosition(
   getPos: (() => number | undefined) | boolean,
 ): number | null {
   if (typeof getPos !== 'function') return null;
 
-  const position = getPos();
-  return typeof position === 'number' ? position : null;
+  try {
+    const position = getPos();
+    return typeof position === 'number' ? position : null;
+  } catch {
+    return null;
+  }
+}
+
+export function activateContentBlock(
+  view: EditorView,
+  containerPos: number,
+  containerTypeName: ContentBlockContainerNodeName,
+  options: { focus?: boolean } = {},
+): boolean {
+  if (!view.editable) return false;
+
+  const container = view.state.doc.nodeAt(containerPos);
+  if (!container || container.type.name !== containerTypeName) return false;
+
+  try {
+    const selection = view.state.selection;
+    if (
+      !(selection instanceof NodeSelection) ||
+      selection.from !== containerPos ||
+      selection.node.type.name !== containerTypeName
+    ) {
+      view.dispatch(
+        view.state.tr
+          .setSelection(NodeSelection.create(view.state.doc, containerPos))
+          .setMeta('addToHistory', false),
+      );
+    }
+    if (options.focus) view.focus();
+    return true;
+  } catch (error) {
+    logDevError('Content block activation failed:', error);
+    return false;
+  }
+}
+
+export function runContentBlockHistoryAction(
+  view: EditorView,
+  action: 'redo' | 'undo',
+): boolean {
+  const command = action === 'undo' ? undo : redo;
+  const applied = command(view.state, view.dispatch);
+  if (applied) view.focus();
+  return applied;
 }
 
 export function getItemContext(
   view: EditorView,
   itemPos: number,
-  parentTypeName: string,
+  parentTypeName: ContentBlockContainerNodeName,
 ): ItemContext | null {
   try {
     const $pos = view.state.doc.resolve(itemPos);
@@ -28,7 +105,13 @@ export function getItemContext(
     const index = $pos.index();
     const item = parent.maybeChild(index);
 
-    if (!item || parent.type.name !== parentTypeName) return null;
+    if (
+      !item ||
+      parent.type.name !== parentTypeName ||
+      item.type.name !== getItemTypeName(parentTypeName)
+    ) {
+      return null;
+    }
 
     return {
       index,
@@ -41,81 +124,70 @@ export function getItemContext(
   }
 }
 
-export function updateNodeAttributes(
+export function updateNodeAttributes<NodeName extends ContentBlockItemNodeName>(
   view: EditorView,
   position: number,
-  attributes: Record<string, unknown>,
+  expectedTypeName: NodeName,
+  attributes: Partial<ContentBlockItemAttributesByNodeName[NodeName]>,
+  options: { addToHistory?: boolean } = {},
 ): boolean {
   if (!view.editable) return false;
 
   const node = view.state.doc.nodeAt(position);
-  if (!node) return false;
+  if (!node || node.type.name !== expectedTypeName) return false;
 
-  view.dispatch(
+  dispatchContentBlockTransaction(
+    view,
     view.state.tr.setNodeMarkup(position, undefined, {
       ...node.attrs,
       ...attributes,
     }),
+    options,
   );
   return true;
 }
 
-export function replaceContainerChildren(
+export function appendItem(
   view: EditorView,
   containerPos: number,
-  containerTypeName: string,
-  children: readonly ProseMirrorNode[],
+  containerTypeName: ContentBlockContainerNodeName,
+  item: ProseMirrorNode,
 ): boolean {
-  if (!view.editable) return false;
-
-  const container = view.state.doc.nodeAt(containerPos);
-  if (!container || container.type.name !== containerTypeName || children.length === 0) {
+  if (!view.editable || item.type.name !== getItemTypeName(containerTypeName)) {
     return false;
   }
 
-  view.dispatch(
-    view.state.tr.replaceWith(
-      containerPos + 1,
-      containerPos + container.nodeSize - 1,
-      Fragment.fromArray([...children]),
-    ),
+  const container = view.state.doc.nodeAt(containerPos);
+  if (!container || container.type.name !== containerTypeName) return false;
+
+  dispatchContentBlockTransaction(
+    view,
+    view.state.tr.insert(containerPos + container.nodeSize - 1, item),
   );
-  return true;
-}
-
-export function insertItemAfter(
-  view: EditorView,
-  itemPos: number,
-  parentTypeName: string,
-  item: ProseMirrorNode,
-): boolean {
-  if (!view.editable) return false;
-
-  const context = getItemContext(view, itemPos, parentTypeName);
-  if (!context) return false;
-
-  view.dispatch(view.state.tr.insert(itemPos + context.item.nodeSize, item));
   return true;
 }
 
 export function removeItem(
   view: EditorView,
   itemPos: number,
-  parentTypeName: string,
+  parentTypeName: ContentBlockContainerNodeName,
 ): boolean {
   if (!view.editable) return false;
 
   const context = getItemContext(view, itemPos, parentTypeName);
   if (!context || context.parent.childCount <= 1) return false;
 
-  view.dispatch(view.state.tr.delete(itemPos, itemPos + context.item.nodeSize));
+  dispatchContentBlockTransaction(
+    view,
+    view.state.tr.delete(itemPos, itemPos + context.item.nodeSize),
+  );
   return true;
 }
 
 export function moveItem(
   view: EditorView,
   itemPos: number,
-  parentTypeName: string,
+  parentTypeName: ContentBlockContainerNodeName,
   direction: -1 | 1,
 ): boolean {
   if (!view.editable) return false;
@@ -126,15 +198,20 @@ export function moveItem(
   const destination = context.index + direction;
   if (destination < 0 || destination >= context.parent.childCount) return false;
 
-  const children: ProseMirrorNode[] = [];
-  context.parent.forEach((child) => children.push(child));
-  const [moved] = children.splice(context.index, 1);
-  children.splice(destination, 0, moved);
+  const adjacent = context.parent.child(destination);
+  const from = direction === -1 ? itemPos - adjacent.nodeSize : itemPos;
+  const to =
+    direction === -1
+      ? itemPos + context.item.nodeSize
+      : itemPos + context.item.nodeSize + adjacent.nodeSize;
+  const replacement =
+    direction === -1
+      ? [context.item, adjacent]
+      : [adjacent, context.item];
 
-  return replaceContainerChildren(
+  dispatchContentBlockTransaction(
     view,
-    context.parentPos,
-    parentTypeName,
-    children,
+    view.state.tr.replaceWith(from, to, Fragment.fromArray(replacement)),
   );
+  return true;
 }

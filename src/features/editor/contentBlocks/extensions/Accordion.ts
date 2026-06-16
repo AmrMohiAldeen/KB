@@ -2,6 +2,8 @@ import { mergeAttributes, Node } from '@tiptap/core';
 import {
   createAccordionContent,
   normalizeItemLabel,
+  ACCORDION_ITEM_NODE_NAME,
+  ACCORDION_NODE_NAME,
 } from '../model';
 import { createAccordionItemNodeView } from '../nodeViews/AccordionItemNodeView';
 import { createAccordionNodeView } from '../nodeViews/AccordionNodeView';
@@ -15,7 +17,7 @@ declare module '@tiptap/core' {
 }
 
 export const AccordionItem = Node.create({
-  name: 'accordionItem',
+  name: ACCORDION_ITEM_NODE_NAME,
   content: 'block+',
   defining: true,
   isolating: true,
@@ -72,8 +74,22 @@ export const AccordionItem = Node.create({
         class: 'kb-accordion__item',
         'data-kb-accordion-item': '',
       }),
-      ['summary', { 'data-kb-accordion-title-static': '' }, title],
-      ['div', { 'data-kb-accordion-panel': '' }, 0],
+      [
+        'summary',
+        {
+          class: 'kb-accordion__summary',
+          'data-kb-accordion-title-static': '',
+        },
+        title,
+      ],
+      [
+        'div',
+        {
+          class: 'kb-accordion__panel',
+          'data-kb-accordion-panel': '',
+        },
+        0,
+      ],
     ];
   },
 
@@ -83,7 +99,7 @@ export const AccordionItem = Node.create({
 });
 
 export const Accordion = Node.create({
-  name: 'accordion',
+  name: ACCORDION_NODE_NAME,
   group: 'block',
   content: 'accordionItem+',
   defining: true,

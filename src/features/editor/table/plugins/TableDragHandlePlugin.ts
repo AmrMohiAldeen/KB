@@ -1,8 +1,17 @@
 import { closeHistory } from '@tiptap/pm/history';
-import { Fragment, Slice } from '@tiptap/pm/model';
+import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import { NodeSelection, Plugin, PluginKey, type EditorState } from '@tiptap/pm/state';
-import { dropPoint } from '@tiptap/pm/transform';
 import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view';
+import {
+  createBlockDropIndicator,
+  createBlockMove,
+  createBlockMoveTransaction,
+  getBlockDropIndicatorRect,
+  getVerticalBlockDropPos,
+  positionBlockDragHandle,
+  positionBlockDropIndicator,
+} from '../../blockDrag/blockDrag';
+import { logDevError } from '../../utils/logDevError';
 import {
   getActiveTablePos,
   getClosestHTMLElement,
@@ -10,7 +19,6 @@ import {
   getTableAtPos,
   getTableNodeAt,
   getTableWrapperAtPos,
-  mapTablePos,
   requestViewAnimationFrame,
 } from '../dom/tableDom';
 import {
@@ -20,24 +28,47 @@ import {
   readTableOffsetPct,
   readTableWidthPct,
 } from '../resizing/tableDimensions';
-
-type DragAxis = 'horizontal' | 'vertical';
+import {
+  startMouseDragSession,
+  type MouseDragSession,
+} from '../utils/mouseDragSession';
 
 type TableDragSession = {
   tablePos: number;
+  table: HTMLTableElement;
   startX: number;
   startY: number;
   startOffsetPct: number;
   latestOffsetPct: number;
   tableWidthPct: number;
   containerWidthPx: number;
-  axis: DragAxis | null;
+  horizontalActive: boolean;
+  dropPos: number | null;
+  indicator: HTMLElement | null;
+};
+
+type ActiveTableDrag = {
+  drag: TableDragSession;
+  mouse: MouseDragSession;
+};
+
+export type TableDragIntent = {
+  horizontal: boolean;
+  vertical: boolean;
 };
 
 export const tableDragHandlePluginKey = new PluginKey('tableDragHandle');
 
-const AXIS_LOCK_THRESHOLD_PX = 4;
-const VERTICAL_AXIS_LOCK_THRESHOLD_PX = 6;
+const HORIZONTAL_MOVEMENT_THRESHOLD_PX = 6;
+const VERTICAL_MOVEMENT_THRESHOLD_PX = 8;
+const isTableNode = (node: ProseMirrorNode) => node.type.name === 'table';
+
+export function getTableDragIntent(deltaX: number, deltaY: number): TableDragIntent {
+  return {
+    horizontal: Math.abs(deltaX) >= HORIZONTAL_MOVEMENT_THRESHOLD_PX,
+    vertical: Math.abs(deltaY) >= VERTICAL_MOVEMENT_THRESHOLD_PX,
+  };
+}
 
 function getHandleTablePos(view: EditorView, event: Event): number | null {
   const handle = getClosestHTMLElement(view, event.target, '.table-drag-handle');
@@ -47,150 +78,12 @@ function getHandleTablePos(view: EditorView, event: Event): number | null {
     : null;
 }
 
-function serializeTableDrag(
-  view: EditorView,
-  event: DragEvent,
-  tablePos: number,
-): boolean {
-  if (!event.dataTransfer || !getTableNodeAt(view.state.doc, tablePos)) return false;
-
-  try {
-    const selection = NodeSelection.create(view.state.doc, tablePos);
-    const { dom, text } = view.serializeForClipboard(selection.content());
-
-    event.dataTransfer.clearData();
-    event.dataTransfer.setData('text/html', dom.innerHTML);
-    event.dataTransfer.setData('text/plain', text);
-    event.dataTransfer.effectAllowed = 'move';
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export function resolveTableDragAxis(
-  deltaX: number,
-  deltaY: number,
-  currentAxis: DragAxis | null,
-): DragAxis | null {
-  if (currentAxis) return currentAxis;
-  if (Math.max(Math.abs(deltaX), Math.abs(deltaY)) < AXIS_LOCK_THRESHOLD_PX) {
-    return null;
-  }
-
-  return Math.abs(deltaY) >= VERTICAL_AXIS_LOCK_THRESHOLD_PX ||
-    Math.abs(deltaY) >= Math.abs(deltaX)
-    ? 'vertical'
-    : 'horizontal';
-}
-
 export function createTableMoveTransaction(
   state: EditorState,
   tablePos: number,
   dropPos: number,
 ) {
-  const table = getTableNodeAt(state.doc, tablePos);
-  if (!table || !Number.isInteger(dropPos) || dropPos < 0 || dropPos > state.doc.content.size) {
-    return null;
-  }
-
-  try {
-    if (state.doc.resolve(tablePos).depth !== 0) return null;
-
-    const tableEnd = tablePos + table.nodeSize;
-    const tableSlice = new Slice(Fragment.from(table), 0, 0);
-    const insertPos = dropPoint(state.doc, dropPos, tableSlice);
-    if (insertPos == null || (insertPos >= tablePos && insertPos <= tableEnd)) {
-      return null;
-    }
-
-    const tr = state.tr.delete(tablePos, tableEnd);
-    const mappedInsertPos = tr.mapping.map(insertPos);
-    tr.insert(mappedInsertPos, table);
-    tr.setSelection(NodeSelection.create(tr.doc, mappedInsertPos));
-    return closeHistory(tr);
-  } catch {
-    return null;
-  }
-}
-
-function getAdjacentTableDropPos(
-  state: EditorState,
-  tablePos: number,
-  direction: -1 | 1,
-): number | null {
-  const table = getTableNodeAt(state.doc, tablePos);
-  if (!table) return null;
-
-  try {
-    const $tablePos = state.doc.resolve(tablePos);
-    if ($tablePos.depth !== 0) return null;
-
-    const tableIndex = $tablePos.index(0);
-    if (direction < 0) {
-      return tableIndex === 0
-        ? null
-        : tablePos - state.doc.child(tableIndex - 1).nodeSize;
-    }
-
-    return tableIndex >= state.doc.childCount - 1
-      ? null
-      : tablePos + table.nodeSize + state.doc.child(tableIndex + 1).nodeSize;
-  } catch {
-    return null;
-  }
-}
-
-function getVerticalDropPos(
-  view: EditorView,
-  event: DragEvent,
-  session: TableDragSession,
-): number | null {
-  const fallbackDirection = event.clientY < session.startY ? -1 : 1;
-  const coords = view.posAtCoords({ left: event.clientX, top: event.clientY });
-  if (!coords) {
-    return getAdjacentTableDropPos(view.state, session.tablePos, fallbackDirection);
-  }
-
-  const table = getTableNodeAt(view.state.doc, session.tablePos);
-  if (!table) return null;
-
-  try {
-    const $pos = view.state.doc.resolve(coords.pos);
-    const topLevelPos = $pos.depth === 0 ? coords.pos : $pos.before(1);
-    const targetNode = view.state.doc.nodeAt(topLevelPos);
-    const pointsAtDraggedTable =
-      topLevelPos >= session.tablePos &&
-      topLevelPos < session.tablePos + table.nodeSize;
-
-    if (!targetNode || pointsAtDraggedTable) {
-      return getAdjacentTableDropPos(
-        view.state,
-        session.tablePos,
-        fallbackDirection,
-      );
-    }
-
-    const targetDom = view.nodeDOM(topLevelPos);
-    const targetRect =
-      targetDom instanceof getOwnerWindow(view).HTMLElement
-        ? targetDom.getBoundingClientRect()
-        : null;
-    const direction =
-      targetRect && targetRect.height > 0
-        ? event.clientY < targetRect.top + targetRect.height / 2
-          ? -1
-          : 1
-        : fallbackDirection;
-
-    return direction < 0 ? topLevelPos : topLevelPos + targetNode.nodeSize;
-  } catch {
-    return getAdjacentTableDropPos(
-      view.state,
-      session.tablePos,
-      fallbackDirection,
-    );
-  }
+  return createBlockMoveTransaction(state, tablePos, dropPos, isTableNode);
 }
 
 function positionDragHandle(view: EditorView, tablePos: number): void {
@@ -198,21 +91,16 @@ function positionDragHandle(view: EditorView, tablePos: number): void {
     `.table-drag-handle[data-table-pos="${tablePos}"]`,
   );
   const table = getTableAtPos(view, tablePos);
-  if (!handle || !table) return;
-
-  const editorRect = view.dom.getBoundingClientRect();
-  const tableRect = table.getBoundingClientRect();
-  handle.style.left = `${tableRect.left - editorRect.left - handle.offsetWidth - 4}px`;
-  handle.style.top = `${tableRect.top - editorRect.top - handle.offsetHeight - 4}px`;
+  if (handle && table) positionBlockDragHandle(view, handle, table);
 }
 
 function previewHorizontalDrag(
   view: EditorView,
   session: TableDragSession,
   clientX: number,
-): void {
+): boolean {
   const table = getTableAtPos(view, session.tablePos);
-  if (!table) return;
+  if (!table || table !== session.table) return false;
 
   const deltaPct = ((clientX - session.startX) / session.containerWidthPx) * 100;
   session.latestOffsetPct = applyTableOffsetPct(
@@ -220,50 +108,128 @@ function previewHorizontalDrag(
     session.startOffsetPct + deltaPct,
     session.tableWidthPct,
   );
+  session.horizontalActive = true;
   positionDragHandle(view, session.tablePos);
+  return true;
 }
 
 function restoreHorizontalPreview(view: EditorView, session: TableDragSession): void {
-  const tableNode = getTableNodeAt(view.state.doc, session.tablePos);
-  const table = getTableAtPos(view, session.tablePos);
-  if (!tableNode || !table) return;
+  if (!session.horizontalActive) return;
 
-  const width = normalizeTableWidthPct(tableNode.attrs.tableWidthPct);
   applyTableOffsetPct(
-    table,
-    normalizeTableOffsetPct(tableNode.attrs.tableOffsetPct, width),
-    width,
+    session.table,
+    session.startOffsetPct,
+    session.tableWidthPct,
   );
   positionDragHandle(view, session.tablePos);
 }
 
-function commitHorizontalDrag(view: EditorView, session: TableDragSession): boolean {
+function clearVerticalDropPreview(session: TableDragSession): void {
+  session.dropPos = null;
+  session.indicator?.remove();
+  session.indicator = null;
+}
+
+function previewVerticalDrop(
+  view: EditorView,
+  session: TableDragSession,
+  event: MouseEvent,
+): void {
+  const dropPos = getVerticalBlockDropPos(
+    view,
+    event,
+    { blockPos: session.tablePos, startY: session.startY },
+    isTableNode,
+  );
+  if (dropPos == null) {
+    clearVerticalDropPreview(session);
+    return;
+  }
+
+  const rect = getBlockDropIndicatorRect(
+    view,
+    session.tablePos,
+    dropPos,
+    isTableNode,
+  );
+  if (!rect) {
+    clearVerticalDropPreview(session);
+    return;
+  }
+
+  session.dropPos = dropPos;
+  session.indicator ??= createBlockDropIndicator(view);
+  positionBlockDropIndicator(session.indicator, rect);
+}
+
+function updateTableDragPreview(
+  view: EditorView,
+  session: TableDragSession,
+  event: MouseEvent,
+): boolean {
+  if (!getTableNodeAt(view.state.doc, session.tablePos)) return false;
+
+  const deltaX = event.clientX - session.startX;
+  const deltaY = event.clientY - session.startY;
+  const intent = getTableDragIntent(deltaX, deltaY);
+
+  if (intent.horizontal || session.horizontalActive) {
+    previewHorizontalDrag(view, session, event.clientX);
+  }
+  if (intent.vertical) {
+    previewVerticalDrop(view, session, event);
+  } else {
+    clearVerticalDropPreview(session);
+  }
+  return true;
+}
+
+function commitTableDrag(view: EditorView, session: TableDragSession): boolean {
   if (!view.editable) return false;
 
-  const tableNode = getTableNodeAt(view.state.doc, session.tablePos);
-  if (!tableNode) return false;
-
-  const offset = normalizeTableOffsetPct(session.latestOffsetPct, session.tableWidthPct);
-  if (tableNode.attrs.tableOffsetPct === offset) return false;
-
   try {
-    view.dispatch(
-      closeHistory(
-        view.state.tr.setNodeMarkup(session.tablePos, undefined, {
+    let tablePos = session.tablePos;
+    let tr = view.state.tr;
+
+    if (session.dropPos != null) {
+      const move = createBlockMove(
+        view.state,
+        session.tablePos,
+        session.dropPos,
+        isTableNode,
+      );
+      if (move) {
+        tr = move.transaction;
+        tablePos = move.newBlockPos;
+      }
+    }
+
+    const tableNode = getTableNodeAt(tr.doc, tablePos);
+    if (!tableNode) return false;
+
+    if (session.horizontalActive) {
+      const width = normalizeTableWidthPct(tableNode.attrs.tableWidthPct);
+      const offset = normalizeTableOffsetPct(session.latestOffsetPct, width);
+      if (tableNode.attrs.tableOffsetPct !== offset) {
+        tr.setNodeMarkup(tablePos, undefined, {
           ...tableNode.attrs,
           tableOffsetPct: offset,
-        }),
-      ),
-    );
+        });
+      }
+    }
+
+    if (!tr.docChanged) return false;
+    view.dispatch(closeHistory(tr).scrollIntoView());
     return true;
-  } catch {
+  } catch (error) {
+    logDevError('Table drag commit failed:', error);
     return false;
   }
 }
 
 function createDragSession(
   view: EditorView,
-  event: DragEvent,
+  event: MouseEvent,
   tablePos: number,
 ): TableDragSession | null {
   const table = getTableAtPos(view, tablePos);
@@ -272,9 +238,10 @@ function createDragSession(
 
   const tableWidthPct = readTableWidthPct(table);
   const startOffsetPct = readTableOffsetPct(table, tableWidthPct);
-  const containerWidth = wrapper.getBoundingClientRect().width;
+  const containerWidth = (wrapper.parentElement ?? wrapper).getBoundingClientRect().width;
   return {
     tablePos,
+    table,
     startX: event.clientX,
     startY: event.clientY,
     startOffsetPct,
@@ -282,41 +249,40 @@ function createDragSession(
     tableWidthPct,
     containerWidthPx:
       Number.isFinite(containerWidth) && containerWidth > 0 ? containerWidth : 1,
-    axis: null,
+    horizontalActive: false,
+    dropPos: null,
+    indicator: null,
   };
 }
 
 function syncHandleEditability(view: EditorView): void {
   view.dom.querySelectorAll<HTMLButtonElement>('.table-drag-handle').forEach((handle) => {
     handle.hidden = !view.editable;
-    handle.draggable = view.editable;
+    handle.draggable = false;
   });
 }
 
 export function TableDragHandlePlugin() {
-  let dragSession: TableDragSession | null = null;
+  let activeDrag: ActiveTableDrag | null = null;
 
-  const cancelDrag = (view: EditorView) => {
-    if (dragSession?.axis === 'horizontal') restoreHorizontalPreview(view, dragSession);
-    dragSession = null;
+  const finishDrag = (view: EditorView, session: TableDragSession, commit: boolean) => {
+    if (activeDrag?.drag === session) activeDrag = null;
+    restoreHorizontalPreview(view, session);
+    session.indicator?.remove();
+    session.indicator = null;
+    if (commit) {
+      commitTableDrag(view, session);
+    } else {
+      session.dropPos = null;
+    }
+  };
+
+  const cancelDrag = () => {
+    activeDrag?.mouse.cancel();
   };
 
   return new Plugin({
     key: tableDragHandlePluginKey,
-    state: {
-      init: () => null,
-      apply: (tr) => {
-        if (dragSession) {
-          const tablePos = mapTablePos(tr, dragSession.tablePos);
-          if (tablePos == null) {
-            dragSession = null;
-          } else {
-            dragSession.tablePos = tablePos;
-          }
-        }
-        return null;
-      },
-    },
     props: {
       decorations(state) {
         const tablePos = getActiveTablePos(state);
@@ -328,17 +294,17 @@ export function TableDragHandlePlugin() {
             (view) => {
               const element = view.dom.ownerDocument.createElement('button');
               element.type = 'button';
-              element.className = 'table-drag-handle';
+              element.className = 'kb-block-drag-handle table-drag-handle';
               element.dataset.tablePos = String(tablePos);
               element.setAttribute('aria-label', 'Drag table');
               element.setAttribute('title', 'Drag table');
               element.contentEditable = 'false';
               element.hidden = !view.editable;
-              element.draggable = view.editable;
+              element.draggable = false;
               requestViewAnimationFrame(view, () => positionDragHandle(view, tablePos));
               return element;
             },
-            { side: -1 },
+            { key: 'table-drag-handle', side: -1 },
           ),
         ]);
       },
@@ -346,7 +312,27 @@ export function TableDragHandlePlugin() {
         mousedown(view, event) {
           const tablePos = getHandleTablePos(view, event);
           if (tablePos == null || event.button !== 0) return false;
-          if (!view.editable) event.preventDefault();
+          event.preventDefault();
+          if (!view.editable || activeDrag) return true;
+
+          const drag = createDragSession(view, event, tablePos);
+          if (!drag) return true;
+
+          const mouse = startMouseDragSession({
+            window: getOwnerWindow(view),
+            onMove: (moveEvent) => {
+              if (!updateTableDragPreview(view, drag, moveEvent)) {
+                activeDrag?.mouse.cancel();
+              }
+            },
+            onCommit: (upEvent) => {
+              updateTableDragPreview(view, drag, upEvent);
+              finishDrag(view, drag, true);
+              view.focus();
+            },
+            onCancel: () => finishDrag(view, drag, false),
+          });
+          activeDrag = { drag, mouse };
           return true;
         },
         click(view, event) {
@@ -363,81 +349,38 @@ export function TableDragHandlePlugin() {
             );
             view.focus();
             return true;
-          } catch {
+          } catch (error) {
+            logDevError('Table selection from drag handle failed:', error);
             return false;
           }
         },
         dragstart(view, event) {
-          const tablePos = getHandleTablePos(view, event);
-          if (tablePos == null) return false;
-          if (!view.editable) {
-            event.preventDefault();
-            return true;
-          }
-          if (!event.dataTransfer) return false;
-
-          dragSession = createDragSession(view, event, tablePos);
-          if (!dragSession || !serializeTableDrag(view, event, tablePos)) {
-            dragSession = null;
-            return false;
-          }
-          return true;
-        },
-        dragover(view, event) {
-          if (!view.editable || !dragSession || !event.dataTransfer) return false;
-
+          if (getHandleTablePos(view, event) == null) return false;
           event.preventDefault();
-          event.dataTransfer.dropEffect = 'move';
-          dragSession.axis = resolveTableDragAxis(
-            event.clientX - dragSession.startX,
-            event.clientY - dragSession.startY,
-            dragSession.axis,
-          );
-          if (dragSession.axis === 'horizontal') {
-            previewHorizontalDrag(view, dragSession, event.clientX);
-          }
           return true;
         },
-        drop(view, event) {
-          if (!view.editable || !dragSession) return false;
-          event.preventDefault();
-
-          const session = dragSession;
-          dragSession = null;
-          session.axis = resolveTableDragAxis(
-            event.clientX - session.startX,
-            event.clientY - session.startY,
-            session.axis,
-          );
-
-          if (session.axis === 'horizontal') {
-            previewHorizontalDrag(view, session, event.clientX);
-            commitHorizontalDrag(view, session);
-          } else if (session.axis === 'vertical') {
-            const dropPos = getVerticalDropPos(view, event, session);
-            const tr =
-              dropPos == null
-                ? null
-                : createTableMoveTransaction(view.state, session.tablePos, dropPos);
-            if (tr) view.dispatch(tr.scrollIntoView());
-          }
-
-          view.focus();
-          return true;
-        },
-        dragend(view) {
-          cancelDrag(view);
+        blur() {
+          cancelDrag();
           return false;
         },
       },
     },
     view: (view) => ({
-      update(nextView) {
-        if (!nextView.editable) cancelDrag(nextView);
+      update(nextView, previousState) {
+        if (activeDrag && previousState.doc !== nextView.state.doc) cancelDrag();
+        if (!nextView.editable) cancelDrag();
         syncHandleEditability(nextView);
+
+        const tablePos = getActiveTablePos(nextView.state);
+        if (tablePos != null) {
+          requestViewAnimationFrame(nextView, () => positionDragHandle(nextView, tablePos));
+        }
       },
       destroy() {
-        cancelDrag(view);
+        cancelDrag();
+        activeDrag?.drag.indicator?.remove();
+        activeDrag = null;
+        syncHandleEditability(view);
       },
     }),
   });

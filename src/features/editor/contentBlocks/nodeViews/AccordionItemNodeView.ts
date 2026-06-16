@@ -2,22 +2,19 @@ import type { NodeViewRendererProps } from '@tiptap/core';
 import type { NodeView } from '@tiptap/pm/view';
 import {
   ACCORDION_NODE_NAME,
-  MAX_ITEM_LABEL_LENGTH,
+  ACCORDION_ITEM_NODE_NAME,
   normalizeItemLabel,
 } from '../model';
 import {
-  getItemContext,
-  moveItem,
-  removeItem,
   resolveNodeViewPosition,
   updateNodeAttributes,
 } from '../transactions';
 import {
   applyHTMLAttributes,
-  createActionMenu,
   createIcon,
   observeEditorEditable,
 } from './dom';
+import { createItemActions, createItemLabelInput } from './itemUi';
 
 export function createAccordionItemNodeView(
   props: NodeViewRendererProps,
@@ -45,40 +42,33 @@ export function createAccordionItemNodeView(
   dom.append(summary, contentDOM);
 
   const getItemPosition = () => resolveNodeViewPosition(props.getPos);
+  const itemActions = createItemActions(
+    props.view,
+    props.getPos,
+    ACCORDION_NODE_NAME,
+  );
 
   const commitTitle = (value: string) => {
     const position = getItemPosition();
     if (position == null) return;
 
-    updateNodeAttributes(props.view, position, {
-      title: normalizeItemLabel(value, 'Section'),
-    });
-  };
-
-  const move = (direction: -1 | 1) => {
-    const position = getItemPosition();
-    if (position != null) {
-      moveItem(props.view, position, ACCORDION_NODE_NAME, direction);
-    }
-  };
-
-  const remove = () => {
-    const position = getItemPosition();
-    if (position != null) {
-      removeItem(props.view, position, ACCORDION_NODE_NAME);
-    }
+    updateNodeAttributes(
+      props.view,
+      position,
+      ACCORDION_ITEM_NODE_NAME,
+      {
+        title: normalizeItemLabel(value, 'Section'),
+      },
+    );
   };
 
   const renderHeader = () => {
     titleArea.replaceChildren();
+    titleArea.removeAttribute('title');
     itemControls.replaceChildren();
 
-    const position = getItemPosition();
-    const context =
-      position == null
-        ? null
-        : getItemContext(props.view, position, ACCORDION_NODE_NAME);
     const title = normalizeItemLabel(currentNode.attrs.title, 'Section');
+    dom.dataset.kbAccordionTitle = title;
 
     if (!props.editor.isEditable) {
       titleArea.textContent = title;
@@ -86,72 +76,45 @@ export function createAccordionItemNodeView(
       return;
     }
 
-    const input = document.createElement('textarea');
-    const resizeInput = () => {
-      input.style.height = 'auto';
-      input.style.height = `${input.scrollHeight}px`;
-    };
-
-    input.className = 'kb-accordion__title-input';
-    input.value = title;
-    input.rows = 1;
-    input.maxLength = MAX_ITEM_LABEL_LENGTH;
-    input.title = title;
-    input.ariaLabel = `Accordion title: ${title}`;
-    input.addEventListener('click', (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-    });
-    input.addEventListener('input', resizeInput);
-    input.addEventListener('change', () => commitTitle(input.value));
-    input.addEventListener('keydown', (event) => {
-      event.stopPropagation();
-
-      if (event.key === 'Enter') {
-        event.preventDefault();
-        input.blur();
-      } else if (event.key === 'Escape') {
-        event.preventDefault();
-        input.value = title;
-        input.blur();
-      }
+    const input = createItemLabelInput({
+      ariaLabel: `Accordion title: ${title}`,
+      className: 'kb-accordion__title-input',
+      onCommit: commitTitle,
+      onExit: () => itemActions.activate(true),
+      onHistoryAction: itemActions.runHistoryAction,
+      onInteract: () => itemActions.activate(),
+      onMove: itemActions.move,
+      value: title,
     });
     titleArea.append(input);
-    queueMicrotask(resizeInput);
 
     itemControls.append(
-      createActionMenu(`Accordion actions for ${title}`, [
-        {
-          label: 'Move accordion item up',
-          icon: 'chevronUp',
-          disabled: !context || context.index === 0,
-          onActivate: () => move(-1),
-        },
-        {
-          label: 'Move accordion item down',
-          icon: 'chevronDown',
-          disabled: !context || context.index === context.parent.childCount - 1,
-          onActivate: () => move(1),
-        },
-        {
-          label: 'Remove accordion item',
-          icon: 'remove',
-          danger: true,
-          disabled: !context || context.parent.childCount === 1,
-          onActivate: remove,
-        },
-      ]),
+      itemActions.createMenu({
+        menu: `Accordion actions for ${title}`,
+        moveDown: 'Move accordion item down',
+        moveUp: 'Move accordion item up',
+        remove: 'Remove accordion item',
+      }),
     );
   };
 
   dom.open = Boolean(currentNode.attrs.open);
+  summary.addEventListener('focus', () => itemActions.activate());
+  summary.addEventListener('mousedown', () => itemActions.activate());
   dom.addEventListener('toggle', () => {
     if (!props.editor.isEditable || dom.open === Boolean(currentNode.attrs.open)) {
       return;
     }
 
     const position = getItemPosition();
-    if (position != null) updateNodeAttributes(props.view, position, { open: dom.open });
+    if (position != null) {
+      itemActions.activate();
+      updateNodeAttributes(props.view, position, ACCORDION_ITEM_NODE_NAME, {
+        open: dom.open,
+      }, {
+        addToHistory: false,
+      });
+    }
   });
   renderHeader();
   const stopObservingEditable = observeEditorEditable(
@@ -165,9 +128,14 @@ export function createAccordionItemNodeView(
     update(updatedNode) {
       if (updatedNode.type !== currentNode.type) return false;
 
+      const titleChanged = updatedNode.attrs.title !== currentNode.attrs.title;
       currentNode = updatedNode;
       dom.open = Boolean(currentNode.attrs.open);
-      renderHeader();
+      dom.dataset.kbAccordionTitle = normalizeItemLabel(
+        currentNode.attrs.title,
+        'Section',
+      );
+      if (titleChanged) renderHeader();
       return true;
     },
     stopEvent(event) {

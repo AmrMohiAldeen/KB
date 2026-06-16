@@ -1,5 +1,10 @@
 import { mergeAttributes, Node } from '@tiptap/core';
-import { createTabsContent, normalizeItemLabel } from '../model';
+import {
+  createTabsContent,
+  normalizeItemLabel,
+  TAB_ITEM_NODE_NAME,
+  TABS_NODE_NAME,
+} from '../model';
 import { createTabItemNodeView } from '../nodeViews/TabItemNodeView';
 import { createTabsNodeView } from '../nodeViews/TabsNodeView';
 
@@ -12,7 +17,7 @@ declare module '@tiptap/core' {
 }
 
 export const TabItem = Node.create({
-  name: 'tabItem',
+  name: TAB_ITEM_NODE_NAME,
   content: 'block+',
   defining: true,
   isolating: true,
@@ -59,7 +64,6 @@ export const TabItem = Node.create({
         'aria-label': label,
         class: 'kb-tabs__static-item',
         'data-kb-tab-item': '',
-        role: 'tabpanel',
       }),
       ['h3', { 'data-kb-tab-label-static': '' }, label],
       ['div', { 'data-kb-tab-panel': '' }, 0],
@@ -72,7 +76,7 @@ export const TabItem = Node.create({
 });
 
 export const Tabs = Node.create({
-  name: 'tabs',
+  name: TABS_NODE_NAME,
   group: 'block',
   content: 'tabItem+',
   defining: true,

@@ -1,7 +1,107 @@
 .kb-tabs,
-.kb-accordion {
+.kb-accordion,
+.kb-callout {
   margin: 1rem 0;
   overflow: visible;
+}
+
+.kb-callout {
+  --kb-callout-accent: #2563eb;
+  --kb-callout-border: #bfdbfe;
+  --kb-callout-background: #eff6ff;
+  overflow: hidden;
+  border: 1px solid var(--kb-callout-border);
+  border-left: 0.3rem solid var(--kb-callout-accent);
+  border-radius: 0.55rem;
+  background: var(--kb-callout-background);
+  color: #1f2937;
+}
+
+.kb-callout--warning {
+  --kb-callout-accent: #d97706;
+  --kb-callout-border: #fde68a;
+  --kb-callout-background: #fffbeb;
+}
+
+.kb-callout--success {
+  --kb-callout-accent: #15803d;
+  --kb-callout-border: #bbf7d0;
+  --kb-callout-background: #f0fdf4;
+}
+
+.kb-callout--danger {
+  --kb-callout-accent: #dc2626;
+  --kb-callout-border: #fecaca;
+  --kb-callout-background: #fef2f2;
+}
+
+.kb-callout--tip {
+  --kb-callout-accent: #7e22ce;
+  --kb-callout-border: #e9d5ff;
+  --kb-callout-background: #faf5ff;
+}
+
+.kb-callout__header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem 0.25rem;
+  color: var(--kb-callout-accent);
+  font-size: 0.875rem;
+  letter-spacing: 0.01em;
+  pointer-events: none;
+  user-select: none;
+}
+
+.kb-callout__icon {
+  display: inline-flex;
+  width: 1.15rem;
+  height: 1.15rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.kb-callout__icon::before {
+  content: 'i';
+}
+
+.kb-callout--warning .kb-callout__icon::before,
+.kb-callout--danger .kb-callout__icon::before {
+  content: '!';
+}
+
+.kb-callout--success .kb-callout__icon::before {
+  content: '+';
+}
+
+.kb-callout--tip .kb-callout__icon::before {
+  content: '*';
+}
+
+.kb-callout__content {
+  min-height: 2.75rem;
+  padding: 0.35rem 1rem 0.9rem;
+}
+
+:is(.tiptap, .ProseMirror) .kb-callout__content {
+  border-radius: 0.25rem;
+}
+
+:is(.tiptap, .ProseMirror) .kb-callout__content:focus-within {
+  background: rgb(255 255 255 / 0.45);
+}
+
+.kb-callout__content :is(p, ul, ol, blockquote):first-child {
+  margin-top: 0;
+}
+
+.kb-callout__content :is(p, ul, ol, blockquote):last-child {
+  margin-bottom: 0;
 }
 
 .kb-tabs__static-item {
@@ -26,6 +126,10 @@
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+}
+
+.kb-accordion > .kb-accordion__item + .kb-accordion__item {
+  margin-top: 0.75rem;
 }
 
 .kb-accordion__item {
@@ -66,6 +170,16 @@
 
 .kb-accordion__summary:hover {
   background: #fafafa;
+}
+
+[data-kb-accordion-title-static]::after {
+  margin-left: auto;
+  color: #8b9097;
+  content: '+';
+}
+
+details[open] > [data-kb-accordion-title-static]::after {
+  content: '-';
 }
 
 .kb-accordion__summary:focus-visible {
@@ -297,6 +411,10 @@
   border: 0;
 }
 
+:is(.tiptap, .ProseMirror) .kb-tabs__runtime-item[hidden] {
+  display: none;
+}
+
 .kb-content-block__icon-button {
   display: inline-flex;
   width: 1.75rem;
@@ -463,28 +581,41 @@
 }
 
 .kb-slash-menu {
-  position: absolute;
-  z-index: 40;
-  top: 1.25rem;
-  left: 0;
+  position: fixed;
+  z-index: 60;
   display: flex;
-  width: 15rem;
+  width: min(22rem, calc(100vw - 2rem));
+  max-height: min(28rem, calc(100vh - 3rem));
   flex-direction: column;
   gap: 0.125rem;
   padding: 0.25rem;
+  overflow-y: auto;
   border: 1px solid #e5e7eb;
   border-radius: 0.5rem;
   background: #fff;
   box-shadow: 0 10px 25px rgb(0 0 0 / 0.12);
 }
 
+.kb-slash-menu__group {
+  padding: 0.45rem 0.55rem 0.2rem;
+  color: #9ca3af;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .kb-slash-menu__item {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
   gap: 0.125rem;
   padding: 0.5rem;
+  border: 0;
   border-radius: 0.375rem;
+  background: transparent;
   text-align: left;
+  cursor: pointer;
 }
 
 .kb-slash-menu__item[aria-selected='true'],
@@ -493,7 +624,22 @@
   color: #1d4ed8;
 }
 
-.kb-slash-menu__item > span {
+.kb-slash-menu__item-text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.kb-slash-menu__item-text > span {
   color: #6b7280;
   font-size: 0.6875rem;
+}
+
+.kb-slash-menu__item kbd {
+  flex: 0 0 auto;
+  margin-left: 0.75rem;
+  color: #9ca3af;
+  font-family: inherit;
+  font-size: 0.625rem;
 }

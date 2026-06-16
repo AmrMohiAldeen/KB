@@ -2,12 +2,16 @@ import type { NodeViewRendererProps } from '@tiptap/core';
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import type { NodeView } from '@tiptap/pm/view';
 import {
-  createContentBlockItemId,
+  createTabItemNode,
   normalizeItemLabel,
-  TAB_ITEM_NODE_NAME,
+  readContentBlockItemId,
   TABS_NODE_NAME,
 } from '../model';
-import { resolveNodeViewPosition } from '../transactions';
+import {
+  activateContentBlock,
+  appendItem,
+  resolveNodeViewPosition,
+} from '../transactions';
 import {
   applyHTMLAttributes,
   createIconButton,
@@ -15,8 +19,8 @@ import {
 } from './dom';
 
 type TabDescriptor = {
-  id: string;
   index: number;
+  key: string;
   label: string;
 };
 
@@ -24,14 +28,16 @@ let tabsViewId = 0;
 
 function describeTabs(node: ProseMirrorNode): TabDescriptor[] {
   const tabs: TabDescriptor[] = [];
+  const occurrences = new Map<string, number>();
 
   node.forEach((child, _offset, index) => {
+    const itemId = readContentBlockItemId(child.attrs.itemId, `tab-${index + 1}`);
+    const occurrence = occurrences.get(itemId) ?? 0;
+    occurrences.set(itemId, occurrence + 1);
+
     tabs.push({
-      id:
-        typeof child.attrs.itemId === 'string' && child.attrs.itemId
-          ? child.attrs.itemId
-          : `tab-${index + 1}`,
       index,
+      key: `${itemId}:${occurrence}`,
       label: normalizeItemLabel(child.attrs.label, `Tab ${index + 1}`),
     });
   });
@@ -39,26 +45,9 @@ function describeTabs(node: ProseMirrorNode): TabDescriptor[] {
   return tabs;
 }
 
-function createTabNode(
-  props: NodeViewRendererProps,
-  label: string,
-): ProseMirrorNode | null {
-  const tabItem = props.view.state.schema.nodes[TAB_ITEM_NODE_NAME];
-  const paragraph = props.view.state.schema.nodes.paragraph;
-  if (!tabItem || !paragraph) return null;
-
-  return tabItem.create(
-    {
-      itemId: createContentBlockItemId('tab'),
-      label,
-    },
-    paragraph.create(),
-  );
-}
-
 export function createTabsNodeView(props: NodeViewRendererProps): NodeView {
   let currentNode = props.node;
-  let activeId = describeTabs(currentNode)[0]?.id ?? '';
+  let activeKey = describeTabs(currentNode)[0]?.key ?? '';
   let destroyed = false;
 
   tabsViewId += 1;
@@ -68,7 +57,6 @@ export function createTabsNodeView(props: NodeViewRendererProps): NodeView {
   const tabList = document.createElement('div');
   const contentDOM = document.createElement('div');
   const footer = document.createElement('div');
-  const visibilityStyle = document.createElement('style');
 
   applyHTMLAttributes(dom, props.HTMLAttributes);
   dom.id = viewId;
@@ -77,12 +65,19 @@ export function createTabsNodeView(props: NodeViewRendererProps): NodeView {
   header.contentEditable = 'false';
   tabList.className = 'kb-tabs__list';
   tabList.setAttribute('role', 'tablist');
+  tabList.setAttribute('aria-orientation', 'horizontal');
   tabList.ariaLabel = 'Tabs';
   footer.className = 'kb-tabs__editor-footer';
   footer.contentEditable = 'false';
-  visibilityStyle.className = 'kb-tabs__visibility-rule';
 
   const getContainerPosition = () => resolveNodeViewPosition(props.getPos);
+  const activateContainer = (focus = false) => {
+    const position = getContainerPosition();
+    return (
+      position != null &&
+      activateContentBlock(props.view, position, TABS_NODE_NAME, { focus })
+    );
+  };
 
   const addTab = () => {
     if (!props.editor.isEditable) return;
@@ -91,47 +86,61 @@ export function createTabsNodeView(props: NodeViewRendererProps): NodeView {
     const container = position == null ? null : props.view.state.doc.nodeAt(position);
     if (!container || container.type.name !== TABS_NODE_NAME || position == null) return;
 
-    const item = createTabNode(props, `Tab ${container.childCount + 1}`);
+    const item = createTabItemNode(
+      props.view.state.schema,
+      `Tab ${container.childCount + 1}`,
+    );
     if (!item) return;
 
-    props.view.dispatch(
-      props.view.state.tr.insert(position + container.nodeSize - 1, item),
-    );
+    if (
+      activateContainer() &&
+      appendItem(props.view, position, TABS_NODE_NAME, item)
+    ) {
+      props.view.focus();
+    }
+  };
+
+  const focusTabAtIndex = (index: number) => {
+    const tabs = describeTabs(currentNode);
+    const target = tabs[index];
+    if (!target) return;
+
+    activeKey = target.key;
+    applyViewerActiveState();
+    Array.from(tabList.querySelectorAll<HTMLElement>('[data-kb-tab-control-id]'))
+      .find((control) => control.dataset.kbTabControlId === target.key)
+      ?.focus();
   };
 
   const focusAdjacentTab = (index: number, direction: -1 | 1) => {
-    const tabs = describeTabs(currentNode);
-    const target = tabs[index + direction];
-    if (!target) return;
+    const tabCount = currentNode.childCount;
+    if (tabCount === 0) return;
 
-    activeId = target.id;
-    applyViewerActiveState();
-    Array.from(tabList.querySelectorAll<HTMLElement>('[data-kb-tab-control-id]'))
-      .find((control) => control.dataset.kbTabControlId === target.id)
-      ?.focus();
+    focusTabAtIndex((index + direction + tabCount) % tabCount);
   };
 
   const applyViewerActiveState = () => {
     if (destroyed || props.editor.isEditable) return;
 
     const tabs = describeTabs(currentNode);
-    if (!tabs.some((tab) => tab.id === activeId)) {
-      activeId = tabs[0]?.id ?? '';
+    if (!tabs.some((tab) => tab.key === activeKey)) {
+      activeKey = tabs[0]?.key ?? '';
     }
-    const activeIndex = Math.max(
-      0,
-      tabs.findIndex((tab) => tab.id === activeId),
-    );
-    dom.dataset.kbActiveTab = activeId;
-    visibilityStyle.textContent =
-      `#${viewId} > .kb-tabs__panels > :not(:nth-child(${activeIndex + 1}))` +
-      ' { display: none; }';
+    dom.dataset.kbActiveTab = activeKey;
 
     Array.from(tabList.querySelectorAll<HTMLElement>('[data-kb-tab-control-id]')).forEach(
-      (control) => {
-        const selected = control.dataset.kbTabControlId === activeId;
+      (control, index) => {
+        const selected = control.dataset.kbTabControlId === activeKey;
+        const panel = contentDOM.children.item(index);
+
         control.setAttribute('aria-selected', String(selected));
         control.tabIndex = selected ? 0 : -1;
+        if (panel instanceof HTMLElement) {
+          panel.hidden = !selected;
+          panel.id = `${viewId}-panel-${index + 1}`;
+          panel.setAttribute('aria-labelledby', control.id);
+          panel.setAttribute('role', 'tabpanel');
+        }
       },
     );
   };
@@ -160,13 +169,14 @@ export function createTabsNodeView(props: NodeViewRendererProps): NodeView {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'kb-tabs__tab';
-      button.id = `${viewId}-tab-${tab.id}`;
-      button.dataset.kbTabControlId = tab.id;
+      button.id = `${viewId}-tab-${tab.index + 1}`;
+      button.dataset.kbTabControlId = tab.key;
       button.setAttribute('role', 'tab');
+      button.setAttribute('aria-controls', `${viewId}-panel-${tab.index + 1}`);
       button.textContent = tab.label;
       button.title = tab.label;
       button.addEventListener('click', () => {
-        activeId = tab.id;
+        activeKey = tab.key;
         applyViewerActiveState();
       });
       button.addEventListener('keydown', (event) => {
@@ -176,11 +186,17 @@ export function createTabsNodeView(props: NodeViewRendererProps): NodeView {
         } else if (event.key === 'ArrowRight') {
           event.preventDefault();
           focusAdjacentTab(tab.index, 1);
+        } else if (event.key === 'Home') {
+          event.preventDefault();
+          focusTabAtIndex(0);
+        } else if (event.key === 'End') {
+          event.preventDefault();
+          focusTabAtIndex(currentNode.childCount - 1);
         }
       });
       tabList.append(button);
     });
-    header.append(tabList, visibilityStyle);
+    header.append(tabList);
     dom.append(header, contentDOM);
     queueMicrotask(applyViewerActiveState);
   };
@@ -198,7 +214,7 @@ export function createTabsNodeView(props: NodeViewRendererProps): NodeView {
       if (updatedNode.type !== currentNode.type) return false;
 
       currentNode = updatedNode;
-      renderChrome();
+      if (!props.editor.isEditable) renderChrome();
       return true;
     },
     stopEvent(event) {

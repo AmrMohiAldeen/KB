@@ -1,7 +1,13 @@
 import { closeHistory } from '@tiptap/pm/history';
-import { Plugin, PluginKey } from '@tiptap/pm/state';
-import { TableMap } from '@tiptap/pm/tables';
+import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
+import {
+  Plugin,
+  PluginKey,
+  type EditorState,
+  type Transaction,
+} from '@tiptap/pm/state';
 import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view';
+import { logDevError } from '../../utils/logDevError';
 import {
   getClosestHTMLElement,
   getOwnerWindow,
@@ -41,15 +47,51 @@ export const rowResizePluginKey = new PluginKey<RowResizeState>('rowResizePlugin
 
 const EDGE_DETECT_PX = 6;
 
-function getTableMapAt(view: EditorView, tablePos: number): TableMap | null {
-  const table = getTableNodeAt(view.state.doc, tablePos);
-  if (!table) return null;
+function getRowPos(
+  table: ProseMirrorNode,
+  tablePos: number,
+  rowIndex: number,
+): number | null {
+  if (rowIndex < 0 || rowIndex >= table.childCount) return null;
 
-  try {
-    return TableMap.get(table);
-  } catch {
-    return null;
+  let rowPos = tablePos + 1;
+  for (let index = 0; index < rowIndex; index += 1) {
+    rowPos += table.child(index).nodeSize;
   }
+  return rowPos;
+}
+
+export function createLegacyRowHeightMigration(
+  state: EditorState,
+): Transaction | null {
+  const tr = state.tr;
+
+  state.doc.descendants((node, position) => {
+    if (node.type.name === 'tableRow' && node.attrs.rowHeight == null) {
+      for (let index = 0; index < node.childCount; index += 1) {
+        const legacyHeight = node.child(index).attrs.rowHeight;
+        if (legacyHeight != null) {
+          tr.setNodeMarkup(position, undefined, {
+            ...node.attrs,
+            rowHeight: clampRowHeight(legacyHeight),
+          });
+          break;
+        }
+      }
+    }
+
+    if (
+      (node.type.name === 'tableCell' || node.type.name === 'tableHeader') &&
+      node.attrs.rowHeight != null
+    ) {
+      tr.setNodeMarkup(position, undefined, {
+        ...node.attrs,
+        rowHeight: null,
+      });
+    }
+  });
+
+  return tr.docChanged ? tr.setMeta('addToHistory', false) : null;
 }
 
 function findTablePosFromCell(view: EditorView, cell: HTMLElement): number | null {
@@ -58,7 +100,8 @@ function findTablePosFromCell(view: EditorView, cell: HTMLElement): number | nul
     for (let depth = $pos.depth; depth > 0; depth -= 1) {
       if ($pos.node(depth).type.name === 'table') return $pos.before(depth);
     }
-  } catch {
+  } catch (error) {
+    logDevError('Table position lookup from row resize target failed:', error);
     return null;
   }
 
@@ -77,22 +120,21 @@ function detectRowAtCoords(view: EditorView, event: MouseEvent) {
   }
 
   const cell = getClosestHTMLElement(view, event.target, 'td,th');
-  if (
-    !cell ||
-    Math.abs(cell.getBoundingClientRect().bottom - event.clientY) > EDGE_DETECT_PX
-  ) {
-    return null;
-  }
+  if (!cell) return null;
 
   const tablePos = findTablePosFromCell(view, cell);
   if (tablePos == null) return null;
 
   const table = getTableAtPos(view, tablePos);
-  const row = cell.parentElement;
-  if (!table || !(row instanceof getOwnerWindow(view).HTMLTableRowElement)) return null;
+  if (!table) return null;
 
-  const rowIndex = Array.from(table.rows).indexOf(row as HTMLTableRowElement);
-  return rowIndex >= 0 ? { tablePos, rowIndex, row } : null;
+  const rows = Array.from(table.rows);
+  const rowIndex = rows.findIndex(
+    (row) =>
+      Math.abs(row.getBoundingClientRect().bottom - event.clientY) <=
+      EDGE_DETECT_PX,
+  );
+  return rowIndex >= 0 ? { tablePos, rowIndex, row: rows[rowIndex] } : null;
 }
 
 function positionRowResizeHandle(
@@ -124,32 +166,27 @@ function commitRowHeight(
   if (!view.editable) return false;
 
   const table = getTableNodeAt(view.state.doc, tablePos);
-  const map = getTableMapAt(view, tablePos);
-  if (!table || !map || rowIndex < 0 || rowIndex >= map.height) return false;
+  const rowPos = table ? getRowPos(table, tablePos, rowIndex) : null;
+  if (!table || rowPos == null) return false;
 
   const rowHeight = clampRowHeight(height);
-  const visitedCells = new Set<number>();
-  const tr = view.state.tr;
+  const row = view.state.doc.nodeAt(rowPos);
+  if (!row || row.type.name !== 'tableRow' || row.attrs.rowHeight === rowHeight) {
+    return false;
+  }
 
   try {
-    for (let column = 0; column < map.width; column += 1) {
-      const absoluteCellPos = tablePos + 1 + map.positionAt(rowIndex, column, table);
-      if (visitedCells.has(absoluteCellPos)) continue;
-      visitedCells.add(absoluteCellPos);
-
-      const cell = tr.doc.nodeAt(absoluteCellPos);
-      if (!cell || cell.attrs.rowHeight === rowHeight) continue;
-
-      tr.setNodeMarkup(absoluteCellPos, undefined, {
-        ...cell.attrs,
-        rowHeight,
-      });
-    }
-
-    if (!tr.docChanged) return false;
-    view.dispatch(closeHistory(tr));
+    view.dispatch(
+      closeHistory(
+        view.state.tr.setNodeMarkup(rowPos, undefined, {
+          ...row.attrs,
+          rowHeight,
+        }),
+      ),
+    );
     return true;
-  } catch {
+  } catch (error) {
+    logDevError('Row height commit failed:', error);
     return false;
   }
 }
@@ -195,6 +232,10 @@ export function RowResizePlugin() {
         };
       },
     },
+    appendTransaction: (transactions, _oldState, newState) =>
+      transactions.some((transaction) => transaction.docChanged)
+        ? createLegacyRowHeightMigration(newState)
+        : null,
     props: {
       decorations(state) {
         const active = rowResizePluginKey.getState(state)?.active;
@@ -304,19 +345,30 @@ export function RowResizePlugin() {
         },
       },
     },
-    view: (view) => ({
-      update(nextView) {
-        if (!nextView.editable) {
+    view: (view) => {
+      requestViewAnimationFrame(view, () => {
+        if (!view.editable) return;
+        const migration = createLegacyRowHeightMigration(view.state);
+        if (migration) view.dispatch(migration);
+      });
+
+      return {
+        update(nextView, previousState) {
+          if (activeSession && previousState.doc !== nextView.state.doc) {
+            activeSession.cancel();
+          }
+          if (!nextView.editable) {
+            activeSession?.cancel();
+            setRowResizeCursor(nextView, false);
+            hideRowResizeHandles(nextView);
+          }
+        },
+        destroy() {
+          destroying = true;
           activeSession?.cancel();
-          setRowResizeCursor(nextView, false);
-          hideRowResizeHandles(nextView);
-        }
-      },
-      destroy() {
-        destroying = true;
-        activeSession?.cancel();
-        setRowResizeCursor(view, false);
-      },
-    }),
+          setRowResizeCursor(view, false);
+        },
+      };
+    },
   });
 }

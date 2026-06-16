@@ -2,3 +2,86 @@
   font-family: Arial, sans-serif;
   font-size: 11px;
 }
+
+:is(.tiptap, .ProseMirror, .kb-viewer) ul[data-type='taskList'] {
+  padding-left: 0;
+  list-style: none;
+}
+
+:is(.tiptap, .ProseMirror, .kb-viewer) :is(li[data-type='taskItem'], li.kb-task-item) {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+:is(.tiptap, .ProseMirror, .kb-viewer)
+  :is(li[data-type='taskItem'], li.kb-task-item)
+  > label {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  margin-top: 0.2em;
+}
+
+:is(.tiptap, .ProseMirror, .kb-viewer)
+  :is(li[data-type='taskItem'], li.kb-task-item)
+  > div {
+  min-width: 0;
+  flex: 1;
+}
+
+:is(.tiptap, .ProseMirror, .kb-viewer)
+  :is(li[data-type='taskItem'], li.kb-task-item)
+  > div
+  > p:first-child {
+  margin-top: 0;
+}
+
+:is(.tiptap, .ProseMirror) .kb-block-selection {
+  border-radius: 0.5rem;
+  outline: 2px solid rgb(59 130 246 / 0.62);
+  outline-offset: 3px;
+  background-color: rgb(59 130 246 / 0.08);
+  box-shadow: 0 0 0 5px rgb(59 130 246 / 0.12);
+}
+
+:is(.tiptap, .ProseMirror) .kb-block-drag-handle {
+  position: absolute;
+  z-index: 10;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid #9ca3af;
+  border-radius: 5px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.12);
+  cursor: grab;
+  user-select: none;
+}
+
+:is(.tiptap, .ProseMirror) .kb-block-drag-handle:active {
+  cursor: grabbing;
+}
+
+:is(.tiptap, .ProseMirror) .kb-block-drag-handle::before {
+  display: block;
+  width: 10px;
+  height: 10px;
+  margin: 4px auto;
+  background: radial-gradient(#9ca3af 2px, transparent 3px) 0 0 / 5px 5px;
+  content: '';
+}
+
+.kb-block-drop-indicator {
+  position: fixed;
+  z-index: 100;
+  border-radius: 999px;
+  background: rgb(59 130 246 / 0.85);
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.8);
+  pointer-events: none;
+}
+
+.ProseMirror a {
+  color: rgb(83, 83, 154);
+  text-decoration: underline;
+}

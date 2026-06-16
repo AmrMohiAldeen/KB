@@ -8,6 +8,7 @@ import {
   selectedRect,
   TableMap,
 } from '@tiptap/pm/tables';
+import { logDevError } from '../../utils/logDevError';
 import { getActiveTable } from '../dom/tableDom';
 import type { TableBorderAttributes } from '../utils/tableBorders';
 
@@ -44,7 +45,8 @@ type HeaderNormalizationScope = 'edge' | 'all';
 function getTableMap(table: ProseMirrorNode): TableMap | null {
   try {
     return TableMap.get(table);
-  } catch {
+  } catch (error) {
+    logDevError('Table map lookup failed:', error);
     return null;
   }
 }
@@ -54,7 +56,8 @@ function hasUsableTableEditor(editor: Editor | null | undefined): editor is Edit
 
   try {
     return Boolean(getActiveTable(editor.state));
-  } catch {
+  } catch (error) {
+    logDevError('Table editor state check failed:', error);
     return false;
   }
 }
@@ -62,7 +65,8 @@ function hasUsableTableEditor(editor: Editor | null | undefined): editor is Edit
 function safelyRun(command: () => boolean): boolean {
   try {
     return command();
-  } catch {
+  } catch (error) {
+    logDevError('Table command failed:', error);
     return false;
   }
 }
@@ -79,7 +83,8 @@ export function getTableHeaderState(state: EditorState): TableHeaderState {
       hasHeaderRow: rowIsHeader(map, table, 0),
       hasHeaderColumn: columnIsHeader(map, table, 0),
     };
-  } catch {
+  } catch (error) {
+    logDevError('Table header state lookup failed:', error);
     return NO_HEADERS;
   }
 }
@@ -93,7 +98,8 @@ function canDeleteSelectedRowsOrColumns(
     return command === 'deleteRow'
       ? rect.top > 0 || rect.bottom < rect.map.height
       : rect.left > 0 || rect.right < rect.map.width;
-  } catch {
+  } catch (error) {
+    logDevError('Table deletion availability check failed:', error);
     return false;
   }
 }
@@ -178,7 +184,6 @@ export function canRunTableCommand(
   ) {
     return false;
   }
-
   return safelyRun(() => editor.can().chain().focus()[command]().run());
 }
 

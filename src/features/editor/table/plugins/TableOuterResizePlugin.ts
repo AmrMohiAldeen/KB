@@ -1,6 +1,7 @@
 import { closeHistory } from '@tiptap/pm/history';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view';
+import { logDevError } from '../../utils/logDevError';
 import {
   getActiveTablePos,
   getOwnerWindow,
@@ -8,6 +9,7 @@ import {
   getTableNodeAt,
   getTableWrapperAtPos,
   mapTablePos,
+  positionOverlayAtRect,
   requestViewAnimationFrame,
 } from '../dom/tableDom';
 import {
@@ -15,7 +17,7 @@ import {
   applyTableWidthPct,
   clampTableWidthPct,
   normalizeTableOffsetPct,
-  normalizeTableWidthPct,
+  readTableOffsetPct,
   readTableWidthPct,
 } from '../resizing/tableDimensions';
 import {
@@ -29,8 +31,10 @@ type OuterResizeState = {
 
 type OuterResizeDrag = {
   tablePos: number;
+  table: HTMLTableElement;
   startX: number;
   startWidthPct: number;
+  startOffsetPct: number;
   containerWidthPx: number;
 };
 
@@ -62,27 +66,18 @@ function positionResizeHandle(view: EditorView, table: HTMLTableElement): void {
   const handle = view.dom.querySelector<HTMLElement>('.table-outer-resize-handle');
   if (!handle) return;
 
-  const editorRect = view.dom.getBoundingClientRect();
   const tableRect = table.getBoundingClientRect();
-  handle.style.left = `${tableRect.right - editorRect.left - 4}px`;
-  handle.style.top = `${tableRect.top - editorRect.top}px`;
-  handle.style.height = `${tableRect.height}px`;
+  positionOverlayAtRect(view, handle, {
+    left: tableRect.right - 4,
+    top: tableRect.top,
+    width: 8,
+    height: tableRect.height,
+  });
 }
 
-function restoreStoredTableWidth(view: EditorView, tablePos: number): void {
-  const tableNode = getTableNodeAt(view.state.doc, tablePos);
-  const table = getTableAtPos(view, tablePos);
-  if (!tableNode || !table) return;
-
-  const width = applyTableWidthPct(
-    table,
-    normalizeTableWidthPct(tableNode.attrs.tableWidthPct),
-  );
-  applyTableOffsetPct(
-    table,
-    normalizeTableOffsetPct(tableNode.attrs.tableOffsetPct, width),
-    width,
-  );
+function restoreTablePreview(drag: OuterResizeDrag): void {
+  const width = applyTableWidthPct(drag.table, drag.startWidthPct);
+  applyTableOffsetPct(drag.table, drag.startOffsetPct, width);
 }
 
 function commitTableWidth(view: EditorView, tablePos: number, width: number): boolean {
@@ -111,7 +106,8 @@ function commitTableWidth(view: EditorView, tablePos: number, width: number): bo
       ),
     );
     return true;
-  } catch {
+  } catch (error) {
+    logDevError('Table width commit failed:', error);
     return false;
   }
 }
@@ -223,8 +219,10 @@ export function TableOuterResizePlugin() {
 
           const drag: OuterResizeDrag = {
             tablePos,
+            table,
             startX: event.clientX,
             startWidthPct: readTableWidthPct(table),
+            startOffsetPct: readTableOffsetPct(table),
             containerWidthPx: getContainerWidthPx(wrapper),
           };
           let latestWidth = drag.startWidthPct;
@@ -232,7 +230,7 @@ export function TableOuterResizePlugin() {
           const finish = (commit: boolean) => {
             activeSession = null;
             setOuterResizeCursor(view, false);
-            restoreStoredTableWidth(view, drag.tablePos);
+            restoreTablePreview(drag);
             if (commit && latestWidth !== drag.startWidthPct) {
               commitTableWidth(view, drag.tablePos, latestWidth);
             }
@@ -265,11 +263,22 @@ export function TableOuterResizePlugin() {
       },
     },
     view: (view) => ({
-      update(nextView) {
+      update(nextView, previousState) {
+        if (activeSession && previousState.doc !== nextView.state.doc) {
+          activeSession.cancel();
+        }
         if (!nextView.editable) {
           activeSession?.cancel();
           setOuterResizeCursor(nextView, false);
           hideOuterResizeHandles(nextView);
+        }
+
+        const tablePos = tableOuterResizePluginKey.getState(nextView.state)?.activeTablePos;
+        if (tablePos != null) {
+          requestViewAnimationFrame(nextView, () => {
+            const table = getTableAtPos(nextView, tablePos);
+            if (table) positionResizeHandle(nextView, table);
+          });
         }
       },
       destroy() {

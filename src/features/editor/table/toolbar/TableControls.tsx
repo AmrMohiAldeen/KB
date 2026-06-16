@@ -1,6 +1,10 @@
 'use client';
 
 import { useEditorState, type Editor } from '@tiptap/react';
+import { selectionCell } from '@tiptap/pm/tables';
+import { logDevError } from '../../utils/logDevError';
+import { RgbColorItem } from '../../components/toolbar/RgbColorItem';
+import { HIGHLIGHT_COLORS } from '../../components/toolbar/toolbarOptions';
 import {
   Divider,
   DropdownCheckboxItem,
@@ -47,6 +51,7 @@ type TableControlState = {
   canDeleteTable: boolean;
   canToggleHeaderRow: boolean;
   canToggleHeaderColumn: boolean;
+  cellBackgroundColor: string;
 };
 
 const INACTIVE_TABLE_CONTROL_STATE: TableControlState = {
@@ -64,6 +69,7 @@ const INACTIVE_TABLE_CONTROL_STATE: TableControlState = {
   canDeleteTable: false,
   canToggleHeaderRow: false,
   canToggleHeaderColumn: false,
+  cellBackgroundColor: '',
 };
 
 export function getTableControlState(
@@ -91,8 +97,12 @@ export function getTableControlState(
       canDeleteTable: canRunTableCommand(editor, 'deleteTable'),
       canToggleHeaderRow: canRunTableCommand(editor, 'toggleHeaderRow'),
       canToggleHeaderColumn: canRunTableCommand(editor, 'toggleHeaderColumn'),
+      cellBackgroundColor: String(
+        selectionCell(editor.state).nodeAfter?.attrs.backgroundColor ?? '',
+      ),
     };
-  } catch {
+  } catch (error) {
+    logDevError('Table controls state lookup failed:', error);
     return INACTIVE_TABLE_CONTROL_STATE;
   }
 }
@@ -170,6 +180,70 @@ export function TableControls({ editor }: { editor: Editor }) {
         >
           <InsertColumnAfterIcon />Col after
         </DropdownItem>
+      </ToolbarDropdown>
+
+      <ToolbarDropdown
+        title="Table cell background color"
+        isActive={Boolean(tableState.cellBackgroundColor)}
+        label={
+          <>
+            <span
+              className="h-3.5 w-3.5 rounded-sm border border-amber-300"
+              style={{
+                backgroundColor: tableState.cellBackgroundColor || '#ffffff',
+              }}
+            />
+            <span className="text-xs">Cell color</span>
+          </>
+        }
+        menuClassName="w-44"
+      >
+        {({ close }) => (
+          <>
+            {HIGHLIGHT_COLORS.map((color) => (
+              <DropdownItem
+                key={color.value}
+                isActive={tableState.cellBackgroundColor === color.value}
+                onActivate={() =>
+                  editor
+                    .chain()
+                    .focus()
+                    .setCellAttribute('backgroundColor', color.value)
+                    .run()
+                }
+              >
+                <span
+                  className="h-3 w-3 rounded-sm border border-gray-300"
+                  style={{ backgroundColor: color.value }}
+                />
+                {color.label}
+              </DropdownItem>
+            ))}
+            <DropdownItem
+              onActivate={() =>
+                editor
+                  .chain()
+                  .focus()
+                  .setCellAttribute('backgroundColor', null)
+                  .run()
+              }
+            >
+              Remove cell color
+            </DropdownItem>
+            <div className="my-1 border-t border-gray-200" />
+            <RgbColorItem
+              label="RGB cell color"
+              onApply={(color) =>
+                editor
+                  .chain()
+                  .focus()
+                  .setCellAttribute('backgroundColor', color)
+                  .run()
+              }
+              onClose={close}
+            />
+          </>
+        )}
       </ToolbarDropdown>
 
       <Divider className="bg-amber-200" />
