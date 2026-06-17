@@ -39,32 +39,195 @@ import {
   getTextBlockLabel,
 } from "./toolbarOptions";
 import { getToolbarSelectionFormatting } from "./selectionFormatting";
+import { MathFormulaControl } from "./MathFormulaControl";
 
 export interface EditorToolbarProps {
   editor: Editor;
 }
 
+function isToolbarEditorReady(editor: Editor | null | undefined): editor is Editor {
+  return Boolean(
+    editor &&
+      !editor.isDestroyed &&
+      editor.view &&
+      editor.extensionManager,
+  );
+}
+
+function getEditorCan(editor: Editor): ReturnType<Editor["can"]> | null {
+  try {
+    return editor.can();
+  } catch {
+    return null;
+  }
+}
+
+type ToolbarState = {
+  isEditable: boolean;
+
+  hasMathematics: boolean;
+
+  canUndo: boolean;
+  canRedo: boolean;
+  canBlockquote: boolean;
+  canCodeBlock: boolean;
+  canBold: boolean;
+  canItalic: boolean;
+  canStrike: boolean;
+  canCode: boolean;
+
+  isTextBlockMixed: boolean;
+  isHeading: boolean;
+  isParagraph: boolean;
+  isHeading1: boolean;
+  isHeading2: boolean;
+  isHeading3: boolean;
+  isHeading4: boolean;
+
+  isBulletList: boolean;
+  isOrderedList: boolean;
+  isTaskList: boolean;
+  canRemoveList: boolean;
+  bulletListStyle: BulletListStyle;
+  orderedListStyle: OrderedListStyle;
+
+  isBlockquote: boolean;
+  isCodeBlock: boolean;
+
+  isCallout: boolean;
+  calloutVariant: ReturnType<typeof normalizeCalloutVariant>;
+
+  isBold: boolean;
+  isItalic: boolean;
+  isStrike: boolean;
+  isCode: boolean;
+  isUnderline: boolean;
+
+  textColor: string | null;
+  hasTextColor: boolean;
+
+  isHighlight: boolean;
+  highlightColor: string | null;
+
+  isLink: boolean;
+  linkHref: string;
+
+  isSuperscript: boolean;
+  isSubscript: boolean;
+
+  alignLeft: boolean;
+  alignCenter: boolean;
+  alignRight: boolean;
+  alignJustify: boolean;
+
+  lineHeight: string | null;
+  fontFamily: string | null;
+  fontSize: string | null;
+};
+
+const EMPTY_TOOLBAR_STATE: ToolbarState = {
+  isEditable: false,
+
+  hasMathematics: false,
+
+  canUndo: false,
+  canRedo: false,
+  canBlockquote: false,
+  canCodeBlock: false,
+  canBold: false,
+  canItalic: false,
+  canStrike: false,
+  canCode: false,
+
+  isTextBlockMixed: false,
+  isHeading: false,
+  isParagraph: false,
+  isHeading1: false,
+  isHeading2: false,
+  isHeading3: false,
+  isHeading4: false,
+
+  isBulletList: false,
+  isOrderedList: false,
+  isTaskList: false,
+  canRemoveList: false,
+  bulletListStyle: "disc",
+  orderedListStyle: "decimal",
+
+  isBlockquote: false,
+  isCodeBlock: false,
+
+  isCallout: false,
+  calloutVariant: normalizeCalloutVariant(null),
+
+  isBold: false,
+  isItalic: false,
+  isStrike: false,
+  isCode: false,
+  isUnderline: false,
+
+  textColor: null,
+  hasTextColor: false,
+
+  isHighlight: false,
+  highlightColor: null,
+
+  isLink: false,
+  linkHref: "",
+
+  isSuperscript: false,
+  isSubscript: false,
+
+  alignLeft: false,
+  alignCenter: false,
+  alignRight: false,
+  alignJustify: false,
+
+  lineHeight: null,
+  fontFamily: null,
+  fontSize: null,
+};
+
 export default function EditorToolbar({ editor }: EditorToolbarProps) {
+  
   const toolbarState = useEditorState({
     editor,
     selector: ({ editor: currentEditor }) => {
+      if (!isToolbarEditorReady(currentEditor)) {
+        return EMPTY_TOOLBAR_STATE;
+      }
+
+      const can = getEditorCan(currentEditor);
+
+      // During editor teardown or Fast Refresh, Tiptap may expose an editor instance
+      // before its command manager is ready. In that case, fall back to a disabled
+      // toolbar state instead of calling command checks like can.undo().
+      if (!can) {
+        return EMPTY_TOOLBAR_STATE;
+      }
       const selectionFormatting = getToolbarSelectionFormatting(currentEditor);
       const selectedTextBlock = selectionFormatting.textBlock;
       const selectedHeadingLevel = selectedTextBlock?.startsWith("heading:")
         ? Number(selectedTextBlock.replace("heading:", ""))
         : null;
-
+      
       return {
         isEditable: currentEditor.isEditable,
 
-        canUndo: currentEditor.can().undo(),
-        canRedo: currentEditor.can().redo(),
-        canBlockquote: currentEditor.can().toggleBlockquote(),
-        canCodeBlock: currentEditor.can().toggleCodeBlock(),
-        canBold: currentEditor.can().toggleBold(),
-        canItalic: currentEditor.can().toggleItalic(),
-        canStrike: currentEditor.can().toggleStrike(),
-        canCode: currentEditor.can().toggleCode(),
+        hasMathematics: Boolean(
+          currentEditor.extensionManager?.extensions?.some(
+            (extension) =>
+              extension.name === "Mathematics" || extension.name === "mathematics",
+          ),
+        ),
+        canUndo: can.undo(),
+        canRedo: can.redo(),
+        canBlockquote: can.toggleBlockquote(),
+        canCodeBlock: can.toggleCodeBlock(),
+        canBold: can.toggleBold(),
+        canItalic: can.toggleItalic(),
+        canStrike: can.toggleStrike(),
+        canCode: can.toggleCode(),
 
         isTextBlockMixed: selectedTextBlock === null,
         isHeading: selectedHeadingLevel !== null,
@@ -77,8 +240,8 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
         isOrderedList: currentEditor.isActive("orderedList"),
         isTaskList: currentEditor.isActive("taskList"),
         canRemoveList:
-          currentEditor.can().liftListItem("listItem") ||
-          currentEditor.can().liftListItem("taskItem"),
+          can.liftListItem("listItem") ||
+          can.liftListItem("taskItem"),
         bulletListStyle: String(
           currentEditor.getAttributes("bulletList").listStyle ?? "disc",
         ) as BulletListStyle,
@@ -712,6 +875,10 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
             x<sub>2</sub>
           </span>
         </ToolbarButton>
+
+        {toolbarState.hasMathematics && (
+          <MathFormulaControl editor={editor} />
+        )}
 
         <Divider />
 

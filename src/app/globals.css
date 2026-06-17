@@ -1,3 +1,4 @@
+@import 'katex/dist/katex.min.css';
 @import '../features/editor/styles/tiptap-table.css';
 @import '../features/editor/styles/tiptap-content-blocks.css';
 @import "tailwindcss";

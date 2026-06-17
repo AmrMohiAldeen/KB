@@ -104,6 +104,7 @@ export const Accordion = Node.create({
   content: 'accordionItem+',
   defining: true,
   isolating: true,
+  draggable: true,
 
   parseHTML() {
     return [{ tag: 'div[data-kb-accordion]' }];

@@ -1,7 +1,6 @@
 import { Extension } from '@tiptap/core';
 import type { Plugin } from '@tiptap/pm/state';
 import { RowResizePlugin } from '../plugins/RowResizePlugin';
-import { TableDragHandlePlugin } from '../plugins/TableDragHandlePlugin';
 import { TableOuterResizePlugin } from '../plugins/TableOuterResizePlugin';
 import {
   KnowledgeBaseTableCell,
@@ -32,5 +31,4 @@ export const tableExtensions = [
   TableCellFormatting,
   createPluginExtension('rowResize', RowResizePlugin),
   createPluginExtension('tableOuterResize', TableOuterResizePlugin),
-  createPluginExtension('tableDragHandle', TableDragHandlePlugin),
 ];

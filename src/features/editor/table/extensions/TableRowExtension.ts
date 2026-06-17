@@ -9,6 +9,7 @@ function readLegacyCellRowHeight(row: HTMLElement): number | null {
   );
 }
 
+// Created rowheightAttribute to allow row resizing 
 const rowHeightAttribute: Attribute = {
   default: null,
   parseHTML: (element) =>
@@ -26,6 +27,7 @@ const rowHeightAttribute: Attribute = {
   },
 };
 
+// Added rowHeight attribute to TableRow 
 export const KnowledgeBaseTableRow = TableRow.extend({
   addAttributes() {
     return {

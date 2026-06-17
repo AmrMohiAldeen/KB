@@ -44,7 +44,7 @@ export default function EditorWorkspace() {
         {saveStatus === "saved" && "Saved"}
         {saveStatus === "failed" && "Autosave failed"}
       </div>
-      //todo: useAsync implement
+
       <EditorCanvas
         onChange={handleContentChange}
         onChangeError={handleAutosaveError}

@@ -5,32 +5,8 @@ import { CellSelection, TableMap } from '@tiptap/pm/tables';
 import { TextSelection } from '@tiptap/pm/state';
 import { afterEach, describe, expect, it } from 'vitest';
 import { getEditorExtensions } from '../../extensions';
-import {
-  createTableMoveTransaction,
-  getTableDragIntent,
-} from '../plugins/TableDragHandlePlugin';
 import { rowResizePluginKey } from '../plugins/RowResizePlugin';
 import { tableOuterResizePluginKey } from '../plugins/TableOuterResizePlugin';
-
-type DataTransferStub = {
-  values: Map<string, string>;
-  clearData: () => void;
-  setData: (type: string, value: string) => void;
-  getData: (type: string) => string;
-  effectAllowed: string;
-};
-
-function createDataTransfer(): DataTransferStub {
-  const values = new Map<string, string>();
-
-  return {
-    values,
-    clearData: () => values.clear(),
-    setData: (type, value) => values.set(type, value),
-    getData: (type) => values.get(type) ?? '',
-    effectAllowed: 'none',
-  };
-}
 
 function pluginMouseEvent(
   type: 'mousedown' | 'mousemove',
@@ -69,7 +45,7 @@ describe('table extensions integration', () => {
     editor = null;
   });
 
-  it('creates a full-width table with a visible drag handle', () => {
+  it('creates a full-width table without the legacy table drag handle plugin', () => {
     const element = document.createElement('div');
     document.body.append(element);
     editor = new Editor({ element, extensions: getEditorExtensions() });
@@ -77,27 +53,11 @@ describe('table extensions integration', () => {
     editor.commands.insertTable({ rows: 3, cols: 3, withHeaderRow: true });
 
     const table = element.querySelector<HTMLTableElement>('table');
-    const handle = element.querySelector<HTMLButtonElement>('.table-drag-handle');
 
     expect(table?.dataset.tableWidthPct).toBe('100');
     expect(table?.style.getPropertyValue('--table-width-pct')).toBe('100%');
     expect(table?.dataset.tableOffsetPct).toBe('0');
-    expect(handle?.draggable).toBe(false);
-  });
-
-  it('activates horizontal and vertical table drag intent independently', () => {
-    expect(getTableDragIntent(2, 3)).toEqual({
-      horizontal: false,
-      vertical: false,
-    });
-    expect(getTableDragIntent(8, 3)).toEqual({
-      horizontal: true,
-      vertical: false,
-    });
-    expect(getTableDragIntent(30, -9)).toEqual({
-      horizontal: true,
-      vertical: true,
-    });
+    expect(element.querySelector('.table-drag-handle')).toBeNull();
   });
 
   it('persists border settings through JSON and HTML rendering', () => {
@@ -592,39 +552,7 @@ describe('table extensions integration', () => {
     },
   );
 
-  it('moves a table one block down with a single transaction', () => {
-    const element = document.createElement('div');
-    document.body.append(element);
-    editor = new Editor({ element, extensions: getEditorExtensions() });
-    editor.commands.insertTable({ rows: 2, cols: 2, withHeaderRow: true });
-
-    const tr = createTableMoveTransaction(editor.state, 0, editor.state.doc.content.size);
-    expect(tr).not.toBeNull();
-
-    editor.view.dispatch(tr!);
-    expect(editor.state.doc.child(0).type.name).toBe('paragraph');
-    expect(editor.state.doc.child(1).type.name).toBe('table');
-  });
-
-  it('prevents native drag sessions without detaching the controlled handle', () => {
-    const element = document.createElement('div');
-    document.body.append(element);
-    editor = new Editor({ element, extensions: getEditorExtensions() });
-    editor.commands.insertTable({ rows: 2, cols: 2, withHeaderRow: true });
-
-    const handle = element.querySelector<HTMLButtonElement>('.table-drag-handle');
-    const dataTransfer = createDataTransfer();
-    const dragStart = new Event('dragstart', { bubbles: true, cancelable: true });
-    Object.defineProperty(dragStart, 'dataTransfer', { value: dataTransfer });
-
-    handle?.dispatchEvent(dragStart);
-
-    expect(dragStart.defaultPrevented).toBe(true);
-    expect(dataTransfer.effectAllowed).toBe('none');
-    expect(handle?.isConnected).toBe(true);
-  });
-
-  it('keeps table mutation handles inert while the editor is read-only', () => {
+  it('keeps table resize mutation handles inert while the editor is read-only', () => {
     const element = document.createElement('div');
     document.body.append(element);
     editor = new Editor({
@@ -635,22 +563,6 @@ describe('table extensions integration', () => {
     editor.commands.insertTable({ rows: 2, cols: 2, withHeaderRow: true });
 
     const before = editor.getJSON();
-    const handle = element.querySelector<HTMLButtonElement>('.table-drag-handle');
-    const dataTransfer = createDataTransfer();
-    const dragStart = new Event('dragstart', { bubbles: true, cancelable: true });
-    Object.defineProperty(dragStart, 'dataTransfer', { value: dataTransfer });
-    handle?.dispatchEvent(dragStart);
-    handle?.dispatchEvent(
-      new MouseEvent('mousedown', {
-        button: 0,
-        clientX: 10,
-        clientY: 10,
-        bubbles: true,
-        cancelable: true,
-      }),
-    );
-    window.dispatchEvent(new MouseEvent('mousemove', { clientX: 100, clientY: 100 }));
-    window.dispatchEvent(new MouseEvent('mouseup'));
     callPluginMouseEvent(
       editor,
       rowResizePluginKey.get(editor.state),
@@ -667,34 +579,8 @@ describe('table extensions integration', () => {
     window.dispatchEvent(new MouseEvent('mouseup'));
 
     expect(editor.view.editable).toBe(false);
-    expect(handle?.hidden).toBe(true);
-    expect(handle?.draggable).toBe(false);
-    expect(dataTransfer.effectAllowed).toBe('none');
+    expect(element.querySelector('.table-drag-handle')).toBeNull();
     expect(editor.getJSON()).toEqual(before);
-  });
-
-  it('cancels a controlled table drag when the table is deleted', () => {
-    const element = document.createElement('div');
-    document.body.append(element);
-    editor = new Editor({ element, extensions: getEditorExtensions() });
-    editor.commands.insertTable({ rows: 2, cols: 2, withHeaderRow: true });
-
-    const handle = element.querySelector<HTMLButtonElement>('.table-drag-handle')!;
-    handle.dispatchEvent(
-      new MouseEvent('mousedown', {
-        button: 0,
-        clientX: 10,
-        clientY: 10,
-        bubbles: true,
-        cancelable: true,
-      }),
-    );
-    window.dispatchEvent(new MouseEvent('mousemove', { clientX: 40, clientY: 40 }));
-
-    expect(editor.commands.deleteTable()).toBe(true);
-    expect(() => window.dispatchEvent(new MouseEvent('mouseup'))).not.toThrow();
-    expect(editor.state.doc.firstChild?.type.name).not.toBe('table');
-    expect(document.querySelector('.kb-block-drop-indicator')).toBeNull();
   });
 
   it.each([

@@ -713,9 +713,7 @@ describe('editor document resilience', () => {
     expect(editor.view.dom.querySelector('.kb-tab-card__title-input')).toBeNull();
     expect(editor.view.dom.querySelector('.kb-accordion__title-input')).toBeNull();
     expect(editor.view.dom.querySelector('[aria-label="Add tab"]')).toBeNull();
-    expect(
-      editor.view.dom.querySelectorAll('.table-drag-handle:not([hidden])'),
-    ).toHaveLength(0);
+    expect(editor.view.dom.querySelector('.table-drag-handle')).toBeNull();
     paste(editor, { html: '<p>Blocked paste</p>', text: 'Blocked paste' });
     expect(editor.getJSON()).toEqual(before);
 

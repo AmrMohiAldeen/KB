@@ -577,7 +577,7 @@ def build_document():
             "KnowledgeBaseEditor creates a client-side Tiptap Editor with getEditorExtensions().",
             "getEditorExtensions() registers the standard editor extensions, TableKit with selected defaults disabled, and the custom tableExtensions array.",
             "The custom KnowledgeBaseTable replaces the default table node, while custom cell and header extensions add persisted rowHeight attributes.",
-            "RowResizePlugin, TableOuterResizePlugin, and TableDragHandlePlugin are wrapped as Tiptap extensions and installed as ProseMirror plugins.",
+            "RowResizePlugin and TableOuterResizePlugin are wrapped as Tiptap extensions and installed as ProseMirror plugins; block/table reordering is handled by the official Tiptap DragHandle React integration.",
             "EditorToolbar renders the global table creation picker and the context-sensitive TableControls component.",
         ],
     )
@@ -938,21 +938,20 @@ def build_document():
         "info",
     )
 
-    add_heading(document, "10. Table Dragging, Positioning, and Reordering", level=1)
+    add_heading(document, "10. Table Resizing and Block Reordering", level=1)
     add_heading(document, "10.1 Drag handle", level=2)
     add_para(
         document,
-        "TableDragHandlePlugin creates a button decoration only for the active table. The handle is "
-        "hidden and non-draggable in read-only mode. Clicking it creates a table NodeSelection. "
-        "Starting a drag serializes the table node to clipboard-compatible HTML and text without "
-        "detaching the decoration.",
+        "The editor shell mounts Tiptap's official DragHandle React component for editable editors. "
+        "It owns node dragging and reordering for tables and other supported blocks, and is not "
+        "mounted in read-only mode.",
     )
-    add_heading(document, "10.2 Dominant-axis behavior", level=2)
+    add_heading(document, "10.2 Resize behavior", level=2)
     add_para(
         document,
-        "After a small threshold, the drag locks to horizontal or vertical movement. Horizontal "
-        "movement adjusts tableOffsetPct. Vertical movement moves the table as a top-level "
-        "ProseMirror node. Once chosen, the axis does not change during the drag.",
+        "Table-specific mouse sessions remain scoped to resizing: TableOuterResizePlugin updates "
+        "tableWidthPct and compensates tableOffsetPct when needed, while RowResizePlugin updates "
+        "rowHeight. Reordering no longer uses table-specific custom drag transactions.",
     )
     add_table(
         document,
@@ -1040,8 +1039,8 @@ def build_document():
         (
             "src/features/editor/table/extensions/index.ts",
             "Composition root for the table subsystem.",
-            "Configures the custom table, row-height cells/headers, and three custom ProseMirror plugins.",
-            "KnowledgeBaseTable, TableCellExtensions, RowResizePlugin, TableOuterResizePlugin, TableDragHandlePlugin",
+            "Configures the custom table, row-height cells/headers, and table resize ProseMirror plugins.",
+            "KnowledgeBaseTable, TableCellExtensions, RowResizePlugin, TableOuterResizePlugin",
             "Plugin extensions are intentionally small wrappers; keep table-wide configuration here.",
         ),
         (
@@ -1085,13 +1084,6 @@ def build_document():
             "Detects the right edge, previews percentage width, adjusts offset, and commits one undoable node attribute change.",
             "tableDom, tableDimensions, mouseDragSession, ProseMirror decorations/history",
             "The right-edge vertical-bound check prevents resize activation beside but outside the table.",
-        ),
-        (
-            "src/features/editor/table/plugins/TableDragHandlePlugin.ts",
-            "Whole-table dragging and horizontal positioning.",
-            "Creates the drag handle, serializes drag payload, locks axis, moves top-level table nodes, or persists horizontal offset.",
-            "dropPoint, NodeSelection, tableDom, tableDimensions",
-            "Vertical drop placement is based on target midpoint; nested/non-table positions fail safely.",
         ),
         (
             "src/features/editor/table/resizing/tableDimensions.ts",
@@ -1424,7 +1416,7 @@ def build_document():
             ["Move row", "reorderTableRow", "moveTableRow plus full header normalization."],
             ["Resize outer table", "TableOuterResizePlugin", "Updates tableWidthPct and possibly tableOffsetPct."],
             ["Resize row", "RowResizePlugin", "Updates rowHeight on unique participating cells."],
-            ["Move/position whole table", "TableDragHandlePlugin", "Moves table node vertically or updates tableOffsetPct horizontally."],
+            ["Move whole table", "EditorDragHandle", "Official Tiptap DragHandle React moves the table node as a block."],
         ],
         [2500, 3100, 3760],
         font_size=8.8,

@@ -502,7 +502,7 @@ describe('tabs and accordions', () => {
     ).toBe(true);
   });
 
-  it('shows the shared drag handle for selected content blocks', () => {
+  it('does not register the legacy selected-content drag handle plugin', () => {
     const editor = createEditor({
       content: {
         type: 'doc',
@@ -518,12 +518,7 @@ describe('tabs and accordions', () => {
       ),
     );
 
-    const handle = editor.view.dom.querySelector<HTMLButtonElement>(
-      '.content-block-drag-handle',
-    );
-    expect(handle?.ariaLabel).toBe('Drag content block');
-    expect(handle?.draggable).toBe(true);
-    expect(handle?.classList.contains('kb-block-drag-handle')).toBe(true);
+    expect(editor.view.dom.querySelector('.content-block-drag-handle')).toBeNull();
   });
 
   it('hands active table selection to content block controls before mutations', () => {

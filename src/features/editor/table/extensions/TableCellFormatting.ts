@@ -1,3 +1,5 @@
+// This extension enables the editor to add formatting options (Marks) to empty table cells 
+
 import { Extension, type CommandProps } from '@tiptap/core';
 import type { Mark } from '@tiptap/pm/model';
 import { Plugin } from '@tiptap/pm/state';
@@ -5,6 +7,8 @@ import { CellSelection } from '@tiptap/pm/tables';
 
 export type CellDefaultMarks = Record<string, Record<string, unknown>>;
 
+// Adding commands to the tiptap module so that the editor can call commands like this: 
+// editor.chain().focus().setEmptyCellDefaultMark("textStyle", {fontSize: "14px",}).run();
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
     tableCellFormatting: {
@@ -18,6 +22,7 @@ declare module '@tiptap/core' {
 }
 
 function normalizeDefaultMarks(value: unknown): CellDefaultMarks | null {
+  // accepts the following format: { textStyle: { fontSize: "14px" } }
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
 
   const normalized: CellDefaultMarks = {};
@@ -25,11 +30,13 @@ function normalizeDefaultMarks(value: unknown): CellDefaultMarks | null {
     if (!attributes || typeof attributes !== 'object' || Array.isArray(attributes)) {
       return;
     }
-    normalized[name] = { ...attributes as Record<string, unknown> };
+
+    normalized[name] = { ...attributes as Record<string, unknown> }; // copies the attributes safely
   });
   return Object.keys(normalized).length > 0 ? normalized : null;
 }
 
+// custome HTML attribute
 export const cellDefaultMarksAttribute = {
   default: null,
   parseHTML: (element: HTMLElement) => {
@@ -48,11 +55,12 @@ export const cellDefaultMarksAttribute = {
 };
 
 function updateDefaultMarks(
-  props: Pick<CommandProps, 'tr'>,
+  props: Pick<CommandProps, 'tr'>, // tr: the current ProseMirror transaction.
   updater: (current: CellDefaultMarks) => CellDefaultMarks | null,
-  includeNonEmpty = false,
+  includeNonEmpty = false, //  whether to also modify cells that already contain text.
 ): boolean {
-  const { tr } = props;
+  // Gets the transaction and selection.
+  const { tr } = props; 
   const { selection } = tr;
   let updated = false;
 
@@ -67,11 +75,14 @@ function updateDefaultMarks(
     updated = true;
   };
 
+  // Handling multi-cell selection
   if (selection instanceof CellSelection) {
     selection.forEachCell(updateCell);
     return updated;
   }
 
+  //Handling normal cursor inside one cell
+  // $from is basically where your cursor is, you go up in the DOM until you reach the cell 
   const { $from } = selection;
   for (let depth = $from.depth; depth > 0; depth -= 1) {
     const cell = $from.node(depth);
@@ -84,6 +95,7 @@ function updateDefaultMarks(
 }
 
 function marksForEmptyCell(props: Pick<CommandProps, 'state'>): Mark[] | null {
+  // Reads the current editor state and cursor position.
   const { state } = props;
   const { $from } = state.selection;
   for (let depth = $from.depth; depth > 0; depth -= 1) {
@@ -91,10 +103,14 @@ function marksForEmptyCell(props: Pick<CommandProps, 'state'>): Mark[] | null {
     if (cell.type.spec.tableRole !== 'cell' && cell.type.spec.tableRole !== 'header_cell') {
       continue;
     }
-    if (cell.textContent.length > 0) return null;
+    // If the cell already has text, do nothing. The marks are already on the text so we dont need to do anything
+    if (cell.textContent.length > 0) return null; 
 
+    // If the empty cell has no default formatting, do nothing.
     const defaults = normalizeDefaultMarks(cell.attrs.defaultMarks);
     if (!defaults) return null;
+
+    // Creating actual marks
     return Object.entries(defaults).flatMap(([name, attributes]) => {
       const markType = state.schema.marks[name];
       return markType ? [markType.create(attributes)] : [];
@@ -103,9 +119,13 @@ function marksForEmptyCell(props: Pick<CommandProps, 'state'>): Mark[] | null {
   return null;
 }
 
+
+// Creates a Tiptap extension called tableCellFormatting
 export const TableCellFormatting = Extension.create({
   name: 'tableCellFormatting',
 
+  //Usage example:
+  // editor.chain().focus().setEmptyCellDefaultMark("textStyle", {fontSize: "14px", }).run();
   addCommands() {
     return {
       setEmptyCellDefaultMark:
@@ -140,9 +160,12 @@ export const TableCellFormatting = Extension.create({
     };
   },
 
+  // This plugin is only for a normal cursor inside one empty cell.
+  // It adds low-level behavior after editor transactions happen.
   addProseMirrorPlugins() {
     return [
       new Plugin({
+        // appendTransaction can inspect what just happened and optionally add another transaction.
         appendTransaction: (transactions, _oldState, newState) => {
           if (!transactions.some((transaction) => transaction.selectionSet)) return null;
           if (newState.selection instanceof CellSelection) return null;
@@ -155,7 +178,7 @@ export const TableCellFormatting = Extension.create({
           ) {
             return null;
           }
-          return newState.tr.setStoredMarks(marks);
+          return newState.tr.setStoredMarks(marks); // The next text typed should use these marks.
         },
       }),
     ];

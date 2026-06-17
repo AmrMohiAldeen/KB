@@ -81,6 +81,7 @@ export const Tabs = Node.create({
   content: 'tabItem+',
   defining: true,
   isolating: true,
+  draggable: true,
 
   parseHTML() {
     return [{ tag: 'div[data-kb-tabs]' }];

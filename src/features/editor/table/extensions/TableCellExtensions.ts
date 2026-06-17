@@ -38,6 +38,10 @@ const backgroundColorAttribute: Attribute = {
   },
 };
 
+// Added the following attributes to cells:
+// rowHeight: in old browsers formatting row height on <tr> can lead to unexpected behavior 
+// backgroundColor
+// defaultMarks: to allow formatting empty cells (text written later will have this formatting) 
 const cellAttributes = () => ({
   rowHeight: legacyRowHeightAttribute,
   backgroundColor: backgroundColorAttribute,

@@ -1,3 +1,6 @@
+// This file’s job is to inspect the current editor selection and return shared toolbar formatting values,
+//  or null when the selection has mixed formatting.
+
 import type { Editor } from '@tiptap/core';
 import type { Mark, Node as ProseMirrorNode } from '@tiptap/pm/model';
 import type { EditorState } from '@tiptap/pm/state';
@@ -27,7 +30,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
+// returns null if mixed values, returns value if shared value
+// looks at one mark at a time
 function createSharedValueCollector<T>() {
+
   let hasValue = false;
   let isMixed = false;
   let sharedValue: T | undefined;
@@ -75,6 +81,7 @@ function normalizeAttribute(value: unknown, options: SharedValueReaderOptions) {
   return (options.normalize ?? normalizeStringAttribute)(value, options.defaultValue);
 }
 
+//cellDefaultMarksAttribute is a custome attribute implemented in '/table/extensions/TableCellFormatting.ts'
 function readCellDefaultMarkAttribute(
   cell: ProseMirrorNode,
   options: SharedValueReaderOptions,
@@ -89,6 +96,7 @@ function readCellDefaultMarkAttribute(
 }
 
 function getEmptyCellAtSelection(state: EditorState) {
+   // $from is basically where your cursor is, you go up in the DOM until you reach the cell 
   const { $from } = state.selection;
 
   for (let depth = $from.depth; depth > 0; depth -= 1) {
@@ -203,7 +211,7 @@ export function readSharedTextBlock(state: EditorState): TextBlockValue | null {
       });
     });
 
-    return collector.getValue(() => selection.$from.parent.type.name);
+    return collector.getValue(() => getTextBlockValue(selection.$from.parent) ?? selection.$from.parent.type.name,);
   }
 
   state.doc.nodesBetween(selection.from, selection.to, (node) => {
@@ -212,7 +220,7 @@ export function readSharedTextBlock(state: EditorState): TextBlockValue | null {
     return false;
   });
 
-  return collector.getValue(() => selection.$from.parent.type.name);
+  return collector.getValue(() => getTextBlockValue(selection.$from.parent) ?? selection.$from.parent.type.name,);
 }
 
 export function getToolbarSelectionFormatting(

@@ -45,9 +45,17 @@
   box-shadow: 0 0 0 5px rgb(59 130 246 / 0.12);
 }
 
-:is(.tiptap, .ProseMirror) .kb-block-drag-handle {
+.kb-editor-content {
+  position: relative;
+  overflow: visible;
+}
+
+.kb-block-drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   position: absolute;
-  z-index: 10;
+  z-index: 50;
   width: 20px;
   height: 20px;
   padding: 0;
@@ -59,26 +67,17 @@
   user-select: none;
 }
 
-:is(.tiptap, .ProseMirror) .kb-block-drag-handle:active {
+.kb-block-drag-handle:active {
   cursor: grabbing;
 }
 
-:is(.tiptap, .ProseMirror) .kb-block-drag-handle::before {
+.kb-block-drag-handle::before {
   display: block;
   width: 10px;
   height: 10px;
   margin: 4px auto;
   background: radial-gradient(#9ca3af 2px, transparent 3px) 0 0 / 5px 5px;
   content: '';
-}
-
-.kb-block-drop-indicator {
-  position: fixed;
-  z-index: 100;
-  border-radius: 999px;
-  background: rgb(59 130 246 / 0.85);
-  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.8);
-  pointer-events: none;
 }
 
 .ProseMirror a {
