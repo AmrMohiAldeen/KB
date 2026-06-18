@@ -61,6 +61,7 @@ export const getEditorExtensions = (options: EditorExtensionOptions = {}) => {
     Superscript,
     Subscript,
     TaskList,
+    
     TextAlign.configure({
     types: ['paragraph', 'heading'],
     alignments: ['left', 'center', 'right', 'justify'],

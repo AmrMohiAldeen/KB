@@ -1,5 +1,6 @@
 import { normalizeCalloutVariant } from '../contentBlocks/callout/model';
 import { normalizeLinkUrl } from '../components/linkUrl';
+import { logDevError } from '../utils/logDevError';
 
 type ListTagName = 'ol' | 'ul';
 
@@ -14,6 +15,13 @@ type WordListContext = {
   tagName: ListTagName;
 };
 
+const MAX_PASTED_HTML_LENGTH = 1_000_000;
+const MAX_PASTED_NODE_COUNT = 20_000;
+const MAX_SANITIZE_DEPTH = 80;
+
+// Raw pasted media and embedded content is intentionally removed here.
+// Approved media must go through the backend upload flow and be inserted as
+// safe media references instead of stored as pasted HTML, URLs, or base64 data.
 const DROP_WITH_CONTENT = new Set([
   'applet',
   'area',
@@ -174,6 +182,31 @@ const ORDERED_LIST_STYLES = new Set([
 
 const BULLET_LIST_STYLES = new Set(['circle', 'disc', 'square']);
 
+const CELL_TEXT_ALIGN_VALUES = new Set(['center', 'left', 'right']);
+const BLOCK_TEXT_ALIGN_VALUES = new Set(['center', 'justify', 'left', 'right']);
+const TEXT_ALIGN_STYLE_TAGS = new Set(['h1', 'h2', 'h3', 'h4', 'p', 'td', 'th']);
+const TEXT_DECORATION_FORMATTING_TAGS = new Set(['del', 's', 'strike', 'u']);
+
+const DIV_KB_ATTRIBUTE_NAMES = new Set<string>([
+  'data-kb-accordion',
+  'data-kb-accordion-panel',
+  'data-kb-callout-content',
+  'data-kb-tab-panel',
+  'data-kb-tabs',
+]);
+
+const SECTION_KB_ATTRIBUTE_NAMES = new Set<string>([
+  'data-kb-tab-id',
+  'data-kb-tab-item',
+  'data-kb-tab-label',
+]);
+
+const DETAILS_KB_ATTRIBUTE_NAMES = new Set<string>([
+  'data-kb-accordion-id',
+  'data-kb-accordion-item',
+  'data-kb-accordion-title',
+]);
+
 const TABLE_BORDER_ATTRIBUTES = [
   'data-table-border-top',
   'data-table-border-right',
@@ -188,6 +221,19 @@ const ALLOWED_EXPLICIT_URL_PROTOCOLS = new Set([
   'mailto:',
   'tel:',
 ]);
+
+const LEGACY_FONT_SIZE_MAP = {
+  '1': '10px',
+  '2': '13px',
+  '3': '16px',
+  '4': '18px',
+  '5': '24px',
+  '6': '32px',
+  '7': '48px',
+} as const;
+
+const LOOSE_INLINE_CONTAINER_SELECTOR =
+  'blockquote, li, td, th, [data-kb-callout-content], [data-kb-tab-panel], [data-kb-accordion-panel]';
 
 // Detects dangerous CSS values such as url(), script/data protocols, @import,
 // legacy CSS execution hooks, and dynamic functions like var() or calc().
@@ -228,6 +274,44 @@ function unwrapElement(element: Element): void {
 
 function removeNode(node: Node): void {
   node.parentNode?.removeChild(node);
+}
+
+function hasAcceptableNodeCount(root: Node): boolean {
+  let count = 0;
+  const stack = Array.from(root.childNodes);
+
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (!node) continue;
+
+    count += 1;
+    if (count > MAX_PASTED_NODE_COUNT) return false;
+
+    stack.push(...Array.from(node.childNodes));
+  }
+
+  return true;
+}
+
+function pruneNodesExceedingMaxDepth(root: Node): void {
+  const stack = Array.from(root.childNodes).map((node) => ({
+    depth: 1,
+    node,
+  }));
+
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current) continue;
+
+    if (current.depth > MAX_SANITIZE_DEPTH) {
+      removeNode(current.node);
+      continue;
+    }
+
+    Array.from(current.node.childNodes).forEach((child) => {
+      stack.push({ depth: current.depth + 1, node: child });
+    });
+  }
 }
 
 // changes an element’s tag name while keeping its attributes and children.
@@ -476,15 +560,13 @@ function sanitizeTextDecoration(value: string): string | null {
 
 function sanitizeTextAlign(value: string, element: HTMLElement): string | null {
   const trimmed = value.trim().toLowerCase();
-  const cellAlignments = new Set(['center', 'left', 'right']);
-  const blockAlignments = new Set(['center', 'justify', 'left', 'right']);
   const tagName = getTagName(element);
 
   if (tagName === 'td' || tagName === 'th') {
-    return cellAlignments.has(trimmed) ? trimmed : null;
+    return CELL_TEXT_ALIGN_VALUES.has(trimmed) ? trimmed : null;
   }
 
-  return blockAlignments.has(trimmed) ? trimmed : null;
+  return BLOCK_TEXT_ALIGN_VALUES.has(trimmed) ? trimmed : null;
 }
 
 function sanitizeListStyleType(value: string, element: HTMLElement): string | null {
@@ -544,7 +626,7 @@ function sanitizeStyleProperty(
   if (normalizedProperty === 'text-decoration') return sanitizeTextDecoration(value);
 
   if (normalizedProperty === 'text-align') {
-    return ['h1', 'h2', 'h3', 'h4', 'p', 'td', 'th'].includes(tagName)
+    return TEXT_ALIGN_STYLE_TAGS.has(tagName)
       ? sanitizeTextAlign(value, element)
       : null;
   }
@@ -709,29 +791,15 @@ function isAllowedKbAttribute(tagName: string, attributeName: string): boolean {
   }
 
   if (tagName === 'div') {
-    return [
-      'data-kb-accordion',
-      'data-kb-accordion-panel',
-      'data-kb-callout-content',
-      'data-kb-tab-panel',
-      'data-kb-tabs',
-    ].includes(attributeName);
+    return DIV_KB_ATTRIBUTE_NAMES.has(attributeName);
   }
 
   if (tagName === 'section') {
-    return [
-      'data-kb-tab-id',
-      'data-kb-tab-item',
-      'data-kb-tab-label',
-    ].includes(attributeName);
+    return SECTION_KB_ATTRIBUTE_NAMES.has(attributeName);
   }
 
   if (tagName === 'details') {
-    return [
-      'data-kb-accordion-id',
-      'data-kb-accordion-item',
-      'data-kb-accordion-title',
-    ].includes(attributeName);
+    return DETAILS_KB_ATTRIBUTE_NAMES.has(attributeName);
   }
 
   if (tagName === 'h3') return attributeName === 'data-kb-tab-label-static';
@@ -884,13 +952,7 @@ function collectSafeAttributes(element: HTMLElement): Map<string, string> {
   }
 
   if (tagName === 'div') {
-    [
-      'data-kb-accordion',
-      'data-kb-accordion-panel',
-      'data-kb-callout-content',
-      'data-kb-tab-panel',
-      'data-kb-tabs',
-    ].forEach((attributeName) => {
+    DIV_KB_ATTRIBUTE_NAMES.forEach((attributeName) => {
       if (element.hasAttribute(attributeName)) attributes.set(attributeName, '');
     });
   }
@@ -956,7 +1018,7 @@ function shouldUnwrapFormattingElement(element: HTMLElement): boolean {
   }
 
   if (
-    ['del', 's', 'strike', 'u'].includes(tagName) &&
+    TEXT_DECORATION_FORMATTING_TAGS.has(tagName) &&
     /(?:^|\s)none(?:\s|$)/i.test(element.style.textDecoration)
   ) {
     return true;
@@ -974,16 +1036,9 @@ function normalizeFontElement(element: HTMLElement): HTMLElement {
   if (color) styles.push(`color: ${color}`);
 
   if (size && /^[1-7]$/.test(size)) {
-    const sizeMap: Record<string, string> = {
-      '1': '10px',
-      '2': '13px',
-      '3': '16px',
-      '4': '18px',
-      '5': '24px',
-      '6': '32px',
-      '7': '48px',
-    };
-    styles.push(`font-size: ${sizeMap[size]}`);
+    styles.push(
+      `font-size: ${LEGACY_FONT_SIZE_MAP[size as keyof typeof LEGACY_FONT_SIZE_MAP]}`,
+    );
   }
 
   if (styles.length > 0) {
@@ -1001,7 +1056,18 @@ function normalizeFontElement(element: HTMLElement): HTMLElement {
   return span;
 }
 
-function sanitizeNode(node: Node): void {
+function sanitizeChildNodes(parent: Node, parentDepth: number): void {
+  Array.from(parent.childNodes).forEach((child) =>
+    sanitizeNode(child, parentDepth + 1),
+  );
+}
+
+function sanitizeNode(node: Node, depth: number): void {
+  if (depth > MAX_SANITIZE_DEPTH) {
+    removeNode(node);
+    return;
+  }
+
   if (isTextNode(node)) {
     normalizeTextNode(node);
     return;
@@ -1047,7 +1113,7 @@ function sanitizeNode(node: Node): void {
   }
 
   if (shouldUnwrapFormattingElement(element)) {
-    Array.from(element.childNodes).forEach(sanitizeNode);
+    sanitizeChildNodes(element, depth);
     unwrapElement(element);
     return;
   }
@@ -1057,7 +1123,7 @@ function sanitizeNode(node: Node): void {
       element = replaceElementTag(element, 'p');
       tagName = getTagName(element);
     } else {
-      Array.from(element.childNodes).forEach(sanitizeNode);
+      sanitizeChildNodes(element, depth);
       unwrapElement(element);
       return;
     }
@@ -1067,13 +1133,13 @@ function sanitizeNode(node: Node): void {
     if (BLOCK_LIKE_TAGS.has(tagName) && hasOnlyPhrasingContent(element)) {
       element = replaceElementTag(element, 'p');
     } else {
-      Array.from(element.childNodes).forEach(sanitizeNode);
+      sanitizeChildNodes(element, depth);
       unwrapElement(element);
       return;
     }
   }
 
-  Array.from(element.childNodes).forEach(sanitizeNode);
+  sanitizeChildNodes(element, depth);
   applySanitizedAttributes(element);
 
   if (getTagName(element) === 'a' && !element.hasAttribute('href')) {
@@ -1180,9 +1246,7 @@ function wrapLooseInlineRuns(root: ParentNode): void {
   const containers = [
     root instanceof Element ? root : null,
     ...Array.from(
-      root.querySelectorAll<HTMLElement>(
-        'blockquote, li, td, th, [data-kb-callout-content], [data-kb-tab-panel], [data-kb-accordion-panel]',
-      ),
+      root.querySelectorAll<HTMLElement>(LOOSE_INLINE_CONTAINER_SELECTOR),
     ),
   ].filter((container): container is Element => Boolean(container));
 
@@ -1236,18 +1300,23 @@ function normalizePastedStructure(root: ParentNode): void {
 
 export function sanitizePastedHTML(html: string): string {
   if (!html || typeof DOMParser === 'undefined') return '';
+  if (html.length > MAX_PASTED_HTML_LENGTH) return '';
 
   try {
     const document = new DOMParser().parseFromString(html, 'text/html');
+    if (!hasAcceptableNodeCount(document.body)) return '';
 
+    pruneNodesExceedingMaxDepth(document.body);
     removeComments(document.body);
     normalizeAppleConvertedSpaces(document.body);
     convertWordListParagraphs(document.body);
-    Array.from(document.body.childNodes).forEach(sanitizeNode);
+    sanitizeChildNodes(document.body, 0);
     normalizePastedStructure(document.body);
+    sanitizeChildNodes(document.body, 0);
 
     return document.body.innerHTML;
-  } catch {
+  } catch (error) {
+    logDevError('Paste sanitization failed:', error);
     return '';
   }
 }

@@ -33,6 +33,12 @@ afterEach(() => {
   editors.splice(0).forEach((editor) => editor.destroy());
 });
 
+function sanitizedFragment(html: string): HTMLDivElement {
+  const container = document.createElement('div');
+  container.innerHTML = sanitizePastedHTML(html);
+  return container;
+}
+
 describe('sanitizePastedHTML', () => {
   it('removes scripts, event handlers, unsafe wrappers, and unknown dangerous tags', () => {
     const html = sanitizePastedHTML([
@@ -79,18 +85,36 @@ describe('sanitizePastedHTML', () => {
     expect(html).toContain('href="/kb/article#section"');
   });
 
-  it('removes pasted image HTML instead of storing unsafe or base64 sources', () => {
+  it('removes raw pasted media HTML instead of storing unsafe or base64 sources', () => {
     const html = sanitizePastedHTML([
       '<p>Before</p>',
       '<img src="data:image/png;base64,AAAA" onerror="alert(1)" alt="inline">',
+      '<img src="data:image/gif;base64,BBBB" alt="inline gif">',
       '<img src="https://tracker.example/pixel.png" width="1" height="1">',
+      '<picture><source srcset="data:image/webp;base64,CCCC"><img src="safe.gif"></picture>',
+      '<video controls src="data:video/mp4;base64,DDDD"><source src="clip.mp4"><track src="captions.vtt"></video>',
+      '<audio controls src="data:audio/mp3;base64,EEEE"></audio>',
+      '<object data="movie.swf">Fallback</object>',
+      '<embed src="movie.swf">',
+      '<math><mi>x</mi></math>',
       '<p>After</p>',
     ].join(''));
 
     expect(html).toContain('<p>Before</p>');
     expect(html).toContain('<p>After</p>');
     expect(html).not.toContain('<img');
+    expect(html).not.toContain('<picture');
+    expect(html).not.toContain('<source');
+    expect(html).not.toContain('<video');
+    expect(html).not.toContain('<track');
+    expect(html).not.toContain('<audio');
+    expect(html).not.toContain('<object');
+    expect(html).not.toContain('<embed');
+    expect(html).not.toContain('<math');
     expect(html).not.toContain('data:image');
+    expect(html).not.toContain('data:video');
+    expect(html).not.toContain('data:audio');
+    expect(html).not.toContain('safe.gif');
     expect(html).not.toContain('tracker.example');
   });
 
@@ -120,6 +144,31 @@ describe('sanitizePastedHTML', () => {
     expect(html).toContain('Child');
   });
 
+  it('preserves nested ordered, unordered, and mixed safe lists', () => {
+    const fragment = sanitizedFragment([
+      '<ol><li>Ordered parent<ol><li>Ordered child</li></ol></li></ol>',
+      '<ul><li>Bullet parent<ul><li>Bullet child</li></ul></li></ul>',
+      '<ol><li>Mixed parent<ul><li>Mixed bullet child<ol><li>Mixed ordered grandchild</li></ol></li></ul></li></ol>',
+    ].join(''));
+
+    expect(fragment.querySelector('ol > li > ol > li')?.textContent).toContain(
+      'Ordered child',
+    );
+    expect(fragment.querySelector('ul > li > ul > li')?.textContent).toContain(
+      'Bullet child',
+    );
+
+    const mixedParent = Array.from(fragment.querySelectorAll('ol > li')).find(
+      (item) => item.textContent?.includes('Mixed parent'),
+    );
+    expect(mixedParent?.querySelector('ul > li')?.textContent).toContain(
+      'Mixed bullet child',
+    );
+    expect(mixedParent?.querySelector('ul > li > ol > li')?.textContent).toContain(
+      'Mixed ordered grandchild',
+    );
+  });
+
   it('preserves clean tables with safe spans and supported table attributes', () => {
     const html = sanitizePastedHTML([
       '<table style="width: 65%" onclick="alert(1)">',
@@ -130,7 +179,8 @@ describe('sanitizePastedHTML', () => {
 
     expect(html).toContain('<table');
     expect(html).toContain('data-table-width-pct="65"');
-    expect(html).toContain('style="width: 65%; margin-left: 0%;"');
+    expect(html).toContain('width: 65%');
+    expect(html).toContain('margin-left: 0%');
     expect(html).toContain('<thead>');
     expect(html).toContain('<tbody>');
     expect(html).toContain('colspan="2"');
@@ -150,15 +200,22 @@ describe('sanitizePastedHTML', () => {
       '<p class="MsoListParagraph" style="mso-list:l0 level2 lfo1;margin-left:72pt">',
       '<span style="mso-list:Ignore">a.<span>&nbsp;&nbsp;</span></span>',
       'Nested item</p>',
+      '<p id="docs-internal-guid-123" style="line-height:1.38;margin-top:0pt">',
+      '<span style="font-size:11pt;color:#000000;background-color:transparent;font-weight:700;white-space:pre-wrap">',
+      'Docs text</span></p>',
       '<p><span class="Apple-converted-space">&nbsp;</span>After list</p>',
     ].join(''));
 
     expect(html).toContain('<ol>');
     expect(html).toContain('<strong>First item</strong>');
     expect(html).toContain('Nested item');
+    expect(html).toContain('Docs text');
     expect(html).toContain('<p> After list</p>');
     expect(html).not.toContain('Mso');
     expect(html).not.toContain('mso-list');
+    expect(html).not.toContain('docs-internal-guid');
+    expect(html).not.toContain('white-space');
+    expect(html).not.toContain('margin-top');
     expect(html).not.toContain('Apple-converted-space');
     expect(html).not.toContain('<xml');
     expect(html).not.toContain('<!--');
@@ -235,6 +292,28 @@ describe('sanitizePastedHTML', () => {
     expect(html).toContain('bad');
     expect(html).not.toContain('<script');
     expect(html).not.toContain('vbscript:');
+  });
+
+  it('rejects pasted HTML that exceeds the maximum string length', () => {
+    const html = sanitizePastedHTML(`<p>${'x'.repeat(1_000_001)}</p>`);
+
+    expect(html).toBe('');
+  });
+
+  it('rejects pasted documents with too many DOM nodes', () => {
+    const html = sanitizePastedHTML('<span></span>'.repeat(20_001));
+
+    expect(html).toBe('');
+  });
+
+  it('does not crash on extremely deeply nested HTML', () => {
+    const nestedHtml = `${'<div>'.repeat(120)}Deep safe text${'</div>'.repeat(120)}`;
+    let html = '';
+
+    expect(() => {
+      html = sanitizePastedHTML(nestedHtml);
+    }).not.toThrow();
+    expect(html).not.toContain('Deep safe text');
   });
 
   it('feeds sanitized HTML through the Tiptap paste pipeline', () => {

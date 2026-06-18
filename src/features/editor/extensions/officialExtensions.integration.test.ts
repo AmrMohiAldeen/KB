@@ -1,7 +1,9 @@
 import { Editor, type JSONContent } from '@tiptap/core';
+import { Slice } from '@tiptap/pm/model';
 import { TextSelection, type Plugin } from '@tiptap/pm/state';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getEditorExtensions } from '.';
+import type { EditorFileUploadAdapter } from './FileHandlerIntegration';
 import {
   EDITOR_EXTENSION_BLOCKERS,
   resolveEditorExtensionFeatureFlags,
@@ -9,10 +11,20 @@ import {
 
 const editors: Editor[] = [];
 
+type RuntimePluginKey = {
+  key?: unknown;
+};
+
+function getPluginKeyName(plugin: Plugin): string {
+  const key = plugin.spec.key as RuntimePluginKey | undefined;
+
+  return typeof key?.key === 'string' ? key.key : '';
+}
+
 function createEditor(options: {
   content?: JSONContent | string;
   editable?: boolean;
-  upload?: ReturnType<typeof vi.fn>;
+  upload?: EditorFileUploadAdapter;
   allowedMimeTypes?: readonly string[];
 } = {}): Editor {
   const element = document.createElement('div');
@@ -40,7 +52,7 @@ function file(name: string, type: string): File {
 
 function getFileHandlerPlugin(editor: Editor): Plugin {
   const plugin = editor.state.plugins.find((candidate) =>
-    candidate.key.startsWith('fileHandler$'),
+    getPluginKeyName(candidate).startsWith('fileHandler$'),
   );
   expect(plugin).toBeDefined();
   return plugin!;
@@ -64,10 +76,12 @@ function pasteFiles(
       },
   });
 
-  const handled = getFileHandlerPlugin(editor).props.handlePaste?.(
+  const plugin = getFileHandlerPlugin(editor);
+  const handled = plugin.props.handlePaste?.call(
+    plugin,
     editor.view,
     event as ClipboardEvent,
-    null,
+    Slice.empty,
   );
   return { event, handled };
 }
@@ -88,10 +102,12 @@ function dropFiles(editor: Editor, files: File[]): boolean | void {
   const originalPosAtCoords = editor.view.posAtCoords;
   editor.view.posAtCoords = (() => ({ pos: 1, inside: -1 })) as typeof editor.view.posAtCoords;
   try {
-    return getFileHandlerPlugin(editor).props.handleDrop?.(
+    const plugin = getFileHandlerPlugin(editor);
+    return plugin.props.handleDrop?.call(
+      plugin,
       editor.view,
       event as DragEvent,
-      null,
+      Slice.empty,
       false,
     );
   } finally {
@@ -107,7 +123,7 @@ describe('official Tiptap extension integration', () => {
   it('initializes with the requested public extensions and without legacy drag plugins', () => {
     const extensions = getEditorExtensions({
       fileHandler: {
-        adapter: vi.fn(),
+        adapter: vi.fn<EditorFileUploadAdapter>(),
       },
     });
     const names = extensions.map((extension) => extension.name);
@@ -119,20 +135,24 @@ describe('official Tiptap extension integration', () => {
     expect(names).not.toContain('contentBlockDragHandle');
     expect(names).not.toContain('tableDragHandle');
 
-    const editor = createEditor({ upload: vi.fn() });
+    const editor = createEditor({ upload: vi.fn<EditorFileUploadAdapter>() });
     expect(editor.storage.characterCount.characters()).toBe(0);
-    expect(editor.state.plugins.some((plugin) => plugin.key.startsWith('fileHandler$'))).toBe(
-      true,
-    );
     expect(
       editor.state.plugins.some((plugin) =>
-        /contentBlockDragHandle|tableDragHandle/.test(plugin.key),
+        getPluginKeyName(plugin).startsWith('fileHandler$'),
+      ),
+    ).toBe(true);
+    expect(
+      editor.state.plugins.some((plugin) =>
+        /contentBlockDragHandle|tableDragHandle/.test(
+          getPluginKeyName(plugin),
+        ),
       ),
     ).toBe(false);
   });
 
   it('calls the upload adapter for supported pasted and dropped files', () => {
-    const upload = vi.fn();
+    const upload = vi.fn<EditorFileUploadAdapter>();
     const editor = createEditor({
       upload,
       allowedMimeTypes: ['image/png'],
@@ -149,7 +169,7 @@ describe('official Tiptap extension integration', () => {
   });
 
   it('rejects unsupported file types and does not upload in read-only editors', () => {
-    const upload = vi.fn();
+    const upload = vi.fn<EditorFileUploadAdapter>();
     const editor = createEditor({
       upload,
       allowedMimeTypes: ['image/png'],
@@ -174,7 +194,7 @@ describe('official Tiptap extension integration', () => {
   });
 
   it('leaves HTML transformation to the existing paste sanitizer when files are present', () => {
-    const upload = vi.fn();
+    const upload = vi.fn<EditorFileUploadAdapter>();
     const editor = createEditor({
       content: {
         type: 'doc',
@@ -227,11 +247,18 @@ describe('official Tiptap extension integration', () => {
     editor.view.dom.dispatchEvent(new FocusEvent('blur', { bubbles: false }));
 
     const selectionPlugin = editor.state.plugins.find((plugin) =>
-      plugin.key.startsWith('selection$'),
+      getPluginKeyName(plugin).startsWith('selection$'),
     );
-    const decorations = selectionPlugin?.props.decorations?.(editor.state);
+    const decorations = selectionPlugin?.props.decorations?.call(
+      selectionPlugin,
+      editor.state,
+    );
+    let decorationCount = 0;
+    decorations?.forEachSet((set) => {
+      decorationCount += set.find().length;
+    });
 
-    expect(decorations?.find()).toHaveLength(1);
+    expect(decorationCount).toBe(1);
   });
 
   it('keeps plan/backend dependent extensions feature-flagged with documented blockers', () => {
