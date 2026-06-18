@@ -42,6 +42,7 @@ import { getToolbarSelectionFormatting } from "./selectionFormatting";
 import { LINE_HEIGHTS, DEFAULT_LINE_HEIGHT } from './toolbarOptions';
 import { MathFormulaControl } from "./MathFormulaControl";
 import { YoutubeControl } from "./YoutubeControl";
+import {ImageControl} from "./ImageControl";
 import { List, ListOrdered, ListChecks } from 'lucide-react';
 import { TableOfContentsControl } from "./TableOfContentsControl";
 
@@ -1013,6 +1014,7 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
 
         <YoutubeControl editor={editor} />
 
+        <ImageControl editor={editor}/> 
         <div className="ml-auto text-xs text-muted-foreground">
           {toolbarState.wordCount} words
         </div>

@@ -97,3 +97,11 @@
 .ProseMirror div[data-youtube-video] iframe {
   max-width: 100%;
 }
+
+.ProseMirror > img,
+.ProseMirror p > img:only-child {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 1rem auto;
+}

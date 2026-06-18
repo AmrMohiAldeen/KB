@@ -37,7 +37,7 @@ import {
   type EditorExtensionFeatureFlags,
 } from './editorFeatureFlags';
 import { TableOfContentsBlock } from "./TableOfContentsBlock";
-
+import Image from '@tiptap/extension-image'
 export type EditorExtensionOptions = {
   featureFlags?: Partial<EditorExtensionFeatureFlags>;
   fileHandler?: EditorFileHandlerOptions;
@@ -74,6 +74,7 @@ export const getEditorExtensions = (options: EditorExtensionOptions = {}) => {
     Subscript,
     TaskList,
     Youtube,
+    Image,
     TextAlign.configure({
     types: ['paragraph', 'heading'],
     alignments: ['left', 'center', 'right', 'justify'],
