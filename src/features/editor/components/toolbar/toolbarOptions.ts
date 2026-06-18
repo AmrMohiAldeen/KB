@@ -5,10 +5,19 @@ export type ToolbarOption = {
   value: string;
 };
 
+export type LineHeightValue = (typeof LINE_HEIGHTS)[number]['value'];
 export type FontSizeDirection = 1 | -1;
 
 export const DEFAULT_FONT_FAMILY_LABEL = "Arial";
 export const DEFAULT_FONT_SIZE = 11;
+export const DEFAULT_LINE_HEIGHT = '1';
+
+export const LINE_HEIGHTS: ToolbarOption[] = [
+  { label: '1.0', value: '1' },
+  { label: '1.15', value: '1.15' },
+  { label: '1.5', value: '1.5' },
+  { label: '2.0', value: '2' },
+];
 
 export const TEXT_COLORS: ToolbarOption[] = [
   { label: "Black", value: "#111827" },

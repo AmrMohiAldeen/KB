@@ -39,7 +39,10 @@ import {
   getTextBlockLabel,
 } from "./toolbarOptions";
 import { getToolbarSelectionFormatting } from "./selectionFormatting";
+import { LINE_HEIGHTS, DEFAULT_LINE_HEIGHT } from './toolbarOptions';
 import { MathFormulaControl } from "./MathFormulaControl";
+import { YoutubeControl } from "./YoutubeControl";
+import { List, ListOrdered, ListChecks } from 'lucide-react';
 
 export interface EditorToolbarProps {
   editor: Editor;
@@ -64,6 +67,8 @@ function getEditorCan(editor: Editor): ReturnType<Editor["can"]> | null {
 
 type ToolbarState = {
   isEditable: boolean;
+
+  wordCount: number;
 
   hasMathematics: boolean;
 
@@ -128,6 +133,7 @@ type ToolbarState = {
 const EMPTY_TOOLBAR_STATE: ToolbarState = {
   isEditable: false,
 
+  wordCount: 0,
   hasMathematics: false,
 
   canUndo: false,
@@ -213,6 +219,8 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
       
       return {
         isEditable: currentEditor.isEditable,
+
+        wordCount: currentEditor.storage.characterCount?.words?.() ?? 0,
 
         hasMathematics: Boolean(
           currentEditor.extensionManager?.extensions?.some(
@@ -490,7 +498,7 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
             onActivate={() => applyDefaultBulletList()}
             isActive={toolbarState.isBulletList}
           >
-            • List
+            <List size={18} />
           </ToolbarButton>
 
           <ToolbarDropdown
@@ -525,7 +533,7 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
             onActivate={() => applyDefaultOrderedList()}
             isActive={toolbarState.isOrderedList}
           >
-            1. List
+            <ListOrdered size={18} />
           </ToolbarButton>
 
           
@@ -560,7 +568,7 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
           onActivate={() => editor.chain().focus().toggleTaskList().run()}
           isActive={toolbarState.isTaskList}
         >
-          ☑
+          <ListChecks size={18} />
         </ToolbarButton>
 
         <ToolbarButton
@@ -880,6 +888,7 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
           <MathFormulaControl editor={editor} />
         )}
 
+        
         <Divider />
 
         <ToolbarButton
@@ -935,119 +944,25 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
               />
             </svg>
           }
-          isActive={Boolean(toolbarState.lineHeight && toolbarState.lineHeight !== 'normal')}
+          isActive={Boolean(
+            toolbarState.lineHeight &&
+              toolbarState.lineHeight !== DEFAULT_LINE_HEIGHT
+          )}
         >
-          <DropdownItem
-            onActivate={() =>
-              editor
-                .chain()
-                .focus()
-                .setEmptyCellDefaultMark("textStyle", { lineHeight: null })
-                .unsetLineHeight()
-                .run()
-            }
-            isActive={toolbarState.lineHeight === 'normal'}
-          >
-            Default
-          </DropdownItem>
-
-          <DropdownItem
-            onActivate={() =>
-              editor
-                .chain()
-                .focus()
-                .setEmptyCellDefaultMark("textStyle", { lineHeight: "0.25" })
-                .setLineHeight("0.25")
-                .run()
-            }
-            isActive={toolbarState.lineHeight === "0.25"}
-          >
-            0.25
-          </DropdownItem>
-
-          <DropdownItem
-            onActivate={() =>
-              editor
-                .chain()
-                .focus()
-                .setEmptyCellDefaultMark("textStyle", { lineHeight: "0.5" })
-                .setLineHeight("0.5")
-                .run()
-            }
-            isActive={toolbarState.lineHeight === "0.5"}
-          >
-            0.5
-          </DropdownItem>
-
-          <DropdownItem
-            onActivate={() =>
-              editor
-                .chain()
-                .focus()
-                .setEmptyCellDefaultMark("textStyle", { lineHeight: "0.75" })
-                .setLineHeight("0.75")
-                .run()
-            }
-            isActive={toolbarState.lineHeight === "0.75"}
-          >
-            0.75
-          </DropdownItem>
-
-          <DropdownItem
-            onActivate={() =>
-              editor
-                .chain()
-                .focus()
-                .setEmptyCellDefaultMark("textStyle", { lineHeight: "1" })
-                .setLineHeight("1")
-                .run()
-            }
-            isActive={toolbarState.lineHeight === '1'}
-          >
-            1.0
-          </DropdownItem>
-
-          <DropdownItem
-            onActivate={() =>
-              editor
-                .chain()
-                .focus()
-                .setEmptyCellDefaultMark("textStyle", { lineHeight: "1.15" })
-                .setLineHeight("1.15")
-                .run()
-            }
-            isActive={toolbarState.lineHeight === '1.15'}
-          >
-            1.15
-          </DropdownItem>
-
-          <DropdownItem
-            onActivate={() =>
-              editor
-                .chain()
-                .focus()
-                .setEmptyCellDefaultMark("textStyle", { lineHeight: "1.5" })
-                .setLineHeight("1.5")
-                .run()
-            }
-            isActive={toolbarState.lineHeight === '1.5'}
-          >
-            1.5
-          </DropdownItem>
-
-          <DropdownItem
-            onActivate={() =>
-              editor
-                .chain()
-                .focus()
-                .setEmptyCellDefaultMark("textStyle", { lineHeight: "2" })
-                .setLineHeight("2")
-                .run()
-            }
-            isActive={toolbarState.lineHeight === '2'}
-          >
-            2.0
-          </DropdownItem>
+          {LINE_HEIGHTS.map((option) => (
+            <DropdownItem
+              key={option.value}
+              isActive={toolbarState.lineHeight === option.value}
+              onActivate={() => {
+                const chain = editor.chain().focus()
+                                    .setEmptyCellDefaultMark("textStyle", { lineHeight: option.value })
+                                    .setLineHeight(option.value)
+                                    .run();
+              }}
+            >
+              {option.label}
+            </DropdownItem>
+          ))}
         </ToolbarDropdown>
         <Divider />
 
@@ -1083,6 +998,12 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
             insertTable(editor, rows, cols);
           }}
         />
+
+        <YoutubeControl editor={editor} />
+
+        <div className="ml-auto text-xs text-muted-foreground">
+          {toolbarState.wordCount} words
+        </div>
       </div>
 
       <TableControls editor={editor} />

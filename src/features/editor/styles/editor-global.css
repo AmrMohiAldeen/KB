@@ -84,3 +84,16 @@
   color: rgb(83, 83, 154);
   text-decoration: underline;
 }
+
+.ProseMirror div[data-youtube-video] {
+  display: flex;
+  justify-content: center;
+}
+
+.kb-preserved-selection {
+  background-color: rgba(59, 130, 246, 0.25);
+}
+
+.ProseMirror div[data-youtube-video] iframe {
+  max-width: 100%;
+}

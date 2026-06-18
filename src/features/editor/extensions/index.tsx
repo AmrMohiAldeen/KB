@@ -17,6 +17,7 @@ import { FontSizeShortcuts } from "./FontSizeShortcuts";
 import { contentBlockExtensions } from "../contentBlocks/extensions";
 import { BlockSelection } from "./BlockSelection";
 import { SlashCommandMenu } from "../slashMenu/SlashMenu";
+import {Youtube} from '@tiptap/extension-youtube'
 import {
   PasteSanitizer,
   type PasteSanitizerOptions,
@@ -65,7 +66,7 @@ export const getEditorExtensions = (options: EditorExtensionOptions = {}) => {
     Superscript,
     Subscript,
     TaskList,
-    
+    Youtube,
     TextAlign.configure({
     types: ['paragraph', 'heading'],
     alignments: ['left', 'center', 'right', 'justify'],
