@@ -2,7 +2,27 @@ import { Extension } from '@tiptap/core';
 import { DOMParser as ProseMirrorDOMParser } from '@tiptap/pm/model';
 import { Plugin } from '@tiptap/pm/state';
 import type { EditorView } from '@tiptap/pm/view';
-import { sanitizePastedHTML } from '../paste/sanitizePastedHtml';
+import {
+  sanitizePastedHTMLWithResult,
+  type PasteSanitizeResult,
+} from '../paste/sanitizePastedHtml';
+import { logDevError } from '../utils/logDevError';
+
+type PasteSanitizeFailure = Extract<PasteSanitizeResult, { ok: false }>;
+
+export type PasteSanitizerFailureContext = {
+  inputLength: number;
+  reason: PasteSanitizeFailure['reason'];
+  source: 'text/html' | 'text/plain-html';
+  textLength: number;
+};
+
+export type PasteSanitizerOptions = {
+  onSanitizeFailure?: (
+    failure: PasteSanitizeFailure,
+    context: PasteSanitizerFailureContext,
+  ) => void;
+};
 
 function looksLikeHtml(value: string): boolean {
   return /<\/?[a-z][\s\S]*>/i.test(value.trim());
@@ -47,10 +67,47 @@ function insertPlainText(view: EditorView, text: string): boolean {
   return true;
 }
 
-export const PasteSanitizer = Extension.create({
+function reportSanitizeFailure(
+  failure: PasteSanitizeFailure,
+  context: PasteSanitizerFailureContext,
+  options: PasteSanitizerOptions,
+): void {
+  options.onSanitizeFailure?.(failure, context);
+
+  if (!options.onSanitizeFailure) {
+    logDevError(
+      'Paste sanitization rejected clipboard HTML:',
+      new Error(failure.reason),
+    );
+  }
+}
+
+function sanitizeForPaste(
+  input: string,
+  context: Omit<PasteSanitizerFailureContext, 'reason'>,
+  options: PasteSanitizerOptions,
+): string | null {
+  const result = sanitizePastedHTMLWithResult(input);
+  if (result.ok) return result.html;
+
+  reportSanitizeFailure(
+    result,
+    { ...context, reason: result.reason },
+    options,
+  );
+  return null;
+}
+
+export const PasteSanitizer = Extension.create<PasteSanitizerOptions>({
   name: 'pasteSanitizer',
 
+  addOptions() {
+    return {};
+  },
+
   addProseMirrorPlugins() {
+    const options = this.options;
+
     return [
       new Plugin({
         props: {
@@ -71,7 +128,17 @@ export const PasteSanitizer = Extension.create({
             if (html.trim()) {
               event.preventDefault();
 
-              const cleanHtml = sanitizePastedHTML(html);
+              const cleanHtml = sanitizeForPaste(
+                html,
+                {
+                  inputLength: html.length,
+                  source: 'text/html',
+                  textLength: text.length,
+                },
+                options,
+              );
+
+              if (cleanHtml == null) return true;
 
               if (cleanHtml.trim()) {
                 return insertHtml(view, cleanHtml);
@@ -89,7 +156,17 @@ export const PasteSanitizer = Extension.create({
             if (text.trim() && looksLikeHtml(text)) {
               event.preventDefault();
 
-              const cleanHtml = sanitizePastedHTML(text);
+              const cleanHtml = sanitizeForPaste(
+                text,
+                {
+                  inputLength: text.length,
+                  source: 'text/plain-html',
+                  textLength: text.length,
+                },
+                options,
+              );
+
+              if (cleanHtml == null) return insertPlainText(view, text);
 
               if (cleanHtml.trim()) {
                 return insertHtml(view, cleanHtml);

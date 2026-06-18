@@ -1,36 +1,49 @@
 import { Editor } from '@tiptap/core';
-import { afterEach, describe, expect, it } from 'vitest';
-import { getEditorExtensions } from '../extensions';
-import { sanitizePastedHTML } from './sanitizePastedHtml';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { getEditorExtensions, type EditorExtensionOptions } from '../extensions';
+import {
+  sanitizePastedHTML,
+  sanitizePastedHTMLWithResult,
+} from './sanitizePastedHtml';
 
 const editors: Editor[] = [];
+const editorElements: HTMLElement[] = [];
 
-function pasteHTML(editor: Editor, html: string): void {
+function pasteHTML(editor: Editor, html: string, text = ''): Event {
   const event = new Event('paste', { bubbles: true, cancelable: true });
   Object.defineProperty(event, 'clipboardData', {
     value: {
-      getData: (type: string) => (type === 'text/html' ? html : ''),
+      getData: (type: string) =>
+        type === 'text/html' ? html : type === 'text/plain' ? text : '',
     },
   });
   editor.view.dom.dispatchEvent(event);
+  return event;
 }
 
-function createEditor(content = '<p>Replace me</p>'): Editor {
+function createEditor(
+  content = '<p>Replace me</p>',
+  extensionOptions: EditorExtensionOptions = {},
+): Editor {
   const element = document.createElement('div');
   document.body.append(element);
 
   const editor = new Editor({
     element,
-    extensions: getEditorExtensions(),
+    extensions: getEditorExtensions(extensionOptions),
     content,
   });
 
   editors.push(editor);
+  editorElements.push(element);
   return editor;
 }
 
 afterEach(() => {
   editors.splice(0).forEach((editor) => editor.destroy());
+  editorElements.splice(0).forEach((element) => element.remove());
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 function sanitizedFragment(html: string): HTMLDivElement {
@@ -39,11 +52,91 @@ function sanitizedFragment(html: string): HTMLDivElement {
   return container;
 }
 
+function expectValidTableStructure(root: ParentNode): void {
+  root.querySelectorAll('td, th').forEach((cell) => {
+    expect(cell.parentElement?.tagName.toLowerCase()).toBe('tr');
+  });
+
+  root.querySelectorAll('tr').forEach((row) => {
+    expect(['table', 'thead', 'tbody', 'tfoot']).toContain(
+      row.parentElement?.tagName.toLowerCase(),
+    );
+  });
+
+  root.querySelectorAll('thead, tbody, tfoot').forEach((section) => {
+    expect(section.parentElement?.tagName.toLowerCase()).toBe('table');
+  });
+
+  root.querySelectorAll('table').forEach((table) => {
+    Array.from(table.children).forEach((child) => {
+      expect(['colgroup', 'thead', 'tbody', 'tfoot']).toContain(
+        child.tagName.toLowerCase(),
+      );
+    });
+  });
+}
+
+function expectNoExecutableHtml(html: string): void {
+  expect(html).not.toMatch(/javascript\s*:/i);
+  expect(html).not.toMatch(/vbscript\s*:/i);
+  expect(html).not.toMatch(/expression\s*\(/i);
+  expect(html).not.toMatch(/url\s*\(/i);
+  expect(html).not.toMatch(/<script/i);
+  expect(html).not.toMatch(/<svg/i);
+  expect(html).not.toMatch(/<math/i);
+  expect(html).not.toMatch(/<iframe/i);
+  expect(html).not.toMatch(/<embed/i);
+  expect(html).not.toMatch(/<object/i);
+  expect(html).not.toMatch(/\son[a-z]+\s*=/i);
+}
+
+function insertSanitizedIntoEditor(html: string): Editor {
+  const result = sanitizePastedHTMLWithResult(html);
+  expect(result.ok).toBe(true);
+  if (!result.ok) throw new Error(`Unexpected sanitizer failure: ${result.reason}`);
+
+  const editor = createEditor('<p></p>');
+  editor.commands.setContent(result.html);
+
+  expect(() => editor.state.doc.check()).not.toThrow();
+  return editor;
+}
+
+function editorNodeNames(editor: Editor): string[] {
+  const names: string[] = [];
+
+  editor.state.doc.descendants((node) => {
+    names.push(node.type.name);
+  });
+
+  return names;
+}
+
 describe('sanitizePastedHTML', () => {
+  it('treats empty HTML as a successful no-op', () => {
+    expect(sanitizePastedHTMLWithResult('')).toEqual({ ok: true, html: '' });
+    expect(sanitizePastedHTML('')).toBe('');
+  });
+
+  it('preserves plain text without classifying it as sanitizer failure', () => {
+    const result = sanitizePastedHTMLWithResult('hello');
+
+    expect(result.ok).toBe(true);
+    expect(result).not.toHaveProperty('reason');
+    if (!result.ok) return;
+
+    const container = document.createElement('div');
+    container.innerHTML = result.html;
+
+    expect(container.textContent).toBe('hello');
+    expect(result.html).toContain('hello');
+  });
+
   it('removes scripts, event handlers, unsafe wrappers, and unknown dangerous tags', () => {
     const html = sanitizePastedHTML([
       '<p onclick="alert(1)" onmouseover="alert(2)">Safe text</p>',
       '<script>alert(1)</script>',
+      '<style>p { color: red; }</style>',
       '<iframe src="https://example.com"></iframe>',
       '<svg onload="alert(3)"><circle></circle></svg>',
       '<form><input value="hidden"></form>',
@@ -51,6 +144,7 @@ describe('sanitizePastedHTML', () => {
 
     expect(html).toContain('<p>Safe text</p>');
     expect(html).not.toContain('<script');
+    expect(html).not.toContain('<style');
     expect(html).not.toContain('<iframe');
     expect(html).not.toContain('<svg');
     expect(html).not.toContain('<form');
@@ -69,20 +163,57 @@ describe('sanitizePastedHTML', () => {
     expect(html).not.toContain('target=');
   });
 
+  it.each([
+    '<a href="java&#x0A;script:alert(1)">bad</a>',
+    '<a href=" JAVASCRIPT:alert(1)">bad</a>',
+    '<a href="java\tScript:alert(1)">bad</a>',
+    '<a href="vbscript:msgbox(1)">bad</a>',
+  ])('neutralizes obfuscated unsafe hrefs: %s', (linkHtml) => {
+    const html = sanitizePastedHTML(`<p>${linkHtml}</p>`);
+
+    expect(html).toContain('bad');
+    expect(html).not.toContain('<a');
+    expectNoExecutableHtml(html);
+  });
+
+  it.each([
+    'background-image:url(javascript:alert(1))',
+    'color: expression(alert(1))',
+    String.raw`color: \65xpression(alert(1))`,
+    String.raw`color: \000065 xpression(alert(1))`,
+    'behavior: url(#default#time2)',
+  ])('removes dangerous style declarations: %s', (style) => {
+    const html = sanitizePastedHTML(
+      `<p><span style="${style}; font-weight: bold">bad</span></p>`,
+    );
+
+    expect(html).toContain('bad');
+    expect(html).toContain('font-weight: bold');
+    expectNoExecutableHtml(html);
+    expect(html).not.toContain('background-image');
+    expect(html).not.toContain('behavior');
+  });
+
   it('preserves safe absolute, mailto, and relative links', () => {
     const html = sanitizePastedHTML([
       '<p>',
+      '<a href="http://example.com/docs">HTTP</a>',
       '<a href="https://example.com/docs" target="_blank">External</a>',
       '<a href="mailto:team@example.com">Email</a>',
+      '<a href="tel:+15551234567">Phone</a>',
       '<a href="/kb/article#section">Internal</a>',
+      '<a href="#local-heading">Anchor</a>',
       '</p>',
     ].join(''));
 
+    expect(html).toContain('href="http://example.com/docs"');
     expect(html).toContain('href="https://example.com/docs"');
     expect(html).toContain('target="_blank"');
     expect(html).toContain('rel="noopener noreferrer"');
     expect(html).toContain('href="mailto:team@example.com"');
+    expect(html).toContain('href="tel:+15551234567"');
     expect(html).toContain('href="/kb/article#section"');
+    expect(html).toContain('href="#local-heading"');
   });
 
   it('removes raw pasted media HTML instead of storing unsafe or base64 sources', () => {
@@ -191,6 +322,45 @@ describe('sanitizePastedHTML', () => {
     expect(html).not.toContain('onclick');
   });
 
+  it('converts safe table width and offset sources into editor metadata', () => {
+    const fragment = sanitizedFragment([
+      '<table width="50%"><tbody><tr><td>Width attr</td></tr></tbody></table>',
+      '<table style="width: 50%; margin-left: 0%"><tbody><tr><td>Style width</td></tr></tbody></table>',
+      '<table data-table-width-pct="80" data-table-offset-pct="0"><tbody><tr><td>Data attrs</td></tr></tbody></table>',
+    ].join(''));
+    const tables = Array.from(fragment.querySelectorAll('table'));
+
+    expect(tables).toHaveLength(3);
+    expect(tables[0].dataset.tableWidthPct).toBe('50');
+    expect(tables[0].dataset.tableOffsetPct).toBe('0');
+    expect(tables[0].hasAttribute('width')).toBe(false);
+    expect(tables[1].dataset.tableWidthPct).toBe('50');
+    expect(tables[1].dataset.tableOffsetPct).toBe('0');
+    expect(tables[1].style.marginLeft).toBe('0%');
+    expect(tables[2].dataset.tableWidthPct).toBe('80');
+    expect(tables[2].dataset.tableOffsetPct).toBe('0');
+    expectValidTableStructure(fragment);
+  });
+
+  it('removes invalid table fragments while preserving valid tables', () => {
+    const fragment = sanitizedFragment([
+      '<td>Floating cell</td>',
+      '<th>Floating header</th>',
+      '<tr><td>Row outside table</td></tr>',
+      '<table><caption>Bad caption</caption><tbody><tr><td>Valid</td></tr></tbody></table>',
+      '<table><tbody><tr><td>Also valid</td></tr></tbody></table>',
+    ].join(''));
+    const html = fragment.innerHTML;
+
+    expect(html).toContain('Valid');
+    expect(html).toContain('Also valid');
+    expect(html).not.toContain('Bad caption');
+    expect(Array.from(fragment.children).some((child) =>
+      ['td', 'th', 'tr'].includes(child.tagName.toLowerCase()),
+    )).toBe(false);
+    expectValidTableStructure(fragment);
+  });
+
   it('cleans Word and Google Docs noise while preserving semantic list content', () => {
     const html = sanitizePastedHTML([
       '<!--[if gte mso 9]><xml>metadata</xml><![endif]-->',
@@ -252,6 +422,12 @@ describe('sanitizePastedHTML', () => {
       '<aside data-kb-callout data-kb-callout-variant="tip" class="site-card" contenteditable="true">',
       '<div data-kb-callout-content draggable="true"><p>Tip body</p></div>',
       '</aside>',
+      '<div data-kb-tabs class="tabs"><section data-kb-tab-item data-kb-tab-id="tab_1" data-kb-tab-label="Intro">',
+      '<h3 data-kb-tab-label-static>Intro</h3><div data-kb-tab-panel><p>Tab body</p></div>',
+      '</section></div>',
+      '<div data-kb-accordion><details data-kb-accordion-item data-kb-accordion-id="acc_1" data-kb-accordion-title="FAQ" open>',
+      '<summary data-kb-accordion-title-static>FAQ</summary><div data-kb-accordion-panel><p>Answer</p></div>',
+      '</details></div>',
       '<div data-random="tracking" data-kb-unknown="x" class="wrapper"><p>Wrapped</p></div>',
     ].join(''));
 
@@ -259,12 +435,76 @@ describe('sanitizePastedHTML', () => {
     expect(html).toContain('data-kb-callout-variant="tip"');
     expect(html).toContain('data-kb-callout-content=""');
     expect(html).toContain('<p>Tip body</p>');
+    expect(html).toContain('data-kb-tabs=""');
+    expect(html).toContain('data-kb-tab-item=""');
+    expect(html).toContain('data-kb-tab-id="tab_1"');
+    expect(html).toContain('data-kb-tab-label="Intro"');
+    expect(html).toContain('data-kb-tab-label-static=""');
+    expect(html).toContain('data-kb-tab-panel=""');
+    expect(html).toContain('<p>Tab body</p>');
+    expect(html).toContain('data-kb-accordion=""');
+    expect(html).toContain('data-kb-accordion-item=""');
+    expect(html).toContain('data-kb-accordion-id="acc_1"');
+    expect(html).toContain('data-kb-accordion-title="FAQ"');
+    expect(html).toContain('data-kb-accordion-title-static=""');
+    expect(html).toContain('data-kb-accordion-panel=""');
+    expect(html).toContain('<p>Answer</p>');
     expect(html).toContain('<p>Wrapped</p>');
     expect(html).not.toContain('contenteditable');
     expect(html).not.toContain('draggable');
     expect(html).not.toContain('class=');
     expect(html).not.toContain('data-random');
     expect(html).not.toContain('data-kb-unknown');
+  });
+
+  it('round-trips sanitized rich text, plain text, tables, lists, and KB blocks through the Tiptap schema', () => {
+    const richTextEditor = insertSanitizedIntoEditor([
+      '<h2 onclick="alert(1)">Heading</h2>',
+      '<p><strong>Bold</strong> <a href="https://example.com">Link</a></p>',
+      '<script>alert(1)</script>',
+    ].join(''));
+    expect(richTextEditor.getHTML()).toContain('<h2>Heading</h2>');
+    expect(richTextEditor.getHTML()).toContain('href="https://example.com/"');
+    expectNoExecutableHtml(richTextEditor.getHTML());
+
+    const plainTextEditor = insertSanitizedIntoEditor('hello');
+    expect(plainTextEditor.getJSON().content?.[0]?.type).toBe('paragraph');
+    expect(plainTextEditor.getText()).toBe('hello');
+
+    const tableEditor = insertSanitizedIntoEditor([
+      '<table><tbody><tr><td><p>Cell A</p></td><td>Cell B</td></tr></tbody></table>',
+      '<iframe src="https://example.com"></iframe>',
+    ].join(''));
+    expect(editorNodeNames(tableEditor)).toContain('table');
+    expect(tableEditor.getText()).toContain('Cell A');
+    expect(tableEditor.getText()).toContain('Cell B');
+    expectNoExecutableHtml(tableEditor.getHTML());
+
+    const nestedListEditor = insertSanitizedIntoEditor(
+      '<ol><li>One<ul><li><strong>Two</strong><ol><li>Three</li></ol></li></ul></li></ol>',
+    );
+    expect(editorNodeNames(nestedListEditor)).toContain('orderedList');
+    expect(editorNodeNames(nestedListEditor)).toContain('bulletList');
+    expect(nestedListEditor.getText()).toContain('Three');
+
+    const kbBlocksEditor = insertSanitizedIntoEditor([
+      '<aside data-kb-callout data-kb-callout-variant="warning"><div data-kb-callout-content><p>Callout body</p></div></aside>',
+      '<div data-kb-tabs><section data-kb-tab-item data-kb-tab-id="tab_1" data-kb-tab-label="Intro">',
+      '<h3 data-kb-tab-label-static>Intro</h3><div data-kb-tab-panel><p>Tab body</p></div></section></div>',
+      '<div data-kb-accordion><details data-kb-accordion-item data-kb-accordion-id="acc_1" data-kb-accordion-title="FAQ" open>',
+      '<summary data-kb-accordion-title-static>FAQ</summary><div data-kb-accordion-panel><p>Answer</p></div></details></div>',
+      '<object data="unsafe.swf"></object>',
+    ].join(''));
+    const kbNodeNames = editorNodeNames(kbBlocksEditor);
+    expect(kbNodeNames).toContain('callout');
+    expect(kbNodeNames).toContain('tabs');
+    expect(kbNodeNames).toContain('tabItem');
+    expect(kbNodeNames).toContain('accordion');
+    expect(kbNodeNames).toContain('accordionItem');
+    expect(kbBlocksEditor.getText()).toContain('Callout body');
+    expect(kbBlocksEditor.getText()).toContain('Tab body');
+    expect(kbBlocksEditor.getText()).toContain('Answer');
+    expectNoExecutableHtml(kbBlocksEditor.getHTML());
   });
 
   it('converts simple text divs to paragraphs and removes empty wrappers', () => {
@@ -294,26 +534,91 @@ describe('sanitizePastedHTML', () => {
     expect(html).not.toContain('vbscript:');
   });
 
-  it('rejects pasted HTML that exceeds the maximum string length', () => {
-    const html = sanitizePastedHTML(`<p>${'x'.repeat(1_000_001)}</p>`);
+  it('does not crash if NodeFilter is unavailable on the document window', () => {
+    const view = document.defaultView;
+    const descriptor = view
+      ? Object.getOwnPropertyDescriptor(view, 'NodeFilter')
+      : undefined;
 
-    expect(html).toBe('');
+    if (view && (!descriptor || descriptor.configurable)) {
+      Object.defineProperty(view, 'NodeFilter', {
+        configurable: true,
+        value: undefined,
+      });
+    }
+
+    try {
+      expect(() => sanitizePastedHTML('<!--secret--><p>Keep</p>')).not.toThrow();
+      expect(sanitizePastedHTML('<!--secret--><p>Keep</p>')).toContain('Keep');
+    } finally {
+      if (view && descriptor) {
+        Object.defineProperty(view, 'NodeFilter', descriptor);
+      }
+    }
+  });
+
+  it('rejects pasted HTML that exceeds the maximum string length', () => {
+    const oversizedHtml = `<p>${'x'.repeat(1_000_001)}</p>`;
+    const result = sanitizePastedHTMLWithResult(oversizedHtml);
+
+    expect(result).toEqual({ ok: false, html: '', reason: 'too-large' });
+    expect(sanitizePastedHTML(oversizedHtml)).toBe('');
   });
 
   it('rejects pasted documents with too many DOM nodes', () => {
-    const html = sanitizePastedHTML('<span></span>'.repeat(20_001));
+    const result = sanitizePastedHTMLWithResult('<span></span>'.repeat(20_001));
 
-    expect(html).toBe('');
+    expect(result).toEqual({ ok: false, html: '', reason: 'too-many-nodes' });
   });
 
   it('does not crash on extremely deeply nested HTML', () => {
     const nestedHtml = `${'<div>'.repeat(120)}Deep safe text${'</div>'.repeat(120)}`;
-    let html = '';
+    let result = sanitizePastedHTMLWithResult('');
 
     expect(() => {
-      html = sanitizePastedHTML(nestedHtml);
+      result = sanitizePastedHTMLWithResult(nestedHtml);
     }).not.toThrow();
-    expect(html).not.toContain('Deep safe text');
+    expect(result).toEqual({ ok: false, html: '', reason: 'too-deep' });
+  });
+
+  it('returns parse-error if DOM parsing throws', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    class ThrowingDOMParser {
+      parseFromString(): Document {
+        throw new Error('DOMParser failed');
+      }
+    }
+
+    vi.stubGlobal('DOMParser', ThrowingDOMParser);
+
+    expect(sanitizePastedHTMLWithResult('<p>Broken</p>')).toEqual({
+      ok: false,
+      html: '',
+      reason: 'parse-error',
+    });
+    expect(errorSpy).toHaveBeenCalled();
+  });
+
+  it('sanitizes a large Word-like paste without throwing in a generous regression window', () => {
+    const wordLikeHtml = Array.from({ length: 600 }, (_, index) => [
+      '<p class="MsoNormal" style="margin-top:0pt;line-height:1.38">',
+      '<span style="font-size:11pt;color:#000000;background-color:transparent;font-weight:700;white-space:pre-wrap">',
+      `Paragraph ${index}`,
+      '</span></p>',
+    ].join('')).join('');
+    const startedAt = performance.now();
+
+    const result = sanitizePastedHTMLWithResult(wordLikeHtml);
+    const elapsedMs = performance.now() - startedAt;
+
+    expect(result.ok).toBe(true);
+    expect(elapsedMs).toBeLessThan(5_000);
+    if (result.ok) {
+      expect(result.html).toContain('Paragraph 599');
+      expect(result.html).not.toContain('MsoNormal');
+      expect(result.html).not.toContain('white-space');
+    }
   });
 
   it('feeds sanitized HTML through the Tiptap paste pipeline', () => {
@@ -344,5 +649,85 @@ describe('sanitizePastedHTML', () => {
     expect(html).not.toContain('onclick');
     expect(html).not.toContain('javascript:');
     expect(html).not.toContain('<script');
+  });
+
+  it('reports real PasteSanitizer failures without crashing or mutating the editor', () => {
+    const onSanitizeFailure = vi.fn();
+    const editor = createEditor('<p>Keep me</p>', {
+      pasteSanitizer: { onSanitizeFailure },
+    });
+    editor.commands.selectAll();
+
+    expect(() =>
+      pasteHTML(editor, `<p>${'x'.repeat(1_000_001)}</p>`, 'fallback text'),
+    ).not.toThrow();
+
+    expect(onSanitizeFailure).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: 'too-large' }),
+      expect.objectContaining({ reason: 'too-large', source: 'text/html' }),
+    );
+    expect(editor.getText()).toBe('Keep me');
+
+    onSanitizeFailure.mockClear();
+    editor.commands.selectAll();
+
+    expect(() =>
+      pasteHTML(
+        editor,
+        `${'<div>'.repeat(120)}Deep safe text${'</div>'.repeat(120)}`,
+      ),
+    ).not.toThrow();
+
+    expect(onSanitizeFailure).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: 'too-deep' }),
+      expect.objectContaining({ reason: 'too-deep', source: 'text/html' }),
+    );
+    expect(editor.getText()).toBe('Keep me');
+  });
+
+  it('does not report PasteSanitizer failures for valid HTML, empty HTML, or plain text', () => {
+    const onSanitizeFailure = vi.fn();
+    const editor = createEditor('<p>Replace me</p>', {
+      pasteSanitizer: { onSanitizeFailure },
+    });
+    editor.commands.selectAll();
+
+    const validHtmlEvent = pasteHTML(
+      editor,
+      '<p><strong>Clean</strong> <a href="https://example.com">link</a></p>',
+      'Clean link',
+    );
+
+    expect(validHtmlEvent.defaultPrevented).toBe(true);
+    expect(editor.getHTML()).toContain('<strong>Clean</strong>');
+    expect(editor.getHTML()).toContain('href="https://example.com/"');
+    expect(onSanitizeFailure).not.toHaveBeenCalled();
+
+    const emptyHtmlEvent = pasteHTML(editor, '', '');
+    expect(emptyHtmlEvent.defaultPrevented).toBe(false);
+    expect(onSanitizeFailure).not.toHaveBeenCalled();
+
+    expect(() => pasteHTML(editor, '', 'hello')).not.toThrow();
+    expect(onSanitizeFailure).not.toHaveBeenCalled();
+  });
+
+  it('sanitizes HTML-looking plain text without treating it as a failure', () => {
+    const onSanitizeFailure = vi.fn();
+    const editor = createEditor('<p>Replace me</p>', {
+      pasteSanitizer: { onSanitizeFailure },
+    });
+    editor.commands.selectAll();
+
+    const event = pasteHTML(
+      editor,
+      '',
+      '<h2 onclick="alert(1)">Plain source</h2><script>alert(1)</script>',
+    );
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(editor.getHTML()).toContain('<h2>Plain source</h2>');
+    expect(editor.getHTML()).not.toContain('onclick');
+    expect(editor.getHTML()).not.toContain('<script');
+    expect(onSanitizeFailure).not.toHaveBeenCalled();
   });
 });

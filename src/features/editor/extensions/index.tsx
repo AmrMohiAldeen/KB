@@ -17,7 +17,10 @@ import { FontSizeShortcuts } from "./FontSizeShortcuts";
 import { contentBlockExtensions } from "../contentBlocks/extensions";
 import { BlockSelection } from "./BlockSelection";
 import { SlashCommandMenu } from "../slashMenu/SlashMenu";
-import { PasteSanitizer } from "./PasteSanitizer";
+import {
+  PasteSanitizer,
+  type PasteSanitizerOptions,
+} from "./PasteSanitizer";
 import {
   ListStyleCommands,
   StyledBulletList,
@@ -35,6 +38,7 @@ import {
 export type EditorExtensionOptions = {
   featureFlags?: Partial<EditorExtensionFeatureFlags>;
   fileHandler?: EditorFileHandlerOptions;
+  pasteSanitizer?: PasteSanitizerOptions;
 };
 
 export const getEditorExtensions = (options: EditorExtensionOptions = {}) => {
@@ -75,7 +79,7 @@ export const getEditorExtensions = (options: EditorExtensionOptions = {}) => {
     Highlight.configure({
     multicolor: true,
     }),
-    PasteSanitizer,
+    PasteSanitizer.configure(options.pasteSanitizer),
     ...contentBlockExtensions,
     SlashCommandMenu,
     TableKit.configure({
