@@ -43,6 +43,7 @@ import { LINE_HEIGHTS, DEFAULT_LINE_HEIGHT } from './toolbarOptions';
 import { MathFormulaControl } from "./MathFormulaControl";
 import { YoutubeControl } from "./YoutubeControl";
 import { List, ListOrdered, ListChecks } from 'lucide-react';
+import { TableOfContentsControl } from "./TableOfContentsControl";
 
 export interface EditorToolbarProps {
   editor: Editor;
@@ -68,6 +69,7 @@ function getEditorCan(editor: Editor): ReturnType<Editor["can"]> | null {
 type ToolbarState = {
   isEditable: boolean;
 
+  hasTableOfContents: boolean;
   wordCount: number;
 
   hasMathematics: boolean;
@@ -133,6 +135,7 @@ type ToolbarState = {
 const EMPTY_TOOLBAR_STATE: ToolbarState = {
   isEditable: false,
 
+  hasTableOfContents: false,
   wordCount: 0,
   hasMathematics: false,
 
@@ -220,6 +223,11 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
       return {
         isEditable: currentEditor.isEditable,
 
+        hasTableOfContents: Boolean(
+          currentEditor.extensionManager?.extensions?.some(
+            (extension) => extension.name === "tableOfContentsBlock",
+          ),
+        ),
         wordCount: currentEditor.storage.characterCount?.words?.() ?? 0,
 
         hasMathematics: Boolean(
@@ -989,6 +997,10 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
               </DropdownItem>
             ))}
           </ToolbarDropdown>
+        )}
+
+        {toolbarState.hasTableOfContents && (
+          <TableOfContentsControl editor={editor} />
         )}
 
         <ContentBlockPicker editor={editor} />

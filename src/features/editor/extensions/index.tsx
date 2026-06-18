@@ -18,6 +18,7 @@ import { contentBlockExtensions } from "../contentBlocks/extensions";
 import { BlockSelection } from "./BlockSelection";
 import { SlashCommandMenu } from "../slashMenu/SlashMenu";
 import {Youtube} from '@tiptap/extension-youtube'
+import { getHierarchicalIndexes, TableOfContents } from '@tiptap/extension-table-of-contents'
 import {
   PasteSanitizer,
   type PasteSanitizerOptions,
@@ -35,6 +36,7 @@ import {
   resolveEditorExtensionFeatureFlags,
   type EditorExtensionFeatureFlags,
 } from './editorFeatureFlags';
+import { TableOfContentsBlock } from "./TableOfContentsBlock";
 
 export type EditorExtensionOptions = {
   featureFlags?: Partial<EditorExtensionFeatureFlags>;
@@ -44,7 +46,7 @@ export type EditorExtensionOptions = {
 
 export const getEditorExtensions = (options: EditorExtensionOptions = {}) => {
   const featureFlags = resolveEditorExtensionFeatureFlags(options.featureFlags);
-
+  
   return [
     StarterKit.configure({
     bulletList: false,
@@ -53,7 +55,12 @@ export const getEditorExtensions = (options: EditorExtensionOptions = {}) => {
     },
     orderedList: false,
     }),
+    TableOfContents.configure({
+      anchorTypes: ["heading"],
+      getIndex: getHierarchicalIndexes,
+    }),
 
+    TableOfContentsBlock,
     StyledBulletList,
     StyledOrderedList,
     ListStyleCommands,
