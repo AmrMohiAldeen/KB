@@ -4,7 +4,7 @@ import { sanitizePastedHTML } from '../paste/sanitizePastedHtml';
 export const PasteSanitizer = Extension.create({
   name: 'pasteSanitizer',
 
-  transformPastedHTML(html) {
+  transformPastedHTML(html: string) {
     return sanitizePastedHTML(html);
   },
 });
