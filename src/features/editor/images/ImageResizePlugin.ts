@@ -1,5 +1,5 @@
 import { closeHistory } from '@tiptap/pm/history';
-import { Plugin, PluginKey } from '@tiptap/pm/state';
+import { NodeSelection, Plugin, PluginKey } from '@tiptap/pm/state';
 import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view';
 import { logDevError } from '../utils/logDevError';
 import {
@@ -16,6 +16,7 @@ import {
   getImageNodeAt,
   getOwnerWindow,
   getSelectedImage,
+  isImageNode,
   positionOverlayAtRect,
   requestViewAnimationFrame,
 } from './imageDom';
@@ -174,6 +175,82 @@ export function ImageResizePlugin() {
   let activeSession: MouseDragSession | null = null;
   let editable = false;
 
+  const startImageResize = (
+    view: EditorView,
+    imagePos: number,
+    event: MouseEvent,
+  ): boolean => {
+    if (!view.editable || event.button !== 0 || activeSession) return false;
+
+    const image = getImageElementAtPos(view, imagePos);
+    if (!image) return false;
+
+    event.preventDefault();
+    setImageResizeCursor(view, true);
+
+    const container = image.parentElement ?? view.dom;
+    const containerWidthPx = getContainerWidthPx(image);
+    const startWidthPx = readImageWidthPx(image);
+    const imageNode = getImageNodeAt(view.state.doc, imagePos);
+    const drag: ImageResizeDrag = {
+      imagePos,
+      startX: event.clientX,
+      startWidthPx,
+      startOffsetPct:
+        imageNode?.type.name === BLOCK_IMAGE_NODE_NAME
+          ? readImageOffsetPct(image, container, startWidthPx)
+          : 0,
+      containerWidthPx,
+      snapshot: createImageStyleSnapshot(image),
+    };
+    let latestWidth = drag.startWidthPx;
+
+    const finish = (commit: boolean) => {
+      activeSession = null;
+      setImageResizeCursor(view, false);
+
+      const currentImage = getImageElementAtPos(view, drag.imagePos);
+      if (currentImage) restoreImageStyleSnapshot(currentImage, drag.snapshot);
+
+      if (commit && latestWidth !== drag.startWidthPx) {
+        commitImageWidth(view, drag.imagePos, latestWidth);
+      }
+    };
+
+    activeSession = startMouseDragSession({
+      window: getOwnerWindow(view),
+      onMove: (moveEvent) => {
+        const currentImage = getImageElementAtPos(view, drag.imagePos);
+        if (!currentImage) {
+          activeSession?.cancel();
+          return;
+        }
+
+        latestWidth = applyImageWidthPreview(
+          currentImage,
+          drag.startWidthPx + moveEvent.clientX - drag.startX,
+          drag.containerWidthPx,
+        );
+
+        const currentImageNode = getImageNodeAt(view.state.doc, drag.imagePos);
+        if (currentImageNode?.type.name === BLOCK_IMAGE_NODE_NAME) {
+          applyImageOffsetPct(
+            currentImage,
+            drag.startOffsetPct,
+            latestWidth,
+            drag.containerWidthPx,
+          );
+        }
+
+        positionImageResizeHandle(view, drag.imagePos);
+      },
+      onCommit: () => finish(true),
+      onCancel: () => finish(false),
+    });
+
+    return true;
+  };
+
   return new Plugin<null>({
     key: imageResizePluginKey,
     state: {
@@ -181,6 +258,15 @@ export function ImageResizePlugin() {
       apply: () => null,
     },
     props: {
+      handleClickOn(view, _pos, node, nodePos, event, direct) {
+        if (!view.editable || !direct || !isImageNode(node)) return false;
+
+        event.preventDefault();
+        view.dispatch(
+          view.state.tr.setSelection(NodeSelection.create(view.state.doc, nodePos)),
+        );
+        return true;
+      },
       decorations(state) {
         const selected = getSelectedImage(state);
         if (!editable || !selected) return null;
@@ -196,7 +282,9 @@ export function ImageResizePlugin() {
               element.draggable = false;
               element.setAttribute('aria-label', 'Resize image');
               element.addEventListener('mousedown', (event) => {
-                event.preventDefault();
+                if (startImageResize(view, selected.pos, event)) {
+                  event.stopPropagation();
+                }
               });
               requestViewAnimationFrame(view, () =>
                 positionImageResizeHandle(view, selected.pos),
@@ -209,8 +297,6 @@ export function ImageResizePlugin() {
       },
       handleDOMEvents: {
         mousedown(view, event) {
-          if (!view.editable || event.button !== 0 || activeSession) return false;
-
           const handle = getClosestHTMLElement(
             view,
             event.target,
@@ -219,72 +305,7 @@ export function ImageResizePlugin() {
           if (!handle) return false;
 
           const selected = getSelectedImage(view.state);
-          const image = selected ? getImageElementAtPos(view, selected.pos) : null;
-          if (!selected || !image) return false;
-
-          event.preventDefault();
-          setImageResizeCursor(view, true);
-
-          const container = image.parentElement ?? view.dom;
-          const containerWidthPx = getContainerWidthPx(image);
-          const startWidthPx = readImageWidthPx(image);
-          const drag: ImageResizeDrag = {
-            imagePos: selected.pos,
-            startX: event.clientX,
-            startWidthPx,
-            startOffsetPct:
-              selected.display === 'block'
-                ? readImageOffsetPct(image, container, startWidthPx)
-                : 0,
-            containerWidthPx,
-            snapshot: createImageStyleSnapshot(image),
-          };
-          let latestWidth = drag.startWidthPx;
-
-          const finish = (commit: boolean) => {
-            activeSession = null;
-            setImageResizeCursor(view, false);
-
-            const currentImage = getImageElementAtPos(view, drag.imagePos);
-            if (currentImage) restoreImageStyleSnapshot(currentImage, drag.snapshot);
-
-            if (commit && latestWidth !== drag.startWidthPx) {
-              commitImageWidth(view, drag.imagePos, latestWidth);
-            }
-          };
-
-          activeSession = startMouseDragSession({
-            window: getOwnerWindow(view),
-            onMove: (moveEvent) => {
-              const currentImage = getImageElementAtPos(view, drag.imagePos);
-              if (!currentImage) {
-                activeSession?.cancel();
-                return;
-              }
-
-              latestWidth = applyImageWidthPreview(
-                currentImage,
-                drag.startWidthPx + moveEvent.clientX - drag.startX,
-                drag.containerWidthPx,
-              );
-
-              const imageNode = getImageNodeAt(view.state.doc, drag.imagePos);
-              if (imageNode?.type.name === BLOCK_IMAGE_NODE_NAME) {
-                applyImageOffsetPct(
-                  currentImage,
-                  drag.startOffsetPct,
-                  latestWidth,
-                  drag.containerWidthPx,
-                );
-              }
-
-              positionImageResizeHandle(view, drag.imagePos);
-            },
-            onCommit: () => finish(true),
-            onCancel: () => finish(false),
-          });
-
-          return true;
+          return selected ? startImageResize(view, selected.pos, event) : false;
         },
       },
     },
