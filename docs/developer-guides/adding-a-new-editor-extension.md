@@ -76,13 +76,6 @@ Use a feature-based structure. Keep extension logic separate from toolbar UI.
 
 
 
-Suggested rule:
-
-- `extensions/<feature>/<Feature>.ts` defines the Tiptap extension.
-- `extensions/<feature>/<Feature>NodeView.ts` contains custom editor DOM if needed.
-- `extensions/<feature>/<featureUtils>.ts` contains pure helpers.
-- `components/EditorToolbar.tsx` only calls commands; it should not contain the extension's internal logic.
-- `extensions/index.ts` exports and registers editor extensions in one place.
 
 ## Naming Rules
 
@@ -715,18 +708,6 @@ export const editorExtensions = [
 ];
 ```
 
-If the project uses a factory function:
-
-```ts
-export function createEditorExtensions() {
-  return [
-    StarterKit.configure({
-      // config
-    }),
-    Callout,
-  ];
-}
-```
 
 Registration rules:
 

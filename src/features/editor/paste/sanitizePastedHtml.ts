@@ -1,4 +1,4 @@
-import { logDevError } from '../utils/logDevError';
+import { logDevError } from '../lib/utils/logDevError';
 import {
   hasAcceptableDepth,
   hasAcceptableNodeCount,

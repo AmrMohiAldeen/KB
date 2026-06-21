@@ -2,7 +2,7 @@ import { Editor, generateHTML, type JSONContent } from '@tiptap/core';
 import { closeHistory } from '@tiptap/pm/history';
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createAccordionContent, createTabsContent } from './contentBlocks/model';
+import { createAccordionContent, createTabsContent } from './blocks/model';
 import { getEditorExtensions } from './extensions';
 
 const editors: Editor[] = [];

@@ -2,7 +2,7 @@ import { Editor } from '@tiptap/core';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { getEditorExtensions } from '.';
+import { getEditorExtensions } from './';
 import {
   EditorDragHandle,
   getEditorDragHandleRuleDeduction,

@@ -4,20 +4,22 @@ import { Extension } from "@tiptap/core";
 import { Plugin } from "@tiptap/pm/state";
 import { changeFontSize } from "../components/toolbar/toolbarOptions";
 
-function isCtrlShiftOnly(event: KeyboardEvent) {
-  return event.ctrlKey && event.shiftKey && !event.altKey && !event.metaKey;
+function isModShiftOnly(event: KeyboardEvent): boolean {
+  const hasExactlyOneModKey = event.ctrlKey !== event.metaKey;
+
+  return hasExactlyOneModKey && event.shiftKey && !event.altKey;
 }
 
-export function isIncreaseFontSizeShortcut(event: KeyboardEvent) {
+export function isIncreaseFontSizeShortcut(event: KeyboardEvent): boolean {
   return (
-    isCtrlShiftOnly(event) &&
+    isModShiftOnly(event) &&
     (event.key === ">" || event.key === "." || event.code === "Period")
   );
 }
 
-export function isDecreaseFontSizeShortcut(event: KeyboardEvent) {
+export function isDecreaseFontSizeShortcut(event: KeyboardEvent): boolean {
   return (
-    isCtrlShiftOnly(event) &&
+    isModShiftOnly(event) &&
     (event.key === "<" || event.key === "," || event.code === "Comma")
   );
 }
@@ -25,7 +27,11 @@ export function isDecreaseFontSizeShortcut(event: KeyboardEvent) {
 function isNativeControl(target: EventTarget | null): boolean {
   return (
     target instanceof Element &&
-    Boolean(target.closest('input, textarea, select, [contenteditable="false"]'))
+    Boolean(
+      target.closest(
+        'input, textarea, select, button, [contenteditable="false"]',
+      ),
+    )
   );
 }
 
@@ -40,6 +46,9 @@ export const FontSizeShortcuts = Extension.create({
         props: {
           handleDOMEvents: {
             keydown: (_view, event) => {
+              // Do not hijack shortcuts when the editor is read-only,
+              // while the user is composing text through an IME,
+              // or when the event started inside a native/editor control.
               if (
                 !editor.isEditable ||
                 event.isComposing ||

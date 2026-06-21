@@ -258,6 +258,8 @@ function ImageDialog({
 
             {preview.status === "valid" ? (
               <div className="flex min-h-48 items-center justify-center overflow-hidden rounded border border-gray-200 bg-white">
+                {/* Arbitrary user-entered preview URLs cannot use configured Next image optimization. */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={preview.url}
                   alt={alt || "Image preview"}

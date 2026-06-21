@@ -1,5 +1,5 @@
 import type { ChainedCommands } from '@tiptap/core';
-import { runContentBlockInsert } from '../contentBlocks/commands/contentBlockCommands';
+import { runContentBlockInsert } from '../lib/commands/contentBlockCommands';
 import {
   isContentBlockKind,
   type SlashCommandKind,

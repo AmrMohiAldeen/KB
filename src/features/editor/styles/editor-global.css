@@ -37,65 +37,9 @@
   margin-top: 0;
 }
 
-:is(.tiptap, .ProseMirror) .kb-block-selection {
-  border-radius: 0.5rem;
-  outline: 2px solid rgb(59 130 246 / 0.62);
-  outline-offset: 3px;
-  background-color: rgb(59 130 246 / 0.08);
-  box-shadow: 0 0 0 5px rgb(59 130 246 / 0.12);
-}
-
 .kb-editor-content {
   position: relative;
   overflow: visible;
-}
-
-.kb-block-drag-handle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: absolute;
-  z-index: 50;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: 1px solid #9ca3af;
-  border-radius: 5px;
-  background: #fff;
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.12);
-  cursor: grab;
-  user-select: none;
-}
-
-.kb-block-drag-handle:active {
-  cursor: grabbing;
-}
-
-.kb-block-drag-handle::before {
-  display: block;
-  width: 10px;
-  height: 10px;
-  margin: 4px auto;
-  background: radial-gradient(#9ca3af 2px, transparent 3px) 0 0 / 5px 5px;
-  content: '';
-}
-
-.kb-block-drag-handle__button {
-  position: absolute;
-  inset: 0;
-  border: 0;
-  background: transparent;
-  cursor: inherit;
-}
-
-.kb-block-drop-indicator {
-  position: absolute;
-  z-index: 35;
-  height: 2px;
-  border-radius: 999px;
-  background: rgb(37 99 235);
-  box-shadow: 0 0 0 1px rgb(255 255 255 / 80%);
-  pointer-events: none;
 }
 
 .ProseMirror a {

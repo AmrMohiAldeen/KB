@@ -2,7 +2,7 @@ import {
   CONTENT_BLOCK_KINDS,
   CONTENT_BLOCK_OPTIONS,
   type ContentBlockKind,
-} from '../contentBlocks/catalog';
+} from '../blocks/catalog';
 
 export const SLASH_COMMAND_KINDS = [
   'paragraph',

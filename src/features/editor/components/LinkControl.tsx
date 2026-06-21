@@ -14,7 +14,7 @@ import {
 } from "@floating-ui/react";
 import type { Editor } from "@tiptap/react";
 import { useId, useRef, useState } from "react";
-import { normalizeLinkUrl } from "./linkUrl";
+import { normalizeLinkUrl } from "../lib/link/linkUrl";
 import { ToolbarButton } from "./toolbar/ToolbarPrimitives";
 
 export function LinkControl({

@@ -12,16 +12,16 @@ import { NodeSelection, type EditorState } from '@tiptap/pm/state';
 import type { EditorView } from '@tiptap/pm/view';
 import { useEditorState, type Editor } from '@tiptap/react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { CALLOUT_NODE_NAME } from '../contentBlocks/callout/model';
+import { CALLOUT_NODE_NAME } from '../blocks/callout/model';
 import {
   ACCORDION_ITEM_NODE_NAME,
   ACCORDION_NODE_NAME,
   TAB_ITEM_NODE_NAME,
   TABS_NODE_NAME,
-} from '../contentBlocks/model';
-import { useTableDragOffset } from '../table/drag/useTableDragOffset';
-import { useImageDragOffset } from '../images/drag/useImageDragOffset';
-import { BLOCK_IMAGE_NODE_NAME } from '../images/imageTypes';
+} from '../blocks/model';
+import { useTableDragOffset } from '../blocks/table/drag/useTableDragOffset';
+import { useImageDragOffset } from '../blocks/image/drag/useImageDragOffset';
+import { BLOCK_IMAGE_NODE_NAME } from '../blocks/image/imageTypes';
 
 const EXCLUDE_FROM_DRAG_TARGETS = 1000;
 const DRAG_HANDLE_SIZE_PX = 20;

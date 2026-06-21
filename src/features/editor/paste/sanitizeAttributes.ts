@@ -1,5 +1,5 @@
-import { normalizeCalloutVariant } from '../contentBlocks/callout/model';
-import { normalizeLinkUrl } from '../components/linkUrl';
+import { normalizeCalloutVariant } from '../blocks/callout/model';
+import { normalizeLinkUrl } from '../lib/link/linkUrl';
 import { getTagName } from './domUtils';
 import { readTableOffsetPercent, readTableWidthPercent } from './normalizeTables';
 import {

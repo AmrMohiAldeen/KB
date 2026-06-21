@@ -1,14 +1,14 @@
 "use client";
 
 import { useEditorState, type Editor } from "@tiptap/react";
-import { ContentBlockPicker } from "../../contentBlocks/toolbar";
+import { ContentBlockPicker } from "./ContentBlockPicker";
 import {
   CALLOUT_VARIANTS,
   getCalloutVariantLabel,
   normalizeCalloutVariant,
-} from "../../contentBlocks/callout/model";
-import { insertTable } from "../../table/commands/tableCommands";
-import { TableControls, TableCreationPicker } from "../../table/toolbar";
+} from "../../blocks/callout/model";
+import { insertTable } from "../../blocks/table/commands/tableCommands";
+import { TableControls, TableCreationPicker } from "../../blocks/table/toolbar";
 import { LinkControl } from "../LinkControl";
 import {
   Divider,

@@ -1,6 +1,6 @@
 import FileHandler from '@tiptap/extension-file-handler';
 import type { Editor } from '@tiptap/core';
-import { logDevError } from '../utils/logDevError';
+import { logDevError } from '../lib/utils/logDevError';
 
 export const DEFAULT_ALLOWED_FILE_MIME_TYPES = [
   'image/gif',

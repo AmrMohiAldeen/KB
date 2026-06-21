@@ -2,7 +2,7 @@ import { Editor, type JSONContent } from '@tiptap/core';
 import { Slice } from '@tiptap/pm/model';
 import { TextSelection, type Plugin } from '@tiptap/pm/state';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getEditorExtensions } from '.';
+import { getEditorExtensions } from './';
 import type { EditorFileUploadAdapter } from './FileHandlerIntegration';
 import {
   EDITOR_EXTENSION_BLOCKERS,
