@@ -16,7 +16,7 @@ export const SLASH_COMMAND_KINDS = [
   'code-block',
   'horizontal-rule',
   'table',
-  ...CONTENT_BLOCK_KINDS,
+  ...CONTENT_BLOCK_KINDS, // tabs, accordions and callouts
 ] as const;
 
 export type SlashCommandKind = (typeof SLASH_COMMAND_KINDS)[number];
@@ -43,7 +43,7 @@ const CONTENT_BLOCK_GROUPS: Record<ContentBlockKind, SlashCommandGroup> = {
 
 const CONTENT_BLOCK_KEYWORDS: Record<ContentBlockKind, readonly string[]> = {
   tabs: ['panel', 'switcher'],
-  accordion: ['collapse', 'expand', 'faq'],
+  accordion: ['collapse', 'expand', 'faq', 'details'],
   'callout-info': ['notice', 'note', 'info'],
   'callout-warning': ['notice', 'caution', 'warning'],
   'callout-success': ['notice', 'success', 'positive'],
@@ -150,16 +150,32 @@ export function isContentBlockKind(
 
 export function getMatchingSlashCommands(query: string): SlashCommandOption[] {
   const normalizedQuery = query.trim().toLowerCase();
+
+  // If the user has not typed anything after "/", show all commands
   if (!normalizedQuery) return [...SLASH_COMMAND_OPTIONS];
+
+  // treat any valid table dimension query as just "table"
   const searchableQuery = normalizedQuery.replace(/^table:\d*x?\d*$/, 'table');
 
   return SLASH_COMMAND_OPTIONS.map((item, sourceIndex) => {
+    // Convert all searchable fields to lowercase once so every comparison
+    // uses the same normalized format.
     const label = item.label.toLowerCase();
     const kind = item.kind.toLowerCase();
     const keywords = item.keywords.map((keyword) => keyword.toLowerCase());
+
+    // These are all the values that can match the user's query.
     const values = [label, kind, ...keywords];
+
+    // Infinity means "not matched yet".
     let score = Number.POSITIVE_INFINITY;
 
+    // Score priority:
+    // 0 = exact match, best result
+    // 1 = label starts with query
+    // 2 = command kind starts with query
+    // 3 = keyword starts with query
+    // 4 = query appears anywhere in label/kind/keywords
     if (values.some((value) => value === searchableQuery)) score = 0;
     else if (label.startsWith(searchableQuery)) score = 1 + label.length / 100;
     else if (kind.startsWith(searchableQuery)) score = 2 + kind.length / 100;

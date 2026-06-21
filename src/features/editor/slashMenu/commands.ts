@@ -34,7 +34,8 @@ export function runSlashCommandInsert(
     case 'horizontal-rule':
       return chain.setHorizontalRule().run();
     case 'table':
-      const match = /^table:(\d+)x(\d+)$/i.exec(query);
+      // /table:5x4 creates a table with 5 rows and 4 cols
+      const match = /^table:(\d+)x(\d+)$/i.exec(query); 
       const rows = match ? Math.max(1, Math.min(100, Number(match[1]))) : 3;
       const cols = match ? Math.max(1, Math.min(20, Number(match[2]))) : 3;
       return chain

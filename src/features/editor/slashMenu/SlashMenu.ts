@@ -32,6 +32,8 @@ type MountedSlashMenu = {
   menu: HTMLElement;
 };
 
+//A Map has methods which expose its data (entries, keys, and values). 
+// A WeakMap does not, which allows its data to be garbage collected if you can no longer reference the key of an entry. 
 const mountedMenus = new WeakMap<Editor, MountedSlashMenu>();
 const menuCleanup = new WeakMap<HTMLElement, () => void>();
 
@@ -39,13 +41,18 @@ export function findSlashCommandMatch(
   state: EditorState,
 ): SlashCommandMatch | null {
   const { selection } = state;
+
+  // If the user selected text, we do not show the menu.
   if (!(selection instanceof TextSelection) || !selection.empty) return null;
 
+  // Code blocks are skipped because "/" should behave like normal code text there.
   const { $from } = selection;
   if (!$from.parent.isTextblock || $from.parent.type.name === 'codeBlock') {
     return null;
   }
 
+  // Read all text in the current text block before the cursor.
+  // "\ufffc" is used as a placeholder for non-text inline nodes.
   const textBefore = $from.parent.textBetween(
     0,
     $from.parentOffset,
@@ -56,12 +63,15 @@ export function findSlashCommandMatch(
   if (!match) return null;
 
   const slashIndex = match.index;
+
+  // Only treat "/" as a slash command when it starts the block
+  // or comes after whitespace.
   if (slashIndex > 0 && !/\s/.test(textBefore[slashIndex - 1])) return null;
 
   return {
-    from: selection.from - match[0].length,
+    from: selection.from - match[0].length, // ProseMirror document position where the "/" command starts.
     query: match[1].toLowerCase(),
-    to: selection.from,
+    to: selection.from,  // Current cursor position, where the slash command ends.
   };
 }
 
@@ -70,8 +80,10 @@ function insertSlashCommand(
   match: SlashCommandMatch,
   kind: SlashCommandKind,
 ): boolean {
+  // Do not insert anything when the editor is read-only.
   if (!editor.isEditable) return false;
 
+  // Remove the typed slash command text first.
   const chain = editor.chain().focus().deleteRange({
     from: match.from,
     to: match.to,
@@ -84,21 +96,29 @@ function syncActiveItem(editor: Editor, index: number, scrollIntoView: boolean):
   const mounted = mountedMenus.get(editor);
   if (!mounted) return;
 
+  // Store the active item index so keyboard navigation and UI state stay in sync.
   mounted.activeIndex = index;
+  
   const active = Array.from(
     mounted.menu.querySelectorAll<HTMLElement>('[role="option"]'),
   )[index];
+
+  // Update aria-selected on every option for accessibility.
   mounted.menu
     .querySelectorAll<HTMLElement>('[role="option"]')
     .forEach((item, itemIndex) =>
       item.setAttribute('aria-selected', String(itemIndex === index)),
     );
+
   if (active) {
     mounted.menu.setAttribute('aria-activedescendant', active.id);
+
+    // Used during keyboard navigation so the highlighted item stays visible.
     if (scrollIntoView) active.scrollIntoView({ block: 'nearest' });
   }
 }
 
+// When user hovers a menu item
 function activateItem(editor: Editor, index: number, scrollIntoView = false): void {
   syncActiveItem(editor, index, scrollIntoView);
   editor.view.dispatch(
@@ -115,7 +135,10 @@ function createSlashMenuWidget(
   items: readonly SlashCommandOption[],
   activeIndex: number,
 ): HTMLElement {
+  // This invisible anchor is inserted into the editor at the cursor position.
+  // Floating UI uses it to position the menu near the slash command.
   const anchor = document.createElement('span');
+
   const menu = document.createElement('span');
   const activeId = `kb-slash-command-${match.from}-${activeIndex}`;
   let currentGroup: SlashCommandOption['group'] | null = null;
@@ -128,6 +151,8 @@ function createSlashMenuWidget(
   menu.setAttribute('aria-activedescendant', activeId);
 
   items.forEach((item, index) => {
+    // Add a group label whenever the command group changes.
+    // Example groups could be "Basic", "Lists", "Callouts", etc.
     if (item.group !== currentGroup) {
       currentGroup = item.group;
       const group = document.createElement('span');
@@ -147,19 +172,26 @@ function createSlashMenuWidget(
     button.className = 'kb-slash-menu__item';
     button.setAttribute('role', 'option');
     button.setAttribute('aria-selected', String(index === activeIndex));
+
     label.textContent = item.label;
     description.textContent = item.description;
+
     text.className = 'kb-slash-menu__item-text';
     text.append(label, description);
+
     button.append(text);
 
+    // Show a keyboard shortcut hint when the command has one.
     if (item.shortcut) {
       const shortcut = document.createElement('kbd');
       shortcut.textContent = item.shortcut;
       button.append(shortcut);
     }
 
+    // Hovering an item makes it the active item.
     button.addEventListener('mouseenter', () => activateItem(editor, index));
+
+    // Use mousedown instead of click so the editor does not lose focus first.
     button.addEventListener('mousedown', (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -169,9 +201,12 @@ function createSlashMenuWidget(
   });
 
   document.body.append(menu);
+
+  // Keep track of the mounted menu for this editor instance.
   mountedMenus.set(editor, { activeIndex, menu });
 
   const updatePosition = () => {
+     // Position the menu next to the anchor using Floating UI.
     void computePosition(anchor, menu, {
       placement: 'bottom-start',
       strategy: 'fixed',
@@ -183,19 +218,28 @@ function createSlashMenuWidget(
       });
     });
   };
+
+  // Recalculate the menu position when needed.
+  // Resize/layout shift tracking is disabled to keep this lightweight.
   const stopAutoUpdate = autoUpdate(anchor, menu, updatePosition, {
     elementResize: false,
     layoutShift: false,
   });
+
+  // Cleanup runs when the ProseMirror widget decoration is destroyed.
   const cleanup = () => {
     stopAutoUpdate();
     menu.remove();
+
+    // Only clear the mounted menu if this cleanup belongs to the current menu.
     if (mountedMenus.get(editor)?.menu === menu) mountedMenus.delete(editor);
   };
   menuCleanup.set(anchor, cleanup);
   return anchor;
 }
 
+// Ignore shortcut combinations like Ctrl+B, Cmd+K, Alt+Arrow, etc.
+// Slash menu keyboard handling should only process plain navigation keys.
 function hasCommandModifier(event: KeyboardEvent): boolean {
   return event.altKey || event.ctrlKey || event.metaKey;
 }
@@ -209,6 +253,8 @@ function createSlashMenuPlugin(editor: Editor): Plugin<SlashMenuState> {
         const meta = transaction.getMeta(slashMenuKey) as SlashMenuMeta | undefined;
         let next = previous;
 
+        // Reset the menu state whenever the document or selection changes.
+        // This prevents stale active indexes or stale dismiss positions.
         if (transaction.docChanged || transaction.selectionSet) {
           next = { activeIndex: 0, dismissedAt: null };
         }
@@ -235,8 +281,12 @@ function createSlashMenuPlugin(editor: Editor): Plugin<SlashMenuState> {
         const items = getMatchingSlashCommands(match.query);
         if (items.length === 0) return null;
 
+        // Clamp activeIndex so it never points outside the filtered item list.
         const activeIndex = Math.min(pluginState?.activeIndex ?? 0, items.length - 1);
+
+        // Keep DOM state aligned with plugin state before rendering.
         syncActiveItem(editor, activeIndex, false);
+
         return DecorationSet.create(state.doc, [
           Decoration.widget(
             match.to,
@@ -276,6 +326,7 @@ function createSlashMenuPlugin(editor: Editor): Plugin<SlashMenuState> {
           return true;
         }
 
+        // Enter and Tab insert the currently active slash command.
         if (
           !event.shiftKey &&
           (event.key === 'Enter' || event.key === 'Tab')
@@ -284,6 +335,7 @@ function createSlashMenuPlugin(editor: Editor): Plugin<SlashMenuState> {
           return insertSlashCommand(editor, match, items[activeIndex].kind);
         }
 
+        // Escape hides the menu for the current slash command position.
         if (event.key === 'Escape') {
           event.preventDefault();
           view.dispatch(
