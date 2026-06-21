@@ -18,7 +18,6 @@ import { contentBlockExtensions } from "../contentBlocks/extensions";
 import { BlockSelection } from "./BlockSelection";
 import { SlashCommandMenu } from "../slashMenu/SlashMenu";
 import {Youtube} from '@tiptap/extension-youtube'
-import { getHierarchicalIndexes, TableOfContents } from '@tiptap/extension-table-of-contents'
 import {
   PasteSanitizer,
   type PasteSanitizerOptions,
@@ -37,7 +36,9 @@ import {
   type EditorExtensionFeatureFlags,
 } from './editorFeatureFlags';
 import { TableOfContentsBlock } from "./TableOfContentsBlock";
-import Image from '@tiptap/extension-image'
+import { imageExtensions } from "../images/ImageExtensions";
+
+
 export type EditorExtensionOptions = {
   featureFlags?: Partial<EditorExtensionFeatureFlags>;
   fileHandler?: EditorFileHandlerOptions;
@@ -55,11 +56,6 @@ export const getEditorExtensions = (options: EditorExtensionOptions = {}) => {
     },
     orderedList: false,
     }),
-    TableOfContents.configure({
-      anchorTypes: ["heading"],
-      getIndex: getHierarchicalIndexes,
-    }),
-
     TableOfContentsBlock,
     StyledBulletList,
     StyledOrderedList,
@@ -74,7 +70,7 @@ export const getEditorExtensions = (options: EditorExtensionOptions = {}) => {
     Subscript,
     TaskList,
     Youtube,
-    Image,
+    ...imageExtensions,
     TextAlign.configure({
     types: ['paragraph', 'heading'],
     alignments: ['left', 'center', 'right', 'justify'],

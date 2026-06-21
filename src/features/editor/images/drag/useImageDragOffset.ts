@@ -4,12 +4,12 @@ import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import type { Editor } from '@tiptap/react';
 import { useCallback, useEffect, useRef } from 'react';
 import {
-  commitTableDragOffset,
-  createTableDragOffsetSession,
-  restoreTableDragOffsetPreview,
-  updateTableDragOffsetPreview,
-  type TableDragOffsetSession,
-} from './tableDragOffset';
+  commitImageDragOffset,
+  createImageDragOffsetSession,
+  restoreImageDragOffsetPreview,
+  updateImageDragOffsetPreview,
+  type ImageDragOffsetSession,
+} from './imageDragOffset';
 
 type ActiveDragTarget = {
   node: ProseMirrorNode;
@@ -18,17 +18,14 @@ type ActiveDragTarget = {
 
 function getDragClientX(event: DragEvent): number | null {
   if (!Number.isFinite(event.clientX)) return null;
-
-  // Some browsers emit a final drag event at 0,0. Treat that as missing data so
-  // the last real dragover position wins.
   if (event.clientX === 0 && event.clientY === 0) return null;
 
   return event.clientX;
 }
 
-export function useTableDragOffset(editor: Editor) {
+export function useImageDragOffset(editor: Editor) {
   const activeTargetRef = useRef<ActiveDragTarget>(null);
-  const sessionRef = useRef<TableDragOffsetSession | null>(null);
+  const sessionRef = useRef<ImageDragOffsetSession | null>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
   const pendingCommitRef = useRef<number | null>(null);
   const didDropRef = useRef(false);
@@ -43,7 +40,7 @@ export function useTableDragOffset(editor: Editor) {
     const clientX = getDragClientX(event);
     if (!session || clientX == null) return;
 
-    updateTableDragOffsetPreview(session, clientX);
+    updateImageDragOffsetPreview(session, clientX);
   }, []);
 
   const finishDrag = useCallback(
@@ -59,8 +56,8 @@ export function useTableDragOffset(editor: Editor) {
       pendingCommitRef.current = ownerWindow.setTimeout(() => {
         pendingCommitRef.current = null;
 
-        if (!commitTableDragOffset(editor, session)) {
-          restoreTableDragOffsetPreview(session);
+        if (!commitImageDragOffset(editor, session)) {
+          restoreImageDragOffsetPreview(session);
         }
       }, 0);
     },
@@ -81,7 +78,7 @@ export function useTableDragOffset(editor: Editor) {
     sessionRef.current = null;
     didDropRef.current = false;
     if (session) {
-      restoreTableDragOffsetPreview(session);
+      restoreImageDragOffsetPreview(session);
     }
   }, [cleanupListeners, editor]);
 
@@ -98,12 +95,12 @@ export function useTableDragOffset(editor: Editor) {
       didDropRef.current = false;
 
       const target = activeTargetRef.current;
-      if (!target || target.node.type.name !== 'table') return;
+      if (!target || target.node.type.name !== 'image') return;
 
       const clientX = getDragClientX(event);
       if (clientX == null) return;
 
-      const session = createTableDragOffsetSession(editor, target.pos, clientX);
+      const session = createImageDragOffsetSession(editor, target.pos, clientX);
       if (!session) return;
 
       sessionRef.current = session;

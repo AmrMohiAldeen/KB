@@ -418,7 +418,7 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
         </ToolbarDropdown>
 
         <ToolbarDropdown
-          title="Text style"
+          title="Text size"
           label={<span className="w-16 truncate text-left">{textBlockLabel}</span>}
           isActive={toolbarState.isHeading}
           menuClassName="w-32"
@@ -511,10 +511,17 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
           </ToolbarButton>
 
           <ToolbarDropdown
-            title="Unordered list styles"
+            title="Lists"
             label=""
             isActive={toolbarState.isBulletList}
           >
+            <DropdownItem
+              onActivate={() => editor.chain().focus().toggleTaskList().run()}
+              isActive={toolbarState.isTaskList}
+            >
+              Task list
+            </DropdownItem>
+            <div className="my-1 border-t border-gray-200" />
             {toolbarState.canRemoveList && toolbarState.isBulletList && (
               <>
                 <DropdownItem onActivate={removeList}>Remove list</DropdownItem>
@@ -963,10 +970,14 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
               key={option.value}
               isActive={toolbarState.lineHeight === option.value}
               onActivate={() => {
-                const chain = editor.chain().focus()
-                                    .setEmptyCellDefaultMark("textStyle", { lineHeight: option.value })
-                                    .setLineHeight(option.value)
-                                    .run();
+                editor
+                  .chain()
+                  .focus()
+                  .setEmptyCellDefaultMark("textStyle", {
+                    lineHeight: option.value,
+                  })
+                  .setLineHeight(option.value)
+                  .run();
               }}
             >
               {option.label}

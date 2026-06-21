@@ -12,6 +12,11 @@ type ImagePreviewState =
 
 type ImageLoadState = "idle" | "loading" | "loaded" | "failed";
 
+type ImageLoadSnapshot = {
+  status: ImageLoadState;
+  url: string;
+};
+
 function isHttpImageUrl(value: string): boolean {
   try {
     const url = new URL(value.trim());
@@ -77,8 +82,8 @@ function ImageDialog({
   const [alt, setAlt] = useState("");
   const [title, setTitle] = useState("");
   const [submitAttempted, setSubmitAttempted] = useState(false);
-  const [imageLoadState, setImageLoadState] =
-    useState<ImageLoadState>("idle");
+  const [imageLoadSnapshot, setImageLoadSnapshot] =
+    useState<ImageLoadSnapshot>({ status: "idle", url: "" });
 
   const urlInputId = useId();
   const altInputId = useId();
@@ -91,6 +96,12 @@ function ImageDialog({
   const urlInputRef = useRef<HTMLInputElement | null>(null);
 
   const preview = useMemo(() => getImagePreviewState(url), [url]);
+  const imageLoadState =
+    preview.status === "valid"
+      ? imageLoadSnapshot.url === preview.url
+        ? imageLoadSnapshot.status
+        : "loading"
+      : "idle";
 
   const emptyError =
     submitAttempted && preview.status === "empty" ? "Enter an image URL." : "";
@@ -112,15 +123,6 @@ function ImageDialog({
   useEffect(() => {
     urlInputRef.current?.focus();
   }, []);
-
-  useEffect(() => {
-    if (preview.status === "valid") {
-      setImageLoadState("loading");
-      return;
-    }
-
-    setImageLoadState("idle");
-  }, [preview]);
 
   const submit = () => {
     setSubmitAttempted(true);
@@ -261,8 +263,18 @@ function ImageDialog({
                   alt={alt || "Image preview"}
                   title={title || undefined}
                   className="max-h-72 max-w-full object-contain"
-                  onLoad={() => setImageLoadState("loaded")}
-                  onError={() => setImageLoadState("failed")}
+                  onLoad={() =>
+                    setImageLoadSnapshot({
+                      status: "loaded",
+                      url: preview.url,
+                    })
+                  }
+                  onError={() =>
+                    setImageLoadSnapshot({
+                      status: "failed",
+                      url: preview.url,
+                    })
+                  }
                 />
               </div>
             ) : (

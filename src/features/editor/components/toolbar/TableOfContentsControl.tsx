@@ -6,7 +6,7 @@ import { ToolbarButton } from "./ToolbarPrimitives";
 export function TableOfContentsControl({ editor }: { editor: Editor }) {
   return (
     <ToolbarButton
-      title="Insert table of contents"
+      title="Table of contents"
       disabled={!editor.isEditable}
       onActivate={() =>
         editor.chain().focus().insertTableOfContentsBlock().run()

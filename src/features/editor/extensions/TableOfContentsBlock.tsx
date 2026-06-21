@@ -11,6 +11,7 @@ import {
 
 type TocItem = {
   id: string;
+  pos: number;
   text: string;
   level: number;
   index: string;
@@ -55,6 +56,7 @@ function getTableOfContentsItems(editor: Editor): TocItem[] {
 
     items.push({
       id,
+      pos,
       text,
       level,
       index,
@@ -64,12 +66,17 @@ function getTableOfContentsItems(editor: Editor): TocItem[] {
   return items;
 }
 
-function scrollToHeading(editor: Editor, id: string) {
+function scrollToHeading(editor: Editor, item: TocItem) {
+  const { id, pos } = item;
   const escapedId = CSS.escape(id);
+  const domAtHeading = editor.view.domAtPos(pos + 1).node;
+  const headingElement =
+    domAtHeading instanceof HTMLElement ? domAtHeading : null;
 
   const element =
     editor.view.dom.querySelector(`#${escapedId}`) ??
-    editor.view.dom.querySelector(`[data-toc-id="${escapedId}"]`);
+    editor.view.dom.querySelector(`[data-toc-id="${escapedId}"]`) ??
+    headingElement;
 
   element?.scrollIntoView({
     behavior: "smooth",
@@ -105,7 +112,7 @@ function TableOfContentsBlockView(props: NodeViewProps) {
               <button
                 type="button"
                 className="text-left text-blue-700 hover:underline"
-                onClick={() => scrollToHeading(editor, item.id)}
+                onClick={() => scrollToHeading(editor, item)}
               >
                 <span className="mr-1 text-gray-500">{item.index}</span>
                 {item.text}

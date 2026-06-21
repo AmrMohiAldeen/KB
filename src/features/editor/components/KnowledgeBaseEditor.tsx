@@ -5,6 +5,7 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import { useEffect, useMemo } from "react";
 import { getEditorExtensions } from "../extensions";
 import { EditorDragHandle } from "../extensions/EditorDragHandle";
+import { ImageBubbleMenu } from "../images/ImageBubbleMenu";
 import type {
   EditorFileUploadAdapter,
   EditorFileUploadErrorHandler,
@@ -87,6 +88,7 @@ export default function KnowledgeBaseEditor({
 
       <div className="max-h-[70vh] overflow-y-auto">
         <div className="prose prose-base max-w-none">
+          <ImageBubbleMenu editor={editor} />
           <EditorContent editor={editor} className="kb-editor-content" />
         </div>
       </div>

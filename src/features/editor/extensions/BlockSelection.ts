@@ -4,11 +4,13 @@ import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import {
   DRAGGABLE_CONTENT_BLOCK_NODE_NAMES,
 } from '../contentBlocks/model';
+import { BLOCK_IMAGE_NODE_NAME } from '../images/imageTypes';
 
 export const SELECTED_BLOCK_CLASS = 'kb-block-selection';
 
 const SELECTABLE_BLOCK_NODE_NAMES = new Set<string>([
   'table',
+  BLOCK_IMAGE_NODE_NAME,
   ...DRAGGABLE_CONTENT_BLOCK_NODE_NAMES,
 ]);
 

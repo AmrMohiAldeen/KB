@@ -13,6 +13,8 @@ export const DEFAULT_FONT_SIZE = 11;
 export const DEFAULT_LINE_HEIGHT = '1';
 
 export const LINE_HEIGHTS: ToolbarOption[] = [
+  { label: '0.25', value: '0.25' },
+  { label: '0.75', value: '0.75' },
   { label: '1.0', value: '1' },
   { label: '1.15', value: '1.15' },
   { label: '1.5', value: '1.5' },
