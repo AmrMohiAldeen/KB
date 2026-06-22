@@ -297,12 +297,14 @@ function removeEmptyElements(root: ParentNode): void {
       element.remove();
     });
 
-  root.querySelectorAll<HTMLElement>('p, h1, h2, h3, h4').forEach((element) => {
-    if (nodeHasMeaningfulContent(element)) return;
-    if (hasAllowedKbAttribute(element)) return;
+  root
+    .querySelectorAll<HTMLElement>('p, h1, h2, h3, h4, h5, h6')
+    .forEach((element) => {
+      if (nodeHasMeaningfulContent(element)) return;
+      if (hasAllowedKbAttribute(element)) return;
 
-    element.remove();
-  });
+      element.remove();
+    });
 }
 
 export function sanitizeDom(root: ParentNode): void {

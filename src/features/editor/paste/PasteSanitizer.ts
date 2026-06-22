@@ -6,6 +6,7 @@ import {
   sanitizePastedHTMLWithResult,
   type PasteSanitizeResult,
 } from './sanitizePastedHtml';
+import { sanitizePastedPlainText } from './sanitizePastedText';
 import { logDevError } from '../lib/utils/logDevError';
 
 type PasteSanitizeFailure = Extract<PasteSanitizeResult, { ok: false }>;
@@ -60,7 +61,7 @@ function insertHtml(view: EditorView, html: string): boolean {
 function insertPlainText(view: EditorView, text: string): boolean {
   view.dispatch(
     view.state.tr
-      .insertText(text)
+      .insertText(sanitizePastedPlainText(text))
       .scrollIntoView(),
   );
 
@@ -111,6 +112,10 @@ export const PasteSanitizer = Extension.create<PasteSanitizerOptions>({
     return [
       new Plugin({
         props: {
+          transformPastedText(text) {
+            return sanitizePastedPlainText(text);
+          },
+
           handlePaste(view, event) {
             const clipboardData = event.clipboardData;
             if (!clipboardData) return false;

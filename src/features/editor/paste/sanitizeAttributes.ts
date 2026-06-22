@@ -473,6 +473,7 @@ function collectSafeAttributes(element: HTMLElement): Map<string, string> {
       sanitizeCssColor(
         element.ownerDocument,
         element.getAttribute('data-cell-background-color') ??
+          element.getAttribute('bgcolor') ??
           element.style.backgroundColor,
       ) ?? null;
     const rowHeight = sanitizeIntegerAttribute(

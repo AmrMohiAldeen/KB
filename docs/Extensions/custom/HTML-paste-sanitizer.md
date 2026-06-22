@@ -14,7 +14,7 @@ The extension:
 
 - Sanitizes real `text/html` clipboard content.
 - Sanitizes plain text that looks like HTML.
-- Leaves normal plain text paste unchanged.
+- Cleans normal plain text by normalizing line endings and removing unsafe control characters without converting it to HTML.
 - Does not convert HTML-looking text inside code blocks.
 
 ## Schema
@@ -78,7 +78,7 @@ Preserved when safe:
 - `http`, `https`, `mailto`, and `tel` links.
 - Safe link `title`, `target="_blank"` with forced `rel="noopener noreferrer"`.
 - Safe text styles: color, background color, font size, line height, font weight, italic, underline, strike, text alignment, list style.
-- Safe table metadata: width, offset, borders, cell background, row height, colspan, rowspan, colwidth.
+- Safe table metadata: width, offset, borders, cell background, row height, colspan, rowspan, colwidth, and safe imported column width hints.
 - Safe app-owned KB attributes for callouts, tabs, and accordions.
 
 ## Tests

@@ -5,6 +5,7 @@ import {
   removeComments,
 } from './domLimits';
 import { normalizeWordPaste } from './normalizeWordPaste';
+import { normalizePastedTableImportMetadata } from './normalizeTables';
 import { MAX_PASTED_HTML_LENGTH } from './pasteSanitizerConfig';
 import type {
   PasteSanitizeFailureReason,
@@ -44,6 +45,7 @@ export function sanitizePastedHTMLWithResult(
 
     removeComments(document.body);
     normalizeWordPaste(document.body);
+    normalizePastedTableImportMetadata(document.body);
     sanitizeDom(document.body);     // First pass: clean unsafe pasted HTML.
     normalizePastedStructure(document.body); // Then restructure/convert HTML.
     sanitizeDom(document.body);  // Second pass: clean anything created or changed during normalization.

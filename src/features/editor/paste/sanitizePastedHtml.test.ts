@@ -10,12 +10,14 @@
  * - editor paste pipeline behavior, failure callbacks, node/depth/size limits, and performance regression coverage
  */
 import { Editor } from '@tiptap/core';
+import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getEditorExtensions, type EditorExtensionOptions } from '../extensions';
 import {
   sanitizePastedHTML,
   sanitizePastedHTMLWithResult,
 } from './sanitizePastedHtml';
+import { sanitizePastedPlainText } from './sanitizePastedText';
 
 const editors: Editor[] = [];
 const editorElements: HTMLElement[] = [];
@@ -123,6 +125,16 @@ function editorNodeNames(editor: Editor): string[] {
   return names;
 }
 
+function editorNodesByName(editor: Editor, name: string): ProseMirrorNode[] {
+  const nodes: ProseMirrorNode[] = [];
+
+  editor.state.doc.descendants((node) => {
+    if (node.type.name === name) nodes.push(node);
+  });
+
+  return nodes;
+}
+
 describe('sanitizePastedHTML', () => {
   it('treats empty HTML as a successful no-op', () => {
     expect(sanitizePastedHTMLWithResult('')).toEqual({ ok: true, html: '' });
@@ -141,6 +153,12 @@ describe('sanitizePastedHTML', () => {
 
     expect(container.textContent).toBe('hello');
     expect(result.html).toContain('hello');
+  });
+
+  it('cleans plain text paste without losing Arabic, English, tabs, or newlines', () => {
+    expect(
+      sanitizePastedPlainText('Hello\r\nمرحبا\tworld\u0000\u0007\nNext line'),
+    ).toBe('Hello\nمرحبا\tworld\nNext line');
   });
 
   it('removes scripts, event handlers, unsafe wrappers, and unknown dangerous tags', () => {
@@ -328,6 +346,7 @@ describe('sanitizePastedHTML', () => {
     ].join(''));
 
     expect(html).toContain('<h1>Title</h1>');
+    expect(html).toContain('<h5>Deep heading</h5>');
     expect(html).toContain('<strong>Bold</strong>');
     expect(html).toContain('<em>Italic</em>');
     expect(html).toContain('<u>Underline</u>');
@@ -437,6 +456,39 @@ describe('sanitizePastedHTML', () => {
     expect(html).toContain('align="center"');
     expect(html).toContain('data-cell-background-color=');
     expect(html).not.toContain('onclick');
+  });
+
+  it('preserves rich editor table sizing, spans, row heights, and cell backgrounds', () => {
+    const fragment = sanitizedFragment([
+      '<table style="width:72%; margin-left:8%">',
+      '<colgroup><col style="width:72pt"><col width="144px"></colgroup>',
+      '<tbody>',
+      '<tr style="height:30pt">',
+      '<td style="background-color:#dbeafe;text-align:right">A</td>',
+      '<td bgcolor="#fff2cc">B</td>',
+      '</tr>',
+      '<tr><td rowspan="2" width="96px">C</td><td>D</td></tr>',
+      '</tbody></table>',
+    ].join(''));
+    const html = fragment.innerHTML;
+    const cells = Array.from(fragment.querySelectorAll('td'));
+
+    expect(fragment.querySelector('table')?.dataset.tableWidthPct).toBe('72');
+    expect(fragment.querySelector('table')?.dataset.tableOffsetPct).toBe('8');
+    expect(fragment.querySelector('tr')?.getAttribute('data-row-height')).toBe('40');
+    expect(fragment.querySelector('col')?.getAttribute('width')).toBe('96');
+    expect(cells[0].getAttribute('colwidth')).toBe('96');
+    expect(cells[1].getAttribute('colwidth')).toBe('144');
+    expect(cells[0].getAttribute('align')).toBe('right');
+    expect(cells[0].getAttribute('data-cell-background-color')).toBe(
+      'rgb(219, 234, 254)',
+    );
+    expect(cells[1].getAttribute('data-cell-background-color')).toBe(
+      'rgb(255, 242, 204)',
+    );
+    expect(html).toContain('rowspan="2"');
+    expectValidTableStructure(fragment);
+    expectNoExecutableHtml(html);
   });
 
   it('converts safe table width and offset sources into editor metadata', () => {
@@ -574,6 +626,31 @@ describe('sanitizePastedHTML', () => {
     expect(html).not.toContain('Apple-converted-space');
     expect(html).not.toContain('<xml');
     expect(html).not.toContain('<!--');
+  });
+
+  it('cleans Outlook-style HTML while preserving safe paragraphs and inline styles', () => {
+    const html = sanitizePastedHTML([
+      '<!--[if gte mso 9]><xml><o:OfficeDocumentSettings></o:OfficeDocumentSettings></xml><![endif]-->',
+      '<div class="WordSection1">',
+      '<p class="MsoNormal" style="margin:0;line-height:1.4;text-align:right">',
+      '<span style="font-size:12pt;color:#1f497d;background-color:#fff2cc;text-decoration:underline">',
+      'Outlook update',
+      '</span></p></div>',
+    ].join(''));
+
+    expect(html).toContain('<p');
+    expect(html).toContain('text-align: right');
+    expect(html).toContain('line-height: 1.4');
+    expect(html).toContain('<mark');
+    expect(html).toContain('background-color: rgb(255, 242, 204)');
+    expect(html).toContain('color: rgb(31, 73, 125)');
+    expect(html).toContain('font-size: 12pt');
+    expect(html).toContain('text-decoration: underline');
+    expect(html).toContain('Outlook update');
+    expect(html).not.toContain('WordSection1');
+    expect(html).not.toContain('MsoNormal');
+    expect(html).not.toContain('<xml');
+    expectNoExecutableHtml(html);
   });
 
   it('removes unsafe styles and arbitrary classes while preserving safe supported styles', () => {
@@ -724,6 +801,35 @@ describe('sanitizePastedHTML', () => {
     expect(kbBlocksEditor.getText()).toContain('Tab body');
     expect(kbBlocksEditor.getText()).toContain('Answer');
     expectNoExecutableHtml(kbBlocksEditor.getHTML());
+  });
+
+  it('round-trips rich pasted table attributes through the Tiptap schema', () => {
+    const editor = insertSanitizedIntoEditor([
+      '<table style="width:72%; margin-left:8%">',
+      '<colgroup><col style="width:72pt"><col width="144px"></colgroup>',
+      '<tbody>',
+      '<tr style="height:30pt">',
+      '<td style="background-color:#dbeafe;text-align:right">A</td>',
+      '<td bgcolor="#fff2cc">B</td>',
+      '</tr>',
+      '<tr><td colspan="2" colwidth="96,144">Merged</td></tr>',
+      '</tbody></table>',
+    ].join(''));
+    const table = editorNodesByName(editor, 'table')[0];
+    const rows = editorNodesByName(editor, 'tableRow');
+    const cells = editorNodesByName(editor, 'tableCell');
+
+    expect(table.attrs.tableWidthPct).toBe(72);
+    expect(table.attrs.tableOffsetPct).toBe(8);
+    expect(rows[0].attrs.rowHeight).toBe(40);
+    expect(cells[0].attrs.colwidth).toEqual([96]);
+    expect(cells[0].attrs.align).toBe('right');
+    expect(cells[0].attrs.backgroundColor).toBe('rgb(219, 234, 254)');
+    expect(cells[1].attrs.colwidth).toEqual([144]);
+    expect(cells[1].attrs.backgroundColor).toBe('rgb(255, 242, 204)');
+    expect(cells[2].attrs.colspan).toBe(2);
+    expect(cells[2].attrs.colwidth).toEqual([96, 144]);
+    expectNoExecutableHtml(editor.getHTML());
   });
 
   it('converts simple text divs to paragraphs and removes empty wrappers', () => {
@@ -939,6 +1045,32 @@ describe('sanitizePastedHTML', () => {
 
     expect(() => pasteHTML(editor, '', 'hello')).not.toThrow();
     expect(onSanitizeFailure).not.toHaveBeenCalled();
+  });
+
+  it('cleans normal plain text paste through the ProseMirror paste hook', () => {
+    const editor = createEditor('<p>Replace me</p>');
+    editor.commands.selectAll();
+
+    pasteHTML(editor, '', 'Hello\r\nمرحبا\u0000\u0007\nWorld');
+
+    expect(editor.getText()).toContain('Hello');
+    expect(editor.getText()).toContain('مرحبا');
+    expect(editor.getText()).toContain('World');
+    expect(editor.getText()).not.toContain('\u0000');
+    expect(editor.getText()).not.toContain('\u0007');
+  });
+
+  it('pastes raw text inside code blocks without rich HTML conversion', () => {
+    const raw = '<strong>Raw</strong><script>alert(1)</script>';
+    const editor = createEditor('<pre><code>seed</code></pre>');
+    editor.commands.setTextSelection({ from: 1, to: 5 });
+
+    pasteHTML(editor, '<p><strong>Rich</strong></p>', raw);
+
+    expect(editor.getText()).toContain(raw);
+    expect(editor.getHTML()).toContain('&lt;strong&gt;Raw&lt;/strong&gt;');
+    expect(editor.getHTML()).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
+    expect(editor.getHTML()).not.toContain('<strong>Rich</strong>');
   });
 
   it('sanitizes HTML-looking plain text without treating it as a failure', () => {
