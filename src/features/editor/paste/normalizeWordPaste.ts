@@ -10,6 +10,7 @@ type WordListContext = {
 
 function removeLeadingWhitespace(node: Node): void {
   if (isTextNode(node)) {
+    // Remove normal spaces and non-breaking spaces that Word often adds before list text.
     node.textContent = node.textContent?.replace(/^[\s\u00a0]+/, '') ?? '';
     return;
   }
@@ -20,6 +21,8 @@ function removeLeadingWhitespace(node: Node): void {
 
 function readWordListLevel(paragraph: HTMLElement): number {
   const style = paragraph.getAttribute('style') ?? '';
+
+  // Word stores list nesting in inline CSS like: mso-list:... level2 ...
   const match = style.match(/\bmso-list:[^;]*\blevel(\d+)/i);
   const level = match ? Number(match[1]) : 1;
 
@@ -27,14 +30,18 @@ function readWordListLevel(paragraph: HTMLElement): number {
 }
 
 function readWordListTag(paragraph: HTMLElement): ListTagName {
+  
   const marker = Array.from(paragraph.querySelectorAll('span')).find((span) =>
+    // Word puts the visible bullet/number marker in a span marked as mso-list: Ignore.
     /mso-list:\s*Ignore/i.test(span.getAttribute('style') ?? ''),
   );
   const markerText = marker?.textContent ?? paragraph.textContent ?? '';
 
+  // Number-like markers become ordered lists; everything else is treated as unordered.
   return /^\s*(?:\d+|[a-z]+|[ivxlcdm]+)[.)]/i.test(markerText) ? 'ol' : 'ul';
 }
 
+// Remove Word's fake marker span so the browser/editor can render the real list marker.
 function removeWordListMarker(paragraph: HTMLElement): void {
   Array.from(paragraph.querySelectorAll('span'))
     .find((span) => /mso-list:\s*Ignore/i.test(span.getAttribute('style') ?? ''))
@@ -47,6 +54,7 @@ function isWordListParagraph(element: Element): element is HTMLParagraphElement 
   const className = element.getAttribute('class') ?? '';
   const style = element.getAttribute('style') ?? '';
 
+  // Word exports list items as paragraphs instead of real <li> elements.
   return /\bMsoListParagraph\w*\b/i.test(className) || /mso-list:/i.test(style);
 }
 
@@ -81,6 +89,8 @@ function convertWordListParagraphs(container: ParentNode): void {
       }
 
       current = { lastItem: null, level, list, tagName };
+
+      // Replace any existing context at this level or deeper with the new list.
       stack = stack.filter((context) => context.level < level);
       stack.push(current);
     }
@@ -98,6 +108,7 @@ function normalizeAppleConvertedSpaces(root: ParentNode): void {
   root.querySelectorAll<HTMLElement>('.Apple-converted-space').forEach((span) => {
     span.replaceWith(
       span.ownerDocument.createTextNode(
+         // Convert Apple's non-breaking space wrapper into a normal text space.
         (span.textContent || ' ').replace(/\u00a0/g, ' '),
       ),
     );

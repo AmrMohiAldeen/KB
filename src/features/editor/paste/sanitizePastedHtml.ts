@@ -44,9 +44,9 @@ export function sanitizePastedHTMLWithResult(
 
     removeComments(document.body);
     normalizeWordPaste(document.body);
-    sanitizeDom(document.body);
-    normalizePastedStructure(document.body);
-    sanitizeDom(document.body);
+    sanitizeDom(document.body);     // First pass: clean unsafe pasted HTML.
+    normalizePastedStructure(document.body); // Then restructure/convert HTML.
+    sanitizeDom(document.body);  // Second pass: clean anything created or changed during normalization.
 
     return { ok: true, html: document.body.innerHTML };
   } catch (error) {

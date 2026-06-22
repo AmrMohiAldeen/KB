@@ -49,8 +49,10 @@ function sanitizeCssColor(
   value: string,
   options: { allowTransparent?: boolean } = {},
 ): string | null {
+  // Quotes are not needed for CSS colors and can hide malformed pasted values.
   const trimmed = value.trim().replace(/['"]/g, '');
   if (!trimmed || isDangerousCssValue(trimmed)) return null;
+  // Reject CSS-wide keywords because they can behave unpredictably after paste.
   if (/^(?:inherit|initial|revert|unset|currentcolor)$/i.test(trimmed)) return null;
   if (!options.allowTransparent && /^transparent$/i.test(trimmed)) return null;
 
@@ -241,8 +243,13 @@ function sanitizeExplicitUrl(url: string): SanitizedUrl {
 }
 
 function sanitizeRelativeUrl(url: string): SanitizedUrl {
+  // Protocol-relative URLs can unexpectedly resolve to external resources.
   if (url.startsWith('//') || url.startsWith('\\\\')) return { ok: false };
+
+  // Reject characters that can break attributes
   if (/[\u0000-\u001F\u007F\s<>"']/.test(url)) return { ok: false };
+
+  // Backslashes are rejected because browsers may treat them like URL separators.
   if (/[\\]/.test(url)) return { ok: false };
 
   return { ok: true, url };
@@ -252,8 +259,10 @@ function sanitizePastedUrl(value: string | null): SanitizedUrl {
   const trimmed = value?.trim() ?? '';
   if (!trimmed) return { ok: false };
 
+  // Reject characters that can break attributes
   if (/[\u0000-\u001F\u007F]/.test(trimmed)) return { ok: false };
 
+  // Detect explicit protocols like https:, mailto:, or javascript:.
   const protocolMatch = trimmed.match(/^([a-z][a-z\d+.-]*):/i);
   if (protocolMatch) {
     const protocol = `${protocolMatch[1].toLowerCase()}:`;
@@ -380,6 +389,8 @@ function collectSafeAttributes(element: HTMLElement): Map<string, string> {
 
       if ((element.getAttribute('target') ?? '').trim().toLowerCase() === '_blank') {
         attributes.set('target', '_blank');
+
+        // Required when opening new tabs to prevent reverse-tabnabbing.
         attributes.set('rel', 'noopener noreferrer');
       }
     }
@@ -389,6 +400,7 @@ function collectSafeAttributes(element: HTMLElement): Map<string, string> {
   }
 
   if (tagName === 'code') {
+    // Keep only safe syntax-highlight language classes.
     const languageClass = Array.from(element.classList).find((className) =>
       /^language-[a-z0-9_+-]{1,40}$/i.test(className),
     );

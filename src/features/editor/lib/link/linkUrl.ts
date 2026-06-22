@@ -36,6 +36,7 @@ export function normalizeLinkUrl(value: string): LinkUrlResult {
     return { ok: false, error: "Enter a URL or remove the existing link." };
   }
 
+  // Reject characters that can break attributes 
   if (/[\u0000-\u001F\u007F\s]/.test(trimmed)) {
     return {
       ok: false,
@@ -51,6 +52,7 @@ export function normalizeLinkUrl(value: string): LinkUrlResult {
     return { ok: true, url: trimmed };
   }
 
+  // makes example.com into https://example.com
   const candidate = /^[a-z][a-z\d+.-]*:/i.test(trimmed)
     ? trimmed
     : `https://${trimmed}`;

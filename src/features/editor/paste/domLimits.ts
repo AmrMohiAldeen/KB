@@ -5,15 +5,21 @@ import {
 
 export function removeComments(root: ParentNode): void {
   const document = root.ownerDocument;
+
+  // NodeFilter is a browser DOM helper used by TreeWalker to decide which node types to visit.
+  // Here we use SHOW_COMMENT so the walker only finds HTML comment nodes.
   const nodeFilter = document?.defaultView?.NodeFilter;
   const showComment = nodeFilter?.SHOW_COMMENT;
 
+  // If the DOM APIs are unavailable, skip safely instead of crashing
   if (showComment == null || !document?.createTreeWalker) return;
 
   const walker = document.createTreeWalker(root, showComment);
   const comments: Comment[] = [];
 
+  // Collect comments first because removing nodes while walking can make traversal unreliable.
   while (walker.nextNode()) comments.push(walker.currentNode as Comment);
+  
   comments.forEach((comment) => comment.remove());
 }
 

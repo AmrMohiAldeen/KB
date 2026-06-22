@@ -35,11 +35,13 @@ function hasAllowedKbAttribute(element: HTMLElement): boolean {
 function normalizeTextNode(textNode: Text): void {
   const parent = textNode.parentElement;
   if (parent?.closest('pre, code')) {
+    // Preserve line breaks inside code-like content, but normalize Windows CRLF/CR to LF.
     textNode.textContent = textNode.textContent?.replace(/\r\n?/g, '\n') ?? '';
     return;
   }
 
   textNode.textContent =
+    // Outside code blocks, collapse pasted whitespace into normal single spaces.
     textNode.textContent?.replace(/\u00a0/g, ' ').replace(/[\t\r\n ]+/g, ' ') ??
     '';
 }
@@ -47,6 +49,7 @@ function normalizeTextNode(textNode: Text): void {
 function shouldUnwrapFormattingElement(element: HTMLElement): boolean {
   const tagName = getTagName(element);
 
+  // A bold tag with normal font weight is visually not bold, so remove only the wrapper.
   if (
     (tagName === 'b' || tagName === 'strong') &&
     /^(?:normal|400)$/i.test(element.style.fontWeight)
@@ -54,6 +57,7 @@ function shouldUnwrapFormattingElement(element: HTMLElement): boolean {
     return true;
   }
 
+  // An italic tag with normal font style is visually not italic.
   if (
     (tagName === 'i' || tagName === 'em') &&
     element.style.fontStyle === 'normal'
@@ -61,6 +65,7 @@ function shouldUnwrapFormattingElement(element: HTMLElement): boolean {
     return true;
   }
 
+  // A decoration tag with text-decoration: none should not create underline/strike marks.
   if (
     TEXT_DECORATION_FORMATTING_TAGS.has(tagName) &&
     /(?:^|\s)none(?:\s|$)/i.test(element.style.textDecoration)
@@ -71,6 +76,7 @@ function shouldUnwrapFormattingElement(element: HTMLElement): boolean {
   return false;
 }
 
+// <font> is legacy HTML, so convert it into a span with equivalent inline styles.
 function normalizeFontElement(element: HTMLElement): HTMLElement {
   const span = replaceElementTag(element, 'span');
   const styles: string[] = [];
@@ -125,11 +131,13 @@ function sanitizeNode(node: Node, depth: number): void {
   let element: HTMLElement = node;
   let tagName = getTagName(element);
 
+  // Remove namespaced tags like o:p or v:shape from Word/Office HTML.
   if (tagName.includes(':')) {
     element.remove();
     return;
   }
 
+  // Unsafe/useless elements like script/style are removed with all their children.
   if (DROP_WITH_CONTENT.has(tagName)) {
     element.remove();
     return;
@@ -137,11 +145,6 @@ function sanitizeNode(node: Node, depth: number): void {
 
   if (tagName === 'font') {
     element = normalizeFontElement(element);
-    tagName = getTagName(element);
-  }
-
-  if (tagName === 'h5' || tagName === 'h6') {
-    element = replaceElementTag(element, 'h4');
     tagName = getTagName(element);
   }
 
@@ -164,19 +167,23 @@ function sanitizeNode(node: Node, depth: number): void {
 
   if (GENERIC_WRAPPER_TAGS.has(tagName) && !hasAllowedKbAttribute(element)) {
     if (hasOnlyPhrasingContent(element)) {
+      // Plain wrapper around inline content becomes a paragraph.
       element = replaceElementTag(element, 'p');
       tagName = getTagName(element);
     } else {
+       // Wrapper around block content is unnecessary; keep children but remove wrapper.
       sanitizeChildNodes(element, depth);
       unwrapElement(element);
       return;
     }
   }
 
+  // Unknown block-like element with only inline content is safely converted to <p>.
   if (!ALLOWED_TAGS.has(tagName)) {
     if (BLOCK_LIKE_TAGS.has(tagName) && hasOnlyPhrasingContent(element)) {
       element = replaceElementTag(element, 'p');
     } else {
+      // Unsupported tag is removed, but its sanitized children are preserved.
       sanitizeChildNodes(element, depth);
       unwrapElement(element);
       return;
@@ -187,6 +194,7 @@ function sanitizeNode(node: Node, depth: number): void {
   applySanitizedAttributes(element);
 
   if (getTagName(element) === 'a' && !element.hasAttribute('href')) {
+    // Links without href are not useful as links, so keep their text only.
     unwrapElement(element);
   }
 }
@@ -203,11 +211,15 @@ function convertBackgroundSpansToMarks(root: ParentNode): void {
     mark.style.backgroundColor = backgroundColor;
 
     const remainingStyle = span.getAttribute('style');
+
+    // Move existing children into the new mark instead of cloning them.
     while (span.firstChild) mark.append(span.firstChild);
 
     if (remainingStyle) {
       const innerSpan = span.ownerDocument.createElement('span');
       innerSpan.setAttribute('style', remainingStyle);
+      
+      // Keep non-background styles by wrapping the marked content in an inner span.
       while (mark.firstChild) innerSpan.append(mark.firstChild);
       mark.append(innerSpan);
     }
@@ -230,7 +242,9 @@ function isInlineLikeNode(node: Node): boolean {
 }
 
 function wrapInlineRun(container: Element, run: Node[]): void {
+  // Ignore empty whitespace-only nodes when deciding what should become a paragraph.
   const meaningful = run.filter(nodeHasMeaningfulContent);
+
   if (meaningful.length === 0) {
     run.forEach(removeNode);
     return;
@@ -244,6 +258,7 @@ function wrapInlineRun(container: Element, run: Node[]): void {
 function wrapLooseInlineRuns(root: ParentNode): void {
   const ElementCtor = root.ownerDocument?.defaultView?.Element;
   const containers = [
+    // Include root itself only if it is an Element
     ElementCtor && root instanceof ElementCtor ? root : null,
     ...Array.from(
       root.querySelectorAll<HTMLElement>(LOOSE_INLINE_CONTAINER_SELECTOR),

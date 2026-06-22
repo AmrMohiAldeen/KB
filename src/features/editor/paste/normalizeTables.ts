@@ -59,10 +59,14 @@ function removeInvalidChildren(element: Element, allowedTags: Set<string>): void
   });
 }
 
+// converts pasted tables that have <tr> rows directly under <table> 
+// into valid HTML by grouping those rows inside a generated <tbody>.
 function wrapDirectTableRows(table: HTMLTableElement): void {
   let body: HTMLTableSectionElement | null = null;
 
   Array.from(table.children).forEach((child) => {
+
+    // Reset the current tbody when another table section interrupts the direct row sequence.
     if (getTagName(child) !== 'tr') {
       body = null;
       return;
@@ -78,12 +82,14 @@ function wrapDirectTableRows(table: HTMLTableElement): void {
 }
 
 export function normalizePastedTableStructure(root: ParentNode): void {
+  // Cells are only valid directly inside table rows.
   root.querySelectorAll<HTMLElement>('td, th').forEach((cell) => {
     if (cell.parentElement && getTagName(cell.parentElement) === 'tr') return;
 
     cell.remove();
   });
 
+   // Rows are only valid under table sections or directly under table before wrapping.
   root.querySelectorAll<HTMLTableRowElement>('tr').forEach((row) => {
     const parentTagName = row.parentElement ? getTagName(row.parentElement) : '';
     if (parentTagName !== 'table' && !TABLE_SECTION_TAGS.has(parentTagName)) {
@@ -92,6 +98,8 @@ export function normalizePastedTableStructure(root: ParentNode): void {
     }
 
     removeInvalidChildren(row, TABLE_CELL_TAGS);
+
+    // Remove rows that no longer contain any valid cells.
     if (!hasDirectChildWithTag(row, TABLE_CELL_TAGS)) row.remove();
   });
 
@@ -103,6 +111,8 @@ export function normalizePastedTableStructure(root: ParentNode): void {
       }
 
       removeInvalidChildren(section, TABLE_ROW_TAGS);
+
+      // Remove sections that no longer contain any valid rows.
       if (!hasDirectChildWithTag(section, TABLE_ROW_TAGS)) section.remove();
     });
 

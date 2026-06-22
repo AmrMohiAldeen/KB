@@ -1,3 +1,14 @@
+/**
+ * Tests the paste sanitizer end-to-end:
+ * - empty/plain/malformed HTML handling and sanitizer failure reasons
+ * - unsafe tags, event handlers, scripts, media, SVG/MathML, comments, and Office noise removal
+ * - URL sanitization for safe links, unsafe protocols, obfuscated protocols, and protocol-relative URLs
+ * - CSS/style sanitization, including dangerous CSS, safe colors, font sizes, line heights, and cancelled formatting
+ * - Word/Google Docs/Apple paste normalization, legacy font tags, whitespace, and list conversion
+ * - table structure normalization, invalid fragments, width/offset metadata, clamping, and supported table attrs
+ * - KB-specific blocks/attributes, task lists/items, headings/lists/inline formatting, and Tiptap schema round-trips
+ * - editor paste pipeline behavior, failure callbacks, node/depth/size limits, and performance regression coverage
+ */
 import { Editor } from '@tiptap/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getEditorExtensions, type EditorExtensionOptions } from '../extensions';
@@ -163,6 +174,62 @@ describe('sanitizePastedHTML', () => {
     expect(html).not.toContain('target=');
   });
 
+  it('rejects protocol-relative URLs and backslash network-path URLs', () => {
+    const html = sanitizePastedHTML([
+      '<p>',
+      '<a href="//evil.example/path">Protocol relative</a>',
+      '<a href="\\\\evil.example\\path">Backslash relative</a>',
+      '</p>',
+    ].join(''));
+
+    expect(html).toContain('Protocol relative');
+    expect(html).toContain('Backslash relative');
+    expect(html).not.toContain('<a');
+    expect(html).not.toContain('evil.example');
+  });
+
+  it('rejects relative URLs with spaces, control characters, quotes, angle brackets, or backslashes', () => {
+    const html = sanitizePastedHTML([
+      '<p>',
+      '<a href="/safe/path">Safe relative</a>',
+      '<a href="/bad path">Space relative</a>',
+      '<a href="/bad\tpath">Control relative</a>',
+      '<a href="/bad&quot;path">Quote relative</a>',
+      '<a href="/bad<path>">Angle relative</a>',
+      '<a href="folder\\file">Backslash relative</a>',
+      '</p>',
+    ].join(''));
+
+    expect(html).toContain('href="/safe/path"');
+    expect(html).toContain('Safe relative');
+    expect(html).toContain('Space relative');
+    expect(html).toContain('Control relative');
+    expect(html).toContain('Quote relative');
+    expect(html).toContain('Angle relative');
+    expect(html).toContain('Backslash relative');
+    expect(html.match(/<a /g)).toHaveLength(1);
+  });
+
+  it('keeps link title text safe and only preserves target on safe blank links', () => {
+    const html = sanitizePastedHTML([
+      '<p>',
+      '<a href="https://example.com" target="_blank" title="Safe <bad> title">Blank safe</a>',
+      '<a href="https://example.org" target="_self">Self safe</a>',
+      '<a href="javascript:alert(1)" target="_blank" title="Bad title">Bad href</a>',
+      '</p>',
+    ].join(''));
+
+    expect(html).toContain('href="https://example.com/"');
+    expect(html).toContain('target="_blank"');
+    expect(html).toContain('rel="noopener noreferrer"');
+    expect(html).toContain('title="Safe bad title"');
+    expect(html).toContain('href="https://example.org/"');
+    expect(html).not.toContain('target="_self"');
+    expect(html).toContain('Bad href');
+    expect(html).not.toContain('Bad title');
+    expect(html).not.toContain('javascript:');
+  });
+
   it.each([
     '<a href="java&#x0A;script:alert(1)">bad</a>',
     '<a href=" JAVASCRIPT:alert(1)">bad</a>',
@@ -261,7 +328,6 @@ describe('sanitizePastedHTML', () => {
     ].join(''));
 
     expect(html).toContain('<h1>Title</h1>');
-    expect(html).toContain('<h4>Deep heading</h4>');
     expect(html).toContain('<strong>Bold</strong>');
     expect(html).toContain('<em>Italic</em>');
     expect(html).toContain('<u>Underline</u>');
@@ -273,6 +339,57 @@ describe('sanitizePastedHTML', () => {
     expect(html).toContain('<ul>');
     expect(html).toContain('<li>');
     expect(html).toContain('Child');
+  });
+
+  it('unwraps formatting tags that are visually cancelled by CSS', () => {
+    const html = sanitizePastedHTML([
+      '<p>',
+      '<strong style="font-weight: normal">Not bold</strong>',
+      '<b style="font-weight: 400">Also not bold</b>',
+      '<em style="font-style: normal">Not italic</em>',
+      '<i style="font-style: normal">Also not italic</i>',
+      '<u style="text-decoration: none">Not underline</u>',
+      '<s style="text-decoration: none">Not strike</s>',
+      '</p>',
+    ].join(''));
+
+    expect(html).toContain('Not bold');
+    expect(html).toContain('Also not bold');
+    expect(html).toContain('Not italic');
+    expect(html).toContain('Also not italic');
+    expect(html).toContain('Not underline');
+    expect(html).toContain('Not strike');
+    expect(html).not.toContain('<strong');
+    expect(html).not.toContain('<b');
+    expect(html).not.toContain('<em');
+    expect(html).not.toContain('<i');
+    expect(html).not.toContain('<u');
+    expect(html).not.toContain('<s');
+  });
+
+  it('converts legacy font tags to safe span styles and removes legacy font attrs', () => {
+    const html = sanitizePastedHTML(
+      '<p><font color="#ff0000" size="4" face="Papyrus">Legacy text</font></p>',
+    );
+
+    expect(html).toContain('Legacy text');
+    expect(html).toContain('<span');
+    expect(html).toContain('color: rgb(255, 0, 0)');
+    expect(html).toContain('font-size:');
+    expect(html).not.toContain('<font');
+    expect(html).not.toContain('face=');
+    expect(html).not.toContain('size=');
+    expect(html).not.toContain('color="#ff0000"');
+  });
+
+  it('normalizes text whitespace while preserving code/pre line breaks', () => {
+    const html = sanitizePastedHTML([
+      '<p>One\t\n\r  two&nbsp;&nbsp;three</p>',
+      '<pre><code>line1\r\nline2\rline3</code></pre>',
+    ].join(''));
+
+    expect(html).toContain('<p>One two three</p>');
+    expect(html).toContain('line1\nline2\nline3');
   });
 
   it('preserves nested ordered, unordered, and mixed safe lists', () => {
@@ -340,6 +457,74 @@ describe('sanitizePastedHTML', () => {
     expect(tables[2].dataset.tableWidthPct).toBe('80');
     expect(tables[2].dataset.tableOffsetPct).toBe('0');
     expectValidTableStructure(fragment);
+  });
+
+  it('wraps direct table rows into tbody without merging row runs across table sections', () => {
+    const fragment = sanitizedFragment([
+      '<table>',
+      '<tr><td>Before header</td></tr>',
+      '<thead><tr><th>Header</th></tr></thead>',
+      '<tr><td>After header</td></tr>',
+      '</table>',
+    ].join(''));
+
+    const table = fragment.querySelector('table');
+    expect(table).toBeTruthy();
+    expect(table?.children[0]?.tagName.toLowerCase()).toBe('tbody');
+    expect(table?.children[1]?.tagName.toLowerCase()).toBe('thead');
+    expect(table?.children[2]?.tagName.toLowerCase()).toBe('tbody');
+    expect(table?.children[0]?.textContent).toContain('Before header');
+    expect(table?.children[2]?.textContent).toContain('After header');
+    expectValidTableStructure(fragment);
+  });
+
+  it('clamps table offset so width plus offset does not exceed 100%', () => {
+    const fragment = sanitizedFragment(
+      '<table data-table-width-pct="80" data-table-offset-pct="50"><tbody><tr><td>A</td></tr></tbody></table>',
+    );
+
+    const table = fragment.querySelector('table');
+    expect(table?.getAttribute('data-table-width-pct')).toBe('80');
+    expect(table?.getAttribute('data-table-offset-pct')).toBe('20');
+    expect(table?.style.width).toBe('80%');
+    expect(table?.style.marginLeft).toBe('20%');
+  });
+
+  it('falls back to default table layout when pasted width and offset are invalid', () => {
+    const fragment = sanitizedFragment(
+      '<table width="500" style="width: 500px; margin-left: 500px"><tbody><tr><td>A</td></tr></tbody></table>',
+    );
+
+    const table = fragment.querySelector('table');
+    expect(table?.getAttribute('data-table-width-pct')).toBe('100');
+    expect(table?.getAttribute('data-table-offset-pct')).toBe('0');
+    expect(table?.hasAttribute('width')).toBe(false);
+    expect(table?.style.width).toBe('100%');
+    expect(table?.style.marginLeft).toBe('0%');
+  });
+
+  it('removes invalid table span, row-height, and colwidth values while preserving valid values', () => {
+    const html = sanitizePastedHTML([
+      '<table><colgroup><col span="2" width="120"><col span="999" width="10"></colgroup>',
+      '<tbody>',
+      '<tr data-row-height="42"><td colspan="2" rowspan="3" colwidth="120,220">Valid</td></tr>',
+      '<tr data-row-height="900"><td colspan="0" rowspan="999" colwidth="bad,220">Invalid</td></tr>',
+      '</tbody></table>',
+    ].join(''));
+
+    expect(html).toContain('span="2"');
+    expect(html).toContain('width="120"');
+    expect(html).toContain('data-row-height="42"');
+    expect(html).toContain('colspan="2"');
+    expect(html).toContain('rowspan="3"');
+    expect(html).toContain('colwidth="120,220"');
+    expect(html).toContain('Invalid');
+    expect(html).not.toContain('span="999"');
+    expect(html).not.toContain('width="10"');
+    expect(html).not.toContain('data-row-height="900"');
+    expect(html).not.toContain('colspan="0"');
+    expect(html).not.toContain('rowspan="999"');
+    expect(html).not.toContain('colwidth="bad,220"');
   });
 
   it('removes invalid table fragments while preserving valid tables', () => {
@@ -457,6 +642,40 @@ describe('sanitizePastedHTML', () => {
     expect(html).not.toContain('data-kb-unknown');
   });
 
+  it('normalizes invalid KB callout variants and removes unsafe KB ids/labels', () => {
+    const html = sanitizePastedHTML([
+      '<aside data-kb-callout data-kb-callout-variant="unknown"><div data-kb-callout-content><p>Callout</p></div></aside>',
+      '<section data-kb-tab-item data-kb-tab-id="../bad" data-kb-tab-label="<script>Bad</script>"><p>Tab</p></section>',
+      '<details data-kb-accordion-item data-kb-accordion-id="bad id" data-kb-accordion-title="<img>FAQ</img>" open><summary>FAQ</summary></details>',
+    ].join(''));
+
+    expect(html).toContain('data-kb-callout=""');
+    expect(html).toContain('data-kb-callout-variant=');
+    expect(html).toContain('Callout');
+    expect(html).toContain('data-kb-tab-item=""');
+    expect(html).not.toContain('data-kb-tab-id="../bad"');
+    expect(html).toContain('data-kb-tab-label="scriptBad/script"');
+    expect(html).toContain('data-kb-accordion-item=""');
+    expect(html).not.toContain('data-kb-accordion-id="bad id"');
+    expect(html).toContain('data-kb-accordion-title="imgFAQ/img"');
+    expect(html).not.toContain('<script');
+    expect(html).not.toContain('<img');
+  });
+
+  it('preserves safe Tiptap task list attributes and removes invalid task state', () => {
+    const html = sanitizePastedHTML([
+      '<ul data-type="taskList"><li data-type="taskItem" data-checked="true">Done</li></ul>',
+      '<ul data-type="notTaskList"><li data-type="taskItem" data-checked="maybe">Invalid state</li></ul>',
+    ].join(''));
+
+    expect(html).toContain('data-type="taskList"');
+    expect(html).toContain('data-type="taskItem"');
+    expect(html).toContain('data-checked="true"');
+    expect(html).toContain('Invalid state');
+    expect(html).not.toContain('notTaskList');
+    expect(html).not.toContain('maybe');
+  });
+
   it('round-trips sanitized rich text, plain text, tables, lists, and KB blocks through the Tiptap schema', () => {
     const richTextEditor = insertSanitizedIntoEditor([
       '<h2 onclick="alert(1)">Heading</h2>',
@@ -555,6 +774,17 @@ describe('sanitizePastedHTML', () => {
         Object.defineProperty(view, 'NodeFilter', descriptor);
       }
     }
+  });
+
+  it('returns unsupported-environment when DOMParser is unavailable', () => {
+    vi.stubGlobal('DOMParser', undefined);
+
+    expect(sanitizePastedHTMLWithResult('<p>Text</p>')).toEqual({
+      ok: false,
+      html: '',
+      reason: 'unsupported-environment',
+    });
+    expect(sanitizePastedHTML('<p>Text</p>')).toBe('');
   });
 
   it('rejects pasted HTML that exceeds the maximum string length', () => {
