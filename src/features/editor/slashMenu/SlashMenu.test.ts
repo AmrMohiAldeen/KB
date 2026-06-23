@@ -1,4 +1,5 @@
 import { Editor } from '@tiptap/core';
+import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import { afterEach, describe, expect, it } from 'vitest';
 import { getEditorExtensions } from '../extensions';
 
@@ -67,6 +68,51 @@ function firstTopLevelNode(editor: Editor, type: string) {
   return Array.from({ length: editor.state.doc.childCount }, (_, index) =>
     editor.state.doc.child(index),
   ).find((node) => node.type.name === type);
+}
+
+function firstNode(editor: Editor, type: string): ProseMirrorNode | null {
+  let match: ProseMirrorNode | null = null;
+
+  editor.state.doc.descendants((node) => {
+    if (match || node.type.name !== type) return !match;
+
+    match = node;
+    return false;
+  });
+
+  return match;
+}
+
+function tableCellDirections(table: ProseMirrorNode): Array<string | null> {
+  const directions: Array<string | null> = [];
+
+  table.descendants((node) => {
+    if (
+      node.type.spec.tableRole === 'cell' ||
+      node.type.spec.tableRole === 'header_cell'
+    ) {
+      directions.push(node.attrs.dir ?? null);
+      return false;
+    }
+
+    return true;
+  });
+
+  return directions;
+}
+
+function setRtlSlashContent(editor: Editor, text: string): void {
+  editor.commands.setContent({
+    type: 'doc',
+    content: [
+      {
+        type: 'paragraph',
+        attrs: { dir: 'rtl' },
+        content: [{ type: 'text', text }],
+      },
+    ],
+  });
+  editor.commands.setTextSelection(editor.state.doc.content.size - 1);
 }
 
 function destroyEditor(editor: Editor): void {
@@ -177,6 +223,18 @@ describe('slash command menu', () => {
     expect(firstTopLevelNode(editor, 'table')?.childCount).toBe(3);
   });
 
+  it('inserts a glossary command with Enter', () => {
+    const editor = createEditor();
+
+    editor.commands.insertContent('/glossary');
+
+    expect(press(editor, 'Enter').defaultPrevented).toBe(true);
+    expect(firstNode(editor, 'glossary')?.attrs).toMatchObject({
+      term: 'Term',
+      definition: 'Add a definition.',
+    });
+  });
+
   it('inserts a configured table command from table dimensions', () => {
     const editor = createEditor();
 
@@ -188,6 +246,28 @@ describe('slash command menu', () => {
 
     expect(table?.childCount).toBe(4);
     expect(table?.firstChild?.childCount).toBe(6);
+  });
+
+  it('inherits current RTL direction when inserting slash lists', () => {
+    const editor = createEditor();
+
+    setRtlSlashContent(editor, '/bullet');
+
+    expect(press(editor, 'Enter').defaultPrevented).toBe(true);
+    expect(firstTopLevelNode(editor, 'bulletList')?.attrs.dir).toBe('rtl');
+    expect(firstTopLevelNode(editor, 'bulletList')?.firstChild?.attrs.dir).toBe('rtl');
+  });
+
+  it('inherits current RTL direction when inserting slash tables', () => {
+    const editor = createEditor();
+
+    setRtlSlashContent(editor, '/table:2x2');
+
+    expect(press(editor, 'Enter').defaultPrevented).toBe(true);
+
+    const table = firstTopLevelNode(editor, 'table');
+    expect(table?.attrs.dir).toBe('rtl');
+    expect(tableCellDirections(table!)).toEqual(['rtl', 'rtl', 'rtl', 'rtl']);
   });
 
   it('inserts a code block command with Enter', () => {

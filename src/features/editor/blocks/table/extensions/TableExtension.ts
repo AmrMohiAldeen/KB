@@ -1,8 +1,12 @@
-import type { Attribute } from '@tiptap/core';
+import type { Attribute, Editor } from '@tiptap/core';
 import { Table, TableView } from '@tiptap/extension-table';
 import { Fragment, type Node as ProseMirrorNode } from '@tiptap/pm/model';
+import { Selection, TextSelection } from '@tiptap/pm/state';
 import {
+  CellSelection,
   deleteCellSelection,
+  moveCellForward,
+  nextCell,
   selectedRect,
   selectionCell,
   splitCell as splitTableCell,
@@ -10,6 +14,7 @@ import {
 } from '@tiptap/pm/tables';
 import type { EditorView } from '@tiptap/pm/view';
 import { logDevError } from '../../../lib/utils/logDevError';
+import { getActiveTable } from '../dom/tableDom';
 import {
   applyTableBorderAttributes,
   DEFAULT_TABLE_BORDER_ATTRIBUTES,
@@ -24,12 +29,200 @@ import {
   normalizeTableOffsetPct,
   normalizeTableWidthPct,
 } from '../resizing/tableDimensions';
+import { normalizeTextDirection } from '../../../extensions/TextDirection';
 
-function readPercentStyle(element: HTMLElement, property: 'width' | 'marginLeft'): string | null {
+function readPercentStyle(
+  element: HTMLElement,
+  property: 'width' | 'marginLeft' | 'marginInlineStart',
+): string | null {
   // Supports imported/legacy HTML where table dimensions were stored as inline styles
   // instead of data-* attributes.
   const match = element.style[property].match(/^(\d+(?:\.\d+)?)%$/);
   return match?.[1] ?? null;
+}
+
+function activeTableIsRtl(state: Parameters<typeof getActiveTable>[0]): boolean {
+  return normalizeTextDirection(getActiveTable(state)?.node.attrs.dir) === 'rtl';
+}
+
+function selectTableCellAt(view: EditorView, cellPos: number): boolean {
+  const $cell = view.state.doc.resolve(cellPos);
+
+  if (!$cell.nodeAfter) return false;
+
+  return maybeSetSelection(
+    view,
+    TextSelection.between($cell, moveCellForward($cell)),
+  );
+}
+
+function findRtlTabTarget(
+  state: Parameters<typeof selectionCell>[0],
+  forward: boolean,
+): number | null {
+  const $cell = selectionCell(state);
+  const table = $cell.node(-1);
+  const tableStart = $cell.start(-1);
+  const map = TableMap.get(table);
+  const relativeCellPos = $cell.pos - tableStart;
+  const rect = map.findCell(relativeCellPos);
+
+  if (forward) {
+    const previousColumnCell = map.nextCell(relativeCellPos, 'horiz', -1);
+    if (previousColumnCell != null) return tableStart + previousColumnCell;
+
+    if (rect.bottom >= map.height) return null;
+
+    return tableStart + map.map[rect.bottom * map.width + map.width - 1];
+  }
+
+  const nextColumnCell = map.nextCell(relativeCellPos, 'horiz', 1);
+  if (nextColumnCell != null) return tableStart + nextColumnCell;
+
+  if (rect.top <= 0) return null;
+
+  return tableStart + map.map[(rect.top - 1) * map.width];
+}
+
+function selectRtlTabTarget(editor: Editor, forward: boolean): boolean {
+  try {
+    const target = findRtlTabTarget(editor.state, forward);
+
+    return target != null && selectTableCellAt(editor.view, target);
+  } catch (error) {
+    logDevError('RTL table navigation failed:', error);
+    return false;
+  }
+}
+
+function addRowAfterAndSelectRtlStart(editor: Editor): boolean {
+  let tableStart: number;
+  let targetRow: number;
+
+  try {
+    const $cell = selectionCell(editor.state);
+    const table = $cell.node(-1);
+    const map = TableMap.get(table);
+    const rect = map.findCell($cell.pos - $cell.start(-1));
+
+    tableStart = $cell.start(-1);
+    targetRow = rect.bottom;
+  } catch (error) {
+    logDevError('RTL table row insertion target lookup failed:', error);
+    return false;
+  }
+
+  if (!editor.commands.addRowAfter()) return false;
+
+  try {
+    const table = editor.state.doc.nodeAt(tableStart - 1);
+    if (!table) return false;
+
+    const map = TableMap.get(table);
+    const targetCell = map.map[targetRow * map.width + map.width - 1];
+
+    return selectTableCellAt(editor.view, tableStart + targetCell);
+  } catch (error) {
+    logDevError('RTL table row insertion selection failed:', error);
+    return false;
+  }
+}
+
+function runTableTab(editor: Editor, forward: boolean): boolean {
+  if (activeTableIsRtl(editor.state)) {
+    if (selectRtlTabTarget(editor, forward)) return true;
+    if (!forward || !editor.can().addRowAfter()) return false;
+
+    return addRowAfterAndSelectRtlStart(editor);
+  }
+
+  const moved = forward
+    ? editor.commands.goToNextCell()
+    : editor.commands.goToPreviousCell();
+
+  if (moved) return true;
+  if (!forward || !editor.can().addRowAfter()) return false;
+
+  return editor.chain().addRowAfter().goToNextCell().run();
+}
+
+function maybeSetSelection(view: EditorView, selection: Selection): boolean {
+  if (selection.eq(view.state.selection)) return false;
+
+  view.dispatch(view.state.tr.setSelection(selection).scrollIntoView());
+  return true;
+}
+
+function atEndOfCell(
+  view: EditorView,
+  axis: 'horiz' | 'vert',
+  direction: -1 | 1,
+): number | null {
+  if (!(view.state.selection instanceof TextSelection)) return null;
+
+  const { $head } = view.state.selection;
+  for (let depth = $head.depth - 1; depth >= 0; depth -= 1) {
+    const parent = $head.node(depth);
+    const childIndex = direction < 0 ? $head.index(depth) : $head.indexAfter(depth);
+    const edgeIndex = direction < 0 ? 0 : parent.childCount;
+    if (childIndex !== edgeIndex) return null;
+
+    if (
+      parent.type.spec.tableRole === 'cell' ||
+      parent.type.spec.tableRole === 'header_cell'
+    ) {
+      const directionName = axis === 'vert'
+        ? direction > 0 ? 'down' : 'up'
+        : direction > 0 ? 'right' : 'left';
+
+      return view.endOfTextblock(directionName) ? $head.before(depth) : null;
+    }
+  }
+
+  return null;
+}
+
+function runRtlHorizontalArrow(
+  view: EditorView,
+  direction: -1 | 1,
+  extendSelection: boolean,
+): boolean {
+  if (!activeTableIsRtl(view.state)) return false;
+
+  const { state } = view;
+  const { selection } = state;
+
+  if (!extendSelection) {
+    if (selection instanceof CellSelection) {
+      return maybeSetSelection(view, Selection.near(selection.$headCell, direction));
+    }
+
+    const end = atEndOfCell(view, 'horiz', direction);
+    if (end == null) return false;
+
+    return maybeSetSelection(
+      view,
+      Selection.near(state.doc.resolve(selection.head + direction), direction),
+    );
+  }
+
+  let cellSelection: CellSelection;
+  if (selection instanceof CellSelection) {
+    cellSelection = selection;
+  } else {
+    const end = atEndOfCell(view, 'horiz', direction);
+    if (end == null) return false;
+
+    cellSelection = new CellSelection(state.doc.resolve(end));
+  }
+
+  const $head = nextCell(cellSelection.$headCell, 'horiz', direction);
+  if (!$head) return false;
+
+  return maybeSetSelection(
+    view,
+    new CellSelection(cellSelection.$anchorCell, $head),
+  );
 }
 
 // create border attribute so that we can control unique border settings
@@ -92,6 +285,13 @@ class KnowledgeBaseTableView extends TableView {
     );
 
     applyTableBorderAttributes(this.table, node.attrs);
+
+    const direction = normalizeTextDirection(node.attrs.dir);
+    if (direction) {
+      this.table.setAttribute('dir', direction);
+    } else {
+      this.table.removeAttribute('dir');
+    }
   }
 }
 
@@ -223,7 +423,8 @@ export const KnowledgeBaseTable = Table.extend({
 
           return normalizeTableOffsetPct(
             element.getAttribute('data-table-offset-pct') ??
-              readPercentStyle(element, 'marginLeft'),
+              readPercentStyle(element, 'marginLeft') ??
+              readPercentStyle(element, 'marginInlineStart'),
             width,
           );
         },
@@ -233,7 +434,11 @@ export const KnowledgeBaseTable = Table.extend({
 
           return {
             'data-table-offset-pct': String(offset),
-            style: `--table-offset-pct: ${offset}%; margin-left: ${offset}%;`,
+            style: [
+              `--table-offset-pct: ${offset}%`,
+              `margin-left: ${offset}%`,
+              `margin-inline-start: ${offset}%`,
+            ].join('; '),
           };
         },
       },
@@ -272,6 +477,13 @@ export const KnowledgeBaseTable = Table.extend({
 
     return {
       ...this.parent?.(),
+
+      Tab: () => runTableTab(this.editor, true),
+      'Shift-Tab': () => runTableTab(this.editor, false),
+      ArrowLeft: () => runRtlHorizontalArrow(this.editor.view, 1, false),
+      ArrowRight: () => runRtlHorizontalArrow(this.editor.view, -1, false),
+      'Shift-ArrowLeft': () => runRtlHorizontalArrow(this.editor.view, 1, true),
+      'Shift-ArrowRight': () => runRtlHorizontalArrow(this.editor.view, -1, true),
 
       // Make delete/backspace clear selected table cells instead of breaking the table structure.
       Backspace: clearSelectedCells,

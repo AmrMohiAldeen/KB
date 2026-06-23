@@ -1,7 +1,7 @@
 import { Editor } from '@tiptap/core';
 import { closeHistory } from '@tiptap/pm/history';
 import type { Plugin } from '@tiptap/pm/state';
-import { CellSelection, TableMap } from '@tiptap/pm/tables';
+import { CellSelection, selectionCell, TableMap } from '@tiptap/pm/tables';
 import { TextSelection } from '@tiptap/pm/state';
 import { afterEach, describe, expect, it } from 'vitest';
 import { getEditorExtensions } from '../../../extensions';
@@ -35,6 +35,21 @@ function callPluginMouseEvent(
     | ((view: typeof editor.view, mouseEvent: MouseEvent) => boolean | void)
     | undefined;
   handler?.(editor.view, event);
+}
+
+function keydown(editor: Editor, key: string, init: KeyboardEventInit = {}): void {
+  editor.view.dom.dispatchEvent(
+    new KeyboardEvent('keydown', {
+      key,
+      bubbles: true,
+      cancelable: true,
+      ...init,
+    }),
+  );
+}
+
+function selectedCellText(editor: Editor): string {
+  return selectionCell(editor.state).nodeAfter?.textContent ?? '';
 }
 
 describe('table extensions integration', () => {
@@ -551,6 +566,86 @@ describe('table extensions integration', () => {
       expect(updatedTable?.textContent).toBe('');
     },
   );
+
+  it('uses RTL table direction for row-major Tab and Shift+Tab cell navigation', () => {
+    const element = document.createElement('div');
+    document.body.append(element);
+    editor = new Editor({
+      element,
+      extensions: getEditorExtensions(),
+      content: {
+        type: 'doc',
+        content: [
+          {
+            type: 'table',
+            attrs: { dir: 'rtl' },
+            content: [
+              {
+                type: 'tableRow',
+                content: ['A', 'B', 'C'].map((text) => ({
+                  type: 'tableCell',
+                  content: [
+                    {
+                      type: 'paragraph',
+                      content: [{ type: 'text', text }],
+                    },
+                  ],
+                })),
+              },
+              {
+                type: 'tableRow',
+                content: ['D', 'E', 'F'].map((text) => ({
+                  type: 'tableCell',
+                  content: [
+                    {
+                      type: 'paragraph',
+                      content: [{ type: 'text', text }],
+                    },
+                  ],
+                })),
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    const table = editor.state.doc.firstChild!;
+    const map = TableMap.get(table);
+    const middleCellTextPos = 1 + map.map[1] + 2;
+
+    editor.view.dispatch(
+      editor.state.tr.setSelection(
+        TextSelection.create(editor.state.doc, middleCellTextPos),
+      ),
+    );
+    keydown(editor, 'Tab');
+    expect(selectedCellText(editor)).toBe('A');
+
+    editor.view.dispatch(
+      editor.state.tr.setSelection(
+        TextSelection.create(editor.state.doc, 1 + map.map[0] + 2),
+      ),
+    );
+    keydown(editor, 'Tab');
+    expect(selectedCellText(editor)).toBe('F');
+
+    editor.view.dispatch(
+      editor.state.tr.setSelection(
+        TextSelection.create(editor.state.doc, 1 + map.map[5] + 2),
+      ),
+    );
+    keydown(editor, 'Tab', { shiftKey: true });
+    expect(selectedCellText(editor)).toBe('A');
+
+    editor.view.dispatch(
+      editor.state.tr.setSelection(
+        TextSelection.create(editor.state.doc, middleCellTextPos),
+      ),
+    );
+    keydown(editor, 'Tab', { shiftKey: true });
+    expect(selectedCellText(editor)).toBe('C');
+  });
 
   it('keeps table resize mutation handles inert while the editor is read-only', () => {
     const element = document.createElement('div');

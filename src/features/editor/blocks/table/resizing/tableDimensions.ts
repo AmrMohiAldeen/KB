@@ -67,8 +67,11 @@ export function readTableOffsetPct(
   }
 
   const match = table.style.marginLeft.match(/^(\d+(?:\.\d+)?)%$/);
-  return match
-    ? clampTableOffsetPct(Number(match[1]), tableWidthPct)
+  if (match) return clampTableOffsetPct(Number(match[1]), tableWidthPct);
+
+  const logicalMatch = table.style.marginInlineStart.match(/^(\d+(?:\.\d+)?)%$/);
+  return logicalMatch
+    ? clampTableOffsetPct(Number(logicalMatch[1]), tableWidthPct)
     : DEFAULT_TABLE_OFFSET_PCT;
 }
 
@@ -83,6 +86,7 @@ export function applyTableOffsetPct(
   table.dataset.tableOffsetPct = String(offset);
   table.style.setProperty('--table-offset-pct', cssOffset);
   table.style.marginLeft = cssOffset;
+  table.style.marginInlineStart = cssOffset;
 
   return offset;
 }

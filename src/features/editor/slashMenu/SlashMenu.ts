@@ -9,6 +9,7 @@ import {
   type SlashCommandOption,
 } from './catalog';
 import { runSlashCommandInsert } from './commands';
+import { readInheritedTextDirection } from '../extensions/TextDirection';
 
 export type SlashCommandMatch = {
   from: number;
@@ -83,13 +84,15 @@ function insertSlashCommand(
   // Do not insert anything when the editor is read-only.
   if (!editor.isEditable) return false;
 
+  const direction = readInheritedTextDirection(editor.state);
+
   // Remove the typed slash command text first.
   const chain = editor.chain().focus().deleteRange({
     from: match.from,
     to: match.to,
   });
 
-  return runSlashCommandInsert(chain, kind, match.query);
+  return runSlashCommandInsert(chain, kind, match.query, direction);
 }
 
 function syncActiveItem(editor: Editor, index: number, scrollIntoView: boolean): void {

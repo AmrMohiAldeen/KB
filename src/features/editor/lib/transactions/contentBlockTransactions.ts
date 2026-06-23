@@ -12,6 +12,7 @@ import {
   type ContentBlockItemNodeName,
 } from '../../blocks/model';
 
+// Describes one item inside a content block container.
 export type ItemContext = {
   index: number;
   item: ProseMirrorNode;
@@ -19,6 +20,15 @@ export type ItemContext = {
   parentPos: number;
 };
 
+/**
+ * Dispatches a ProseMirror transaction with consistent history behavior.
+ *
+ * By default, the transaction is wrapped with closeHistory(), so each content-block
+ * action becomes a separate undo step.
+ *
+ * For UI-only/internal actions, pass addToHistory: false so the transaction does
+ * not pollute the user's undo history.
+ */
 export function dispatchContentBlockTransaction(
   view: EditorView,
   transaction: Transaction,
@@ -52,6 +62,12 @@ export function resolveNodeViewPosition(
   }
 }
 
+/**
+ * Selects the entire tabs/accordion container as a NodeSelection.
+ *
+ * This is useful before running block-level actions from a node-view menu,
+ * because it makes the active content block explicit in the editor state.
+ */
 export function activateContentBlock(
   view: EditorView,
   containerPos: number,
@@ -65,6 +81,8 @@ export function activateContentBlock(
 
   try {
     const selection = view.state.selection;
+
+    // Avoid dispatching if the correct container is already selected.
     if (
       !(selection instanceof NodeSelection) ||
       selection.from !== containerPos ||
@@ -76,6 +94,7 @@ export function activateContentBlock(
           .setMeta('addToHistory', false),
       );
     }
+    
     if (options.focus) view.focus();
     return true;
   } catch (error) {
@@ -88,8 +107,11 @@ export function runContentBlockHistoryAction(
   view: EditorView,
   action: 'redo' | 'undo',
 ): boolean {
+  if (!view.editable) return false;
+
   const command = action === 'undo' ? undo : redo;
   const applied = command(view.state, view.dispatch);
+
   if (applied) view.focus();
   return applied;
 }

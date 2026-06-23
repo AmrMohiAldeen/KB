@@ -207,7 +207,9 @@ export function readTableOffsetPercent(table: HTMLElement): number | null {
       allowUnitless: true,
       max: 100,
       min: 0,
-    }) ?? readPercent(table.style.marginLeft, { max: 100, min: 0 })
+    }) ??
+    readPercent(table.style.marginLeft, { max: 100, min: 0 }) ??
+    readPercent(table.style.marginInlineStart, { max: 100, min: 0 })
   );
 }
 
@@ -325,7 +327,14 @@ export function normalizePastedTables(root: ParentNode): void {
 
     table.setAttribute('data-table-width-pct', String(width));
     table.setAttribute('data-table-offset-pct', String(clampedOffset));
-    table.setAttribute('style', `width: ${width}%; margin-left: ${clampedOffset}%;`);
+    table.setAttribute(
+      'style',
+      [
+        `width: ${width}%`,
+        `margin-left: ${clampedOffset}%`,
+        `margin-inline-start: ${clampedOffset}%`,
+      ].join('; '),
+    );
     table.removeAttribute('width');
   });
 }

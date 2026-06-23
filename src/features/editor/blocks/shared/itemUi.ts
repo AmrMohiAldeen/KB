@@ -20,6 +20,15 @@ export type ItemActionLabels = {
   remove: string;
 };
 
+/**
+ * Creates reusable actions for one item inside a content-block container.
+ *
+ * This is used by node views like tabs/accordions where each item can be:
+ * - activated
+ * - moved up/down
+ * - removed
+ * - controlled through an action menu
+ */
 export function createItemActions(
   view: EditorView,
   getPos: (() => number | undefined) | boolean,

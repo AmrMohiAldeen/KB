@@ -5,6 +5,10 @@ import type { Editor } from '@tiptap/core';
 import type { Mark, Node as ProseMirrorNode } from '@tiptap/pm/model';
 import type { EditorState } from '@tiptap/pm/state';
 import { CellSelection } from '@tiptap/pm/tables';
+import {
+  readSharedTextDirection,
+  type TextDirectionSelectionValue,
+} from '../../extensions/TextDirection';
 import { DEFAULT_FONT_SIZE } from './toolbarOptions';
 
 type SharedString = string | null;
@@ -24,6 +28,7 @@ export type ToolbarSelectionFormatting = {
   highlightColor: SharedString;
   lineHeight: SharedString;
   textBlock: TextBlockValue | null;
+  textDirection: TextDirectionSelectionValue;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -256,5 +261,6 @@ export function getToolbarSelectionFormatting(
       defaultValue: 'normal',
     }),
     textBlock: readSharedTextBlock(state),
+    textDirection: readSharedTextDirection(state),
   };
 }

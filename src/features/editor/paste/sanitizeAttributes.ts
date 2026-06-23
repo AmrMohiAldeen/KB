@@ -1,4 +1,8 @@
 import { normalizeCalloutVariant } from '../blocks/callout/model';
+import {
+  sanitizeGlossaryId,
+  sanitizeGlossaryText,
+} from '../extensions/Glossary';
 import { normalizeLinkUrl } from '../lib/link/linkUrl';
 import { getTagName } from './domUtils';
 import { readTableOffsetPercent, readTableWidthPercent } from './normalizeTables';
@@ -9,10 +13,12 @@ import {
   CELL_TEXT_ALIGN_VALUES,
   CSS_DANGER_PATTERN,
   DETAILS_KB_ATTRIBUTE_NAMES,
+  DIRECTION_ATTRIBUTE_TAGS,
   DIV_KB_ATTRIBUTE_NAMES,
   INLINE_TAGS,
   ORDERED_LIST_STYLES,
   SECTION_KB_ATTRIBUTE_NAMES,
+  SPAN_KB_ATTRIBUTE_NAMES,
   TABLE_BORDER_ATTRIBUTES,
   TEXT_ALIGN_STYLE_TAGS,
 } from './pasteSanitizerConfig';
@@ -206,7 +212,11 @@ function sanitizeStyleProperty(
   }
 
   if (tagName === 'table') {
-    if (normalizedProperty === 'width' || normalizedProperty === 'margin-left') {
+    if (
+      normalizedProperty === 'width' ||
+      normalizedProperty === 'margin-left' ||
+      normalizedProperty === 'margin-inline-start'
+    ) {
       return sanitizePercentStyle(value);
     }
   }
@@ -347,6 +357,12 @@ function sanitizeOrderedListType(value: string | null): string | null {
   return /^(?:1|a|A|i|I)$/.test(normalized) ? normalized : null;
 }
 
+function sanitizeDirectionAttribute(value: string | null): string | null {
+  const normalized = value?.trim().toLowerCase() ?? '';
+
+  return normalized === 'ltr' || normalized === 'rtl' ? normalized : null;
+}
+
 export function isAllowedKbAttribute(
   tagName: string,
   attributeName: string,
@@ -366,6 +382,10 @@ export function isAllowedKbAttribute(
     return SECTION_KB_ATTRIBUTE_NAMES.has(attributeName);
   }
 
+  if (tagName === 'span') {
+    return SPAN_KB_ATTRIBUTE_NAMES.has(attributeName);
+  }
+
   if (tagName === 'details') {
     return DETAILS_KB_ATTRIBUTE_NAMES.has(attributeName);
   }
@@ -381,6 +401,11 @@ export function isAllowedKbAttribute(
 function collectSafeAttributes(element: HTMLElement): Map<string, string> {
   const tagName = getTagName(element);
   const attributes = new Map<string, string>();
+
+  if (DIRECTION_ATTRIBUTE_TAGS.has(tagName)) {
+    const direction = sanitizeDirectionAttribute(element.getAttribute('dir'));
+    if (direction) attributes.set('dir', direction);
+  }
 
   if (tagName === 'a') {
     const href = sanitizePastedUrl(element.getAttribute('href'));
@@ -505,6 +530,27 @@ function collectSafeAttributes(element: HTMLElement): Map<string, string> {
       element.getAttribute('data-color') ?? element.style.backgroundColor,
     );
     if (color) attributes.set('data-color', color);
+  }
+
+  if (tagName === 'span' && element.hasAttribute('data-kb-glossary')) {
+    const term = sanitizeGlossaryText(
+      element.getAttribute('data-kb-glossary-term') ?? element.textContent,
+      120,
+    );
+    const definition = sanitizeGlossaryText(
+      element.getAttribute('data-kb-glossary-definition'),
+      1000,
+    );
+    const glossaryId = sanitizeGlossaryId(
+      element.getAttribute('data-kb-glossary-id'),
+    );
+
+    if (term && definition) {
+      attributes.set('data-kb-glossary', '');
+      attributes.set('data-kb-glossary-term', term);
+      attributes.set('data-kb-glossary-definition', definition);
+      if (glossaryId) attributes.set('data-kb-glossary-id', glossaryId);
+    }
   }
 
   if (tagName === 'aside' && element.hasAttribute('data-kb-callout')) {

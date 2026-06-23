@@ -67,7 +67,7 @@
   --kb-callout-background: #eff6ff;
   overflow: hidden;
   border: 1px solid var(--kb-callout-border);
-  border-left: 0.3rem solid var(--kb-callout-accent);
+  border-inline-start: 0.3rem solid var(--kb-callout-accent);
   border-radius: 0.55rem;
   background: var(--kb-callout-background);
   color: #1f2937;
@@ -229,7 +229,7 @@
 }
 
 [data-kb-accordion-title-static]::after {
-  margin-left: auto;
+  margin-inline-start: auto;
   color: #8b9097;
   content: '+';
 }
@@ -302,7 +302,7 @@ details[open] > [data-kb-accordion-title-static]::after {
   flex: 0 0 auto;
   align-items: center;
   gap: 0.25rem;
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 
 .kb-accordion__chevron,
@@ -545,7 +545,7 @@ details[open] > [data-kb-accordion-title-static]::after {
   position: absolute;
   z-index: 45;
   top: calc(100% + 0.25rem);
-  right: 0;
+  inset-inline-end: 0;
   display: flex;
   width: max-content;
   min-width: 11.5rem;
@@ -573,7 +573,7 @@ details[open] > [data-kb-accordion-title-static]::after {
   background: transparent;
   color: #374151;
   font-size: 0.75rem;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
 }
 
@@ -694,7 +694,7 @@ details[open] > [data-kb-accordion-title-static]::after {
 
 .kb-slash-menu__item kbd {
   flex: 0 0 auto;
-  margin-left: 0.75rem;
+  margin-inline-start: 0.75rem;
   color: #9ca3af;
   font-family: inherit;
   font-size: 0.625rem;

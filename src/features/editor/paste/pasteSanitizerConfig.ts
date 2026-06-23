@@ -185,6 +185,26 @@ export const TEXT_ALIGN_STYLE_TAGS = new Set([
   'td',
   'th',
 ]);
+export const DIRECTION_ATTRIBUTE_TAGS = new Set([
+  'aside',
+  'blockquote',
+  'details',
+  'div',
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'h5',
+  'h6',
+  'li',
+  'ol',
+  'p',
+  'section',
+  'table',
+  'td',
+  'th',
+  'ul',
+]);
 export const TEXT_DECORATION_FORMATTING_TAGS = new Set([
   'del',
   's',
@@ -215,6 +235,13 @@ export const SECTION_KB_ATTRIBUTE_NAMES = new Set<string>([
   'data-kb-tab-id',
   'data-kb-tab-item',
   'data-kb-tab-label',
+]);
+
+export const SPAN_KB_ATTRIBUTE_NAMES = new Set<string>([
+  'data-kb-glossary',
+  'data-kb-glossary-definition',
+  'data-kb-glossary-id',
+  'data-kb-glossary-term',
 ]);
 
 export const DETAILS_KB_ATTRIBUTE_NAMES = new Set<string>([

@@ -15,10 +15,26 @@
   margin-right: 0;
   margin-bottom: 0;
   margin-left: var(--table-offset-pct, 0%) !important;
+  margin-inline-start: var(--table-offset-pct, 0%) !important;
+  margin-inline-end: 0 !important;
   table-layout: fixed;
   border-collapse: collapse;
   overflow: hidden;
   border-spacing: 0;
+}
+
+:is(.tiptap, .ProseMirror) table[dir='rtl'] {
+  direction: ltr;
+}
+
+:is(.tiptap, .ProseMirror) table[dir='rtl'] :is(td, th):not([dir='ltr']) {
+  direction: rtl;
+  text-align: start;
+}
+
+:is(.tiptap, .ProseMirror) table[dir='ltr'] :is(td, th):not([dir='rtl']) {
+  direction: ltr;
+  text-align: start;
 }
 
 :is(.tiptap, .ProseMirror) table :is(td, th) {

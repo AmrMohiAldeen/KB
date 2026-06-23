@@ -360,6 +360,29 @@ describe('sanitizePastedHTML', () => {
     expect(html).toContain('Child');
   });
 
+  it('preserves safe block direction attributes and rejects invalid direction values', () => {
+    const fragment = sanitizedFragment([
+      '<p dir="rtl">Arabic paragraph</p>',
+      '<h2 dir="LTR">English heading</h2>',
+      '<ul dir="rtl"><li dir="rtl">RTL list item</li></ul>',
+      '<table dir="rtl"><tbody><tr><td dir="ltr">Cell</td></tr></tbody></table>',
+      '<p dir="auto">Auto is not preserved</p>',
+      '<p dir="sideways">Invalid direction</p>',
+      '<span dir="rtl">Inline direction removed</span>',
+    ].join(''));
+
+    expect(fragment.querySelector('p')?.getAttribute('dir')).toBe('rtl');
+    expect(fragment.querySelector('h2')?.getAttribute('dir')).toBe('ltr');
+    expect(fragment.querySelector('ul')?.getAttribute('dir')).toBe('rtl');
+    expect(fragment.querySelector('li')?.getAttribute('dir')).toBe('rtl');
+    expect(fragment.querySelector('table')?.getAttribute('dir')).toBe('rtl');
+    expect(fragment.querySelector('td')?.getAttribute('dir')).toBe('ltr');
+    expect(fragment.textContent).toContain('Auto is not preserved');
+    expect(fragment.innerHTML).not.toContain('dir="auto"');
+    expect(fragment.innerHTML).not.toContain('sideways');
+    expect(fragment.innerHTML).not.toContain('<span dir');
+  });
+
   it('unwraps formatting tags that are visually cancelled by CSS', () => {
     const html = sanitizePastedHTML([
       '<p>',
@@ -690,6 +713,7 @@ describe('sanitizePastedHTML', () => {
       '<div data-kb-accordion><details data-kb-accordion-item data-kb-accordion-id="acc_1" data-kb-accordion-title="FAQ" open>',
       '<summary data-kb-accordion-title-static>FAQ</summary><div data-kb-accordion-panel><p>Answer</p></div>',
       '</details></div>',
+      '<p><span data-kb-glossary data-kb-glossary-term="<b>SOP</b>" data-kb-glossary-definition="<img>Standard operating procedure</img>" data-kb-glossary-id="sop_1" onclick="alert(1)">SOP</span></p>',
       '<div data-random="tracking" data-kb-unknown="x" class="wrapper"><p>Wrapped</p></div>',
     ].join(''));
 
@@ -711,6 +735,12 @@ describe('sanitizePastedHTML', () => {
     expect(html).toContain('data-kb-accordion-title-static=""');
     expect(html).toContain('data-kb-accordion-panel=""');
     expect(html).toContain('<p>Answer</p>');
+    expect(html).toContain('data-kb-glossary=""');
+    expect(html).toContain('data-kb-glossary-term="SOP"');
+    expect(html).toContain(
+      'data-kb-glossary-definition="Standard operating procedure"',
+    );
+    expect(html).toContain('data-kb-glossary-id="sop_1"');
     expect(html).toContain('<p>Wrapped</p>');
     expect(html).not.toContain('contenteditable');
     expect(html).not.toContain('draggable');
@@ -789,6 +819,7 @@ describe('sanitizePastedHTML', () => {
       '<h3 data-kb-tab-label-static>Intro</h3><div data-kb-tab-panel><p>Tab body</p></div></section></div>',
       '<div data-kb-accordion><details data-kb-accordion-item data-kb-accordion-id="acc_1" data-kb-accordion-title="FAQ" open>',
       '<summary data-kb-accordion-title-static>FAQ</summary><div data-kb-accordion-panel><p>Answer</p></div></details></div>',
+      '<p><span data-kb-glossary data-kb-glossary-term="SLA" data-kb-glossary-definition="Service level agreement">SLA</span></p>',
       '<object data="unsafe.swf"></object>',
     ].join(''));
     const kbNodeNames = editorNodeNames(kbBlocksEditor);
@@ -797,9 +828,11 @@ describe('sanitizePastedHTML', () => {
     expect(kbNodeNames).toContain('tabItem');
     expect(kbNodeNames).toContain('accordion');
     expect(kbNodeNames).toContain('accordionItem');
+    expect(kbNodeNames).toContain('glossary');
     expect(kbBlocksEditor.getText()).toContain('Callout body');
     expect(kbBlocksEditor.getText()).toContain('Tab body');
     expect(kbBlocksEditor.getText()).toContain('Answer');
+    expect(kbBlocksEditor.getText()).toContain('SLA');
     expectNoExecutableHtml(kbBlocksEditor.getHTML());
   });
 

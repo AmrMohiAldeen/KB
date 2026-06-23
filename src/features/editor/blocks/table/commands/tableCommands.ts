@@ -9,6 +9,10 @@ import {
   TableMap,
 } from '@tiptap/pm/tables';
 import { logDevError } from '../../../lib/utils/logDevError';
+import {
+  applyTextDirectionToActiveTable,
+  readInheritedTextDirection,
+} from '../../../extensions/TextDirection';
 import { getActiveTable } from '../dom/tableDom';
 import type { TableBorderAttributes } from '../utils/tableBorders';
 
@@ -224,8 +228,18 @@ export function insertTable(
     return false;
   }
 
+  const direction = readInheritedTextDirection(editor.state);
+
   return safelyRun(() =>
-    editor.chain().focus().insertTable({ rows, cols, withHeaderRow: true }).run(),
+    editor
+      .chain()
+      .focus()
+      .insertTable({ rows, cols, withHeaderRow: true })
+      .command(({ tr }) => {
+        if (direction) applyTextDirectionToActiveTable(tr, direction);
+        return true;
+      })
+      .run(),
   );
 }
 

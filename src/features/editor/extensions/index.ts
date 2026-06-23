@@ -15,6 +15,8 @@ import Highlight from '@tiptap/extension-highlight';
 import Superscript from '@tiptap/extension-superscript';
 import Subscript from '@tiptap/extension-subscript';
 import TextAlign from '@tiptap/extension-text-align';
+import { TextDirectionExtension } from './TextDirection';
+import { Glossary } from './Glossary';
 import { FontSizeShortcuts } from './FontSizeShortcuts';
 
 import { Youtube } from '@tiptap/extension-youtube';
@@ -105,6 +107,8 @@ export const getEditorExtensions = (options: EditorExtensionOptions = {}) => {
       alignments: ['left', 'center', 'right', 'justify'],
       types: ['paragraph', 'heading'],
     }),
+    TextDirectionExtension,
+    Glossary,
     FontSizeShortcuts,
 
     // media

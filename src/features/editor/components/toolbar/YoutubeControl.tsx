@@ -219,7 +219,7 @@ function YoutubeDialog({
             ref={inputRef}
             id={inputId}
             value={url}
-            type="url"
+            type="text"
             inputMode="url"
             placeholder="https://www.youtube.com/watch?v=..."
             aria-invalid={Boolean(error)}

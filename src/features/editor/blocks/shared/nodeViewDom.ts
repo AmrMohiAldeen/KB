@@ -1,3 +1,4 @@
+import { logDevError } from "../../lib/utils/logDevError";
 export function applyHTMLAttributes(
   element: HTMLElement,
   attributes: Record<string, unknown>,
@@ -19,8 +20,21 @@ type EditableObserverRecord = {
   observer: MutationObserver;
 };
 
+// Stores one MutationObserver per editor element
 const editableObservers = new WeakMap<HTMLElement, EditableObserverRecord>();
 
+/**
+ * Observes changes to the editor element's `contenteditable` attribute.
+ *
+ * This is useful for node views / custom UI that need to react when the
+ * editor switches between editable and read-only mode like tabs and accordions
+ *
+ * Multiple callbacks can subscribe to the same editor element, but only
+ * one MutationObserver is created per element.
+ *
+ * Returns a cleanup function that removes the callback and disconnects
+ * the observer when no callbacks remain.
+ */
 export function observeEditorEditable(
   editorElement: HTMLElement,
   onChange: () => void,
@@ -37,7 +51,13 @@ export function observeEditorEditable(
             mutation.attributeName === 'contenteditable',
         )
       ) {
-        callbacks.forEach((callback) => callback());
+        callbacks.forEach((callback) => {
+          try {
+            callback();
+          } catch (error) {
+            logDevError('Editable observer callback failed', error);
+          }
+        });
       }
     });
     record = { callbacks, observer };
@@ -55,6 +75,8 @@ export function observeEditorEditable(
     if (!current) return;
 
     current.callbacks.delete(onChange);
+
+    // Disconnect the shared observer once nobody is listening anymore.
     if (current.callbacks.size === 0) {
       current.observer.disconnect();
       editableObservers.delete(editorElement);
@@ -98,6 +120,7 @@ export function createIcon(icon: ContentBlockIcon): SVGSVGElement {
   return svg;
 }
 
+// Creates a reusable icon-only button for content-block controls.
 export function createIconButton(
   label: string,
   icon: ContentBlockIcon,
@@ -138,6 +161,15 @@ export type ActionMenuItem = {
   onActivate: () => void;
 };
 
+/**
+ * Creates a small dropdown action menu for content-block controls.
+ *
+ * Supports:
+ * - dynamic disabled states through `disabled: () => boolean`
+ * - keyboard navigation with ArrowUp / ArrowDown / Home / End
+ * - Escape to close
+ * - focusout auto-close
+ */
 export function createActionMenu(
   label: string,
   items: readonly ActionMenuItem[],
@@ -222,6 +254,7 @@ export function createActionMenu(
   root.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
       event.preventDefault();
+      event.stopPropagation();
       close();
       trigger.focus();
       return;

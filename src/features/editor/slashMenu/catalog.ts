@@ -15,6 +15,7 @@ export const SLASH_COMMAND_KINDS = [
   'blockquote',
   'code-block',
   'horizontal-rule',
+  'glossary',
   'table',
   ...CONTENT_BLOCK_KINDS, // tabs, accordions and callouts
 ] as const;
@@ -96,6 +97,13 @@ export const SLASH_COMMAND_OPTIONS: readonly SlashCommandOption[] = [
     description: 'Separate sections visually',
     group: 'Basic',
     keywords: ['rule', 'separator', 'hr'],
+  },
+  {
+    kind: 'glossary',
+    label: 'Glossary term',
+    description: 'Define an inline article term',
+    group: 'Advanced',
+    keywords: ['definition', 'term', 'tooltip'],
   },
   {
     kind: 'bullet-list',

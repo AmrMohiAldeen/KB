@@ -25,6 +25,24 @@ function cellTypeMatrix(table: ProseMirrorNode): string[][] {
   );
 }
 
+function tableCellDirections(table: ProseMirrorNode): Array<string | null> {
+  const directions: Array<string | null> = [];
+
+  table.descendants((node) => {
+    if (
+      node.type.spec.tableRole === 'cell' ||
+      node.type.spec.tableRole === 'header_cell'
+    ) {
+      directions.push(node.attrs.dir ?? null);
+      return false;
+    }
+
+    return true;
+  });
+
+  return directions;
+}
+
 describe('table structure commands', () => {
   let editor: Editor | null = null;
 
@@ -112,6 +130,18 @@ describe('table structure commands', () => {
 
     expect(insertTable(currentEditor, 2, 2)).toBe(true);
     expect(getTableHeaderState(currentEditor.state).hasHeaderRow).toBe(true);
+  });
+
+  it('inherits the current text direction when inserting tables', () => {
+    const currentEditor = createEditor();
+    currentEditor.commands.setContent('<p dir="rtl">Arabic</p>');
+    currentEditor.commands.setTextSelection(currentEditor.state.doc.content.size - 1);
+
+    expect(insertTable(currentEditor, 2, 2)).toBe(true);
+
+    const table = getActiveTable(currentEditor.state)?.node;
+    expect(table?.attrs.dir).toBe('rtl');
+    expect(tableCellDirections(table!)).toEqual(['rtl', 'rtl', 'rtl', 'rtl']);
   });
 
   it('keeps an inserted row below the header as normal cells', () => {

@@ -10,6 +10,7 @@ import {
 import { insertTable } from "../../blocks/table/commands/tableCommands";
 import { TableControls, TableCreationPicker } from "../../blocks/table/toolbar";
 import { LinkControl } from "../LinkControl";
+import { GlossaryControl } from "./GlossaryControl";
 import {
   Divider,
   DropdownItem,
@@ -25,6 +26,11 @@ import {
   type ListTypeName,
   type OrderedListStyle,
 } from "../../extensions/ListStyles";
+import {
+  getSelectedGlossaryAttributes,
+  type GlossaryAttrs,
+} from "../../extensions/Glossary";
+import type { TextDirectionSelectionValue } from "../../extensions/TextDirection";
 import {
   DEFAULT_FONT_SIZE,
   FONT_FAMILIES,
@@ -43,7 +49,7 @@ import { LINE_HEIGHTS, DEFAULT_LINE_HEIGHT } from './toolbarOptions';
 import { MathFormulaControl } from "./MathFormulaControl";
 import { YoutubeControl } from "./YoutubeControl";
 import {ImageControl} from "./ImageControl";
-import { List, ListOrdered, ListChecks } from 'lucide-react';
+import { List, ListOrdered, ListChecks, PilcrowLeft, PilcrowRight } from 'lucide-react';
 import { TableOfContentsControl } from "./TableOfContentsControl";
 
 export interface EditorToolbarProps {
@@ -119,6 +125,7 @@ type ToolbarState = {
 
   isLink: boolean;
   linkHref: string;
+  currentGlossary: GlossaryAttrs | null;
 
   isSuperscript: boolean;
   isSubscript: boolean;
@@ -127,6 +134,7 @@ type ToolbarState = {
   alignCenter: boolean;
   alignRight: boolean;
   alignJustify: boolean;
+  textDirection: TextDirectionSelectionValue;
 
   lineHeight: string | null;
   fontFamily: string | null;
@@ -184,6 +192,7 @@ const EMPTY_TOOLBAR_STATE: ToolbarState = {
 
   isLink: false,
   linkHref: "",
+  currentGlossary: null,
 
   isSuperscript: false,
   isSubscript: false,
@@ -192,6 +201,7 @@ const EMPTY_TOOLBAR_STATE: ToolbarState = {
   alignCenter: false,
   alignRight: false,
   alignJustify: false,
+  textDirection: '',
 
   lineHeight: null,
   fontFamily: null,
@@ -286,6 +296,7 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
 
         isLink: currentEditor.isActive("link"),
         linkHref: String(currentEditor.getAttributes("link").href ?? ""),
+        currentGlossary: getSelectedGlossaryAttributes(currentEditor.state),
 
         isSuperscript: currentEditor.isActive("superscript"),
         isSubscript: currentEditor.isActive("subscript"),
@@ -294,6 +305,7 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
         alignCenter: currentEditor.isActive({ textAlign: "center" }),
         alignRight: currentEditor.isActive({ textAlign: "right" }),
         alignJustify: currentEditor.isActive({ textAlign: "justify" }),
+        textDirection: selectionFormatting.textDirection,
         lineHeight: selectionFormatting.lineHeight,
 
         fontFamily: selectionFormatting.fontFamily,
@@ -307,6 +319,10 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
   const fontFamilyLabel = getFontFamilyLabel(toolbarState.fontFamily);
   const textBlockLabel = getTextBlockLabel(toolbarState);
   const fontSizeLabel = getFontSizeLabel(toolbarState);
+  const inheritedTextDirection =
+    toolbarState.textDirection === "ltr" || toolbarState.textDirection === "rtl"
+      ? toolbarState.textDirection
+      : null;
   const applyListStyle = (
     type: ListTypeName,
     style: BulletListStyle | OrderedListStyle,
@@ -319,11 +335,26 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
     }
 
     if (type === "bulletList") {
-      chain.toggleBulletList().setListStyle(type, style).run();
+      chain.toggleBulletList().setListStyle(type, style);
+      if (inheritedTextDirection) chain.setTextDirection(inheritedTextDirection);
+      chain.run();
       return;
     }
 
-    chain.toggleOrderedList().setListStyle(type, style).run();
+    chain.toggleOrderedList().setListStyle(type, style);
+    if (inheritedTextDirection) chain.setTextDirection(inheritedTextDirection);
+    chain.run();
+  };
+
+  const applyTaskList = () => {
+    const wasTaskList = editor.isActive("taskList");
+    const chain = editor.chain().focus().toggleTaskList();
+
+    if (!wasTaskList && inheritedTextDirection) {
+      chain.setTextDirection(inheritedTextDirection);
+    }
+
+    chain.run();
   };
 
   const applyDefaultBulletList = () => {
@@ -516,7 +547,7 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
             isActive={toolbarState.isBulletList}
           >
             <DropdownItem
-              onActivate={() => editor.chain().focus().toggleTaskList().run()}
+              onActivate={applyTaskList}
               isActive={toolbarState.isTaskList}
             >
               Task list
@@ -581,7 +612,7 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
 
         <ToolbarButton
           title="Task list"
-          onActivate={() => editor.chain().focus().toggleTaskList().run()}
+          onActivate={applyTaskList}
           isActive={toolbarState.isTaskList}
         >
           <ListChecks size={18} />
@@ -858,6 +889,11 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
           currentHref={toolbarState.linkHref}
         />
 
+        <GlossaryControl
+          editor={editor}
+          currentGlossary={toolbarState.currentGlossary}
+        />
+
         <Divider />
 
         <ToolbarButton
@@ -945,6 +981,30 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
           <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
           </svg>
+        </ToolbarButton>
+
+        <ToolbarButton
+          title="Set LTR text direction"
+          isActive={toolbarState.textDirection === "ltr"}
+          disabled={!toolbarState.isEditable}
+          onActivate={() =>
+            editor.chain().focus().toggleTextDirection("ltr").run()
+          }
+        >
+          <PilcrowLeft size={16} />
+          <span className="text-[10px] font-semibold">LTR</span>
+        </ToolbarButton>
+
+        <ToolbarButton
+          title="Set RTL text direction"
+          isActive={toolbarState.textDirection === "rtl"}
+          disabled={!toolbarState.isEditable}
+          onActivate={() =>
+            editor.chain().focus().toggleTextDirection("rtl").run()
+          }
+        >
+          <PilcrowRight size={16} />
+          <span className="text-[10px] font-semibold">RTL</span>
         </ToolbarButton>
 
 
