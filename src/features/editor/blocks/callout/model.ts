@@ -13,11 +13,11 @@ export type CalloutVariant = (typeof CALLOUT_VARIANTS)[number];
 export type CalloutVariantInput = CalloutVariant | 'error';
 
 const CALLOUT_VARIANT_LABELS: Record<CalloutVariant, string> = {
-  info: 'Info',
-  warning: 'Warning',
-  success: 'Success',
-  danger: 'Danger',
-  tip: 'Tip',
+  info: '',
+  warning: '',
+  success: '',
+  danger: '',
+  tip: '',
 };
 
 export function normalizeCalloutVariant(value: unknown): CalloutVariant {

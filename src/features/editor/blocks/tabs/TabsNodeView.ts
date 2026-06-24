@@ -17,6 +17,7 @@ import {
   createIconButton,
   observeEditorEditable,
 } from '../shared/nodeViewDom';
+import { isResizeHandleEvent } from '../../lib/dom/resizeDom';
 
 type TabDescriptor = {
   index: number;
@@ -218,6 +219,7 @@ export function createTabsNodeView(props: NodeViewRendererProps): NodeView {
       return true;
     },
     stopEvent(event) {
+      if (isResizeHandleEvent(event)) return false;
       return header.contains(event.target as Node) || footer.contains(event.target as Node);
     },
     ignoreMutation(mutation) {

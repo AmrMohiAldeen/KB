@@ -32,17 +32,6 @@ const TABLE_INTERNAL_NODE_NAMES = new Set<string>([
   'tableCell',
   'tableHeader',
 ]);
-const CUSTOM_CONTAINER_NODE_NAMES = new Set<string>([
-  CALLOUT_NODE_NAME,
-  ACCORDION_NODE_NAME,
-  TABS_NODE_NAME,
-]);
-const SELECTION_ANCESTOR_DRAG_TARGET_NODE_NAMES = new Set<string>([
-  TABLE_NODE_NAME,
-  CALLOUT_NODE_NAME,
-  ACCORDION_NODE_NAME,
-  TABS_NODE_NAME,
-]);
 const INTERNAL_CONTENT_BLOCK_ITEM_NODE_NAMES = new Set<string>([
   ACCORDION_ITEM_NODE_NAME,
   TAB_ITEM_NODE_NAME,
@@ -85,12 +74,6 @@ export function getEditorDragHandleRuleDeduction(
 
   if (hasAncestor(input, TABLE_NODE_NAME) && input.nodeName !== TABLE_NODE_NAME) {
     return EXCLUDE_FROM_DRAG_TARGETS;
-  }
-
-  for (const containerName of CUSTOM_CONTAINER_NODE_NAMES) {
-    if (hasAncestor(input, containerName) && input.nodeName !== containerName) {
-      return EXCLUDE_FROM_DRAG_TARGETS;
-    }
   }
 
   if (INTERNAL_CONTENT_BLOCK_ITEM_NODE_NAMES.has(input.nodeName)) {
@@ -148,7 +131,13 @@ type TopLevelDragInfo = {
   pos: number;
 };
 
-type BlockDragSession = TopLevelDragInfo & {
+type ScopedBlockDragInfo = TopLevelDragInfo & {
+  parent: ProseMirrorNode;
+  parentContentStart: number;
+  parentPos: number | null;
+};
+
+type BlockDragSession = ScopedBlockDragInfo & {
   indicator: HTMLElement;
   latestDropIndex: number | null;
   startY: number;
@@ -168,6 +157,17 @@ function getNodeInnerClientPoint(editor: Editor, pos: number) {
 
 function pointDragStartAtNode(event: DragEvent, editor: Editor, target: DragTarget) {
   if (!target || editor.isDestroyed) return;
+
+  const nodeName = target.node.type.name;
+  if (
+    nodeName !== TABLE_NODE_NAME &&
+    nodeName !== BLOCK_IMAGE_NODE_NAME &&
+    nodeName !== CALLOUT_NODE_NAME &&
+    nodeName !== ACCORDION_NODE_NAME &&
+    nodeName !== TABS_NODE_NAME
+  ) {
+    return;
+  }
 
   const node = editor.state.doc.nodeAt(target.pos);
   if (!node || node.type !== target.node.type) return;
@@ -192,32 +192,42 @@ function pointDragStartAtNode(event: DragEvent, editor: Editor, target: DragTarg
   }
 }
 
-function getTopLevelDragInfo(
+function getScopedBlockDragInfo(
   doc: ProseMirrorNode,
   pos: number,
-): TopLevelDragInfo | null {
-  let offset = 0;
-  for (let index = 0; index < doc.childCount; index += 1) {
-    const node = doc.child(index);
-    if (offset === pos) {
-      return { index, node, pos };
-    }
-    offset += node.nodeSize;
+): ScopedBlockDragInfo | null {
+  const node = doc.nodeAt(pos);
+  if (!node) return null;
+
+  const $pos = doc.resolve(pos);
+  const parentDepth = $pos.depth;
+  const parent = $pos.node(parentDepth);
+  const index = $pos.index(parentDepth);
+
+  if (index >= parent.childCount || !parent.child(index).eq(node)) {
+    return null;
   }
 
-  return null;
+  return {
+    index,
+    node,
+    parent,
+    parentContentStart: parentDepth === 0 ? 0 : $pos.start(parentDepth),
+    parentPos: parentDepth === 0 ? null : $pos.before(parentDepth),
+    pos,
+  };
 }
 
-function getTopLevelInsertPos(doc: ProseMirrorNode, index: number): number {
-  let pos = 0;
-  const clampedIndex = Math.max(0, Math.min(index, doc.childCount));
+function getScopedInsertPos(info: ScopedBlockDragInfo, index: number): number {
+  let pos = info.parentContentStart;
+  const clampedIndex = Math.max(0, Math.min(index, info.parent.childCount));
   for (let childIndex = 0; childIndex < clampedIndex; childIndex += 1) {
-    pos += doc.child(childIndex).nodeSize;
+    pos += info.parent.child(childIndex).nodeSize;
   }
   return pos;
 }
 
-function getTopLevelNodeDom(
+function getNodeDom(
   view: EditorView,
   pos: number,
 ): HTMLElement | null {
@@ -230,10 +240,10 @@ function getDropIndexFromClientY(
   session: BlockDragSession,
   clientY: number,
 ): number | null {
-  const info = getTopLevelDragInfo(editor.state.doc, session.pos);
+  const info = getScopedBlockDragInfo(editor.state.doc, session.pos);
   if (!info || info.node.type !== session.node.type) return null;
 
-  const currentDom = getTopLevelNodeDom(editor.view, info.pos);
+  const currentDom = getNodeDom(editor.view, info.pos);
   const deltaY = clientY - session.startY;
 
   if (currentDom) {
@@ -243,15 +253,15 @@ function getDropIndexFromClientY(
 
     if (isInsideCurrentBlock && Math.abs(deltaY) >= 8) {
       return deltaY > 0
-        ? Math.min(info.index + 2, editor.state.doc.childCount)
+        ? Math.min(info.index + 2, info.parent.childCount)
         : Math.max(info.index - 1, 0);
     }
   }
 
-  let pos = 0;
-  for (let index = 0; index < editor.state.doc.childCount; index += 1) {
-    const node = editor.state.doc.child(index);
-    const dom = getTopLevelNodeDom(editor.view, pos);
+  let pos = info.parentContentStart;
+  for (let index = 0; index < info.parent.childCount; index += 1) {
+    const node = info.parent.child(index);
+    const dom = getNodeDom(editor.view, pos);
     if (dom) {
       const rect = dom.getBoundingClientRect();
       if (clientY < rect.top + rect.height / 2) return index;
@@ -260,7 +270,7 @@ function getDropIndexFromClientY(
     pos += node.nodeSize;
   }
 
-  return editor.state.doc.childCount;
+  return info.parent.childCount;
 }
 
 function positionBlockDropIndicator(
@@ -268,29 +278,34 @@ function positionBlockDropIndicator(
   session: BlockDragSession,
   dropIndex: number,
 ): void {
-  const parent = editor.view.dom.parentElement;
-  if (!parent) return;
+  const overlayParent = editor.view.dom.parentElement;
+  if (!overlayParent) return;
 
-  const doc = editor.state.doc;
-  const editorRect = editor.view.dom.getBoundingClientRect();
-  const parentRect = parent.getBoundingClientRect();
+  const info = getScopedBlockDragInfo(editor.state.doc, session.pos);
+  if (!info || info.node.type !== session.node.type) return;
+
+  const parentDom =
+    info.parentPos == null ? editor.view.dom : getNodeDom(editor.view, info.parentPos);
+  const scopeRect = (parentDom ?? editor.view.dom).getBoundingClientRect();
+  const overlayParentRect = overlayParent.getBoundingClientRect();
   const beforePos =
-    dropIndex < doc.childCount ? getTopLevelInsertPos(doc, dropIndex) : null;
-  const beforeDom =
-    beforePos == null ? null : getTopLevelNodeDom(editor.view, beforePos);
+    dropIndex < info.parent.childCount ? getScopedInsertPos(info, dropIndex) : null;
+  const beforeDom = beforePos == null ? null : getNodeDom(editor.view, beforePos);
   const lastPos =
-    doc.childCount > 0 ? getTopLevelInsertPos(doc, doc.childCount - 1) : null;
-  const lastDom = lastPos == null ? null : getTopLevelNodeDom(editor.view, lastPos);
+    info.parent.childCount > 0
+      ? getScopedInsertPos(info, info.parent.childCount - 1)
+      : null;
+  const lastDom = lastPos == null ? null : getNodeDom(editor.view, lastPos);
   const lineY = beforeDom
     ? beforeDom.getBoundingClientRect().top
     : lastDom
       ? lastDom.getBoundingClientRect().bottom
-      : editorRect.top;
+      : scopeRect.top;
 
   session.indicator.hidden = false;
-  session.indicator.style.left = `${editorRect.left - parentRect.left}px`;
-  session.indicator.style.top = `${lineY - parentRect.top}px`;
-  session.indicator.style.width = `${editorRect.width}px`;
+  session.indicator.style.left = `${scopeRect.left - overlayParentRect.left}px`;
+  session.indicator.style.top = `${lineY - overlayParentRect.top}px`;
+  session.indicator.style.width = `${scopeRect.width}px`;
 }
 
 function hideBlockDropIndicator(session: BlockDragSession | null): void {
@@ -305,15 +320,18 @@ function commitBlockDragMove(
   if (!editor.isEditable || session.latestDropIndex == null) return false;
 
   const doc = editor.state.doc;
-  const info = getTopLevelDragInfo(doc, session.pos);
+  const info = getScopedBlockDragInfo(doc, session.pos);
   if (!info || info.node.type !== session.node.type) return false;
 
-  const dropIndex = Math.max(0, Math.min(session.latestDropIndex, doc.childCount));
+  const dropIndex = Math.max(
+    0,
+    Math.min(session.latestDropIndex, info.parent.childCount),
+  );
   if (dropIndex === info.index || dropIndex === info.index + 1) return false;
 
   const from = info.pos;
   const to = from + info.node.nodeSize;
-  const rawInsertPos = getTopLevelInsertPos(doc, dropIndex);
+  const rawInsertPos = getScopedInsertPos(info, dropIndex);
   const insertPos = rawInsertPos > from ? rawInsertPos - info.node.nodeSize : rawInsertPos;
   const transaction = editor.state.tr.delete(from, to).insert(insertPos, info.node);
 
@@ -347,9 +365,7 @@ function getSelectionDragTarget(state: EditorState): DragTarget {
   for (let depth = $from.depth; depth > 0; depth -= 1) {
     const node = $from.node(depth);
     const pos = $from.before(depth);
-    if (!SELECTION_ANCESTOR_DRAG_TARGET_NODE_NAMES.has(node.type.name)) {
-      continue;
-    }
+    if (node.type.name !== TABLE_NODE_NAME) continue;
 
     if (
       getEditorDragHandleRuleDeduction({
@@ -372,9 +388,9 @@ function getSelectionDragTarget(state: EditorState): DragTarget {
 export const EDITOR_DRAG_HANDLE_NESTED_OPTIONS: NestedOptions = {
   defaultRules: false,
   edgeDetection: {
-    edges: ['left', 'top'],
-    threshold: 24,
-    strength: 500,
+    edges: [],
+    threshold: 0,
+    strength: 0,
   },
   rules: [knowledgeBaseDragTargetRules],
 };
@@ -445,7 +461,7 @@ export function EditorDragHandle({ editor }: { editor: Editor }) {
 
       finishBlockDragSession(false);
 
-      const info = getTopLevelDragInfo(editor.state.doc, target.pos);
+      const info = getScopedBlockDragInfo(editor.state.doc, target.pos);
       if (!info || info.node.type !== target.node.type) return;
 
       const ownerDocument = editor.view.dom.ownerDocument;

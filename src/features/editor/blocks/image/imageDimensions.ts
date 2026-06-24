@@ -73,7 +73,6 @@ export function applyImageWidthPreview(
   const width = clampImageWidthPx(value, maxWidthPx);
 
   image.dataset.imageWidth = String(width);
-  image.setAttribute('width', String(width));
   image.style.width = `${width}px`;
 
   return width;
@@ -145,4 +144,3 @@ export function applyImageOffsetPct(
 
   return offset;
 }
-

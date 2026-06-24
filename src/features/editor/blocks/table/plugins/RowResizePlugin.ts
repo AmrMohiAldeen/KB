@@ -28,6 +28,10 @@ import {
   startMouseDragSession,
   type MouseDragSession,
 } from '../../../lib/dom/mouseDragSession';
+import {
+  isVisibleResizeElement,
+  stopResizeStartEvent,
+} from '../../../lib/dom/resizeDom';
 
 type ActiveRow = {
   tablePos: number;
@@ -46,6 +50,19 @@ type RowDrag = ActiveRow & {
 export const rowResizePluginKey = new PluginKey<RowResizeState>('rowResizePlugin');
 
 const EDGE_DETECT_PX = 6;
+const TABLE_OUTER_EDGE_DETECT_PX = 8;
+
+function isNearTableOuterRightEdge(
+  table: HTMLTableElement,
+  event: MouseEvent,
+): boolean {
+  const rect = table.getBoundingClientRect();
+  return (
+    event.clientY >= rect.top &&
+    event.clientY <= rect.bottom &&
+    Math.abs(rect.right - event.clientX) <= TABLE_OUTER_EDGE_DETECT_PX
+  );
+}
 
 function getRowPos(
   table: ProseMirrorNode,
@@ -113,7 +130,10 @@ function detectRowAtCoords(view: EditorView, event: MouseEvent) {
   if (handle) {
     const tablePos = Number(handle.dataset.tablePos);
     const rowIndex = Number(handle.dataset.rowIndex);
-    const row = getTableAtPos(view, tablePos)?.rows[rowIndex];
+    const table = getTableAtPos(view, tablePos);
+    if (table && isNearTableOuterRightEdge(table, event)) return null;
+
+    const row = table?.rows[rowIndex];
     return Number.isInteger(tablePos) && Number.isInteger(rowIndex) && row
       ? { tablePos, rowIndex, row }
       : null;
@@ -127,6 +147,7 @@ function detectRowAtCoords(view: EditorView, event: MouseEvent) {
 
   const table = getTableAtPos(view, tablePos);
   if (!table) return null;
+  if (isNearTableOuterRightEdge(table, event)) return null;
 
   const rows = Array.from(table.rows);
   const rowIndex = rows.findIndex(
@@ -149,6 +170,12 @@ function positionRowResizeHandle(
 
   const tableRect = table.getBoundingClientRect();
   const rowRect = row.getBoundingClientRect();
+  if (!isVisibleResizeElement(table) || rowRect.width <= 0 || rowRect.height <= 0) {
+    handle.hidden = true;
+    return;
+  }
+
+  handle.hidden = false;
   positionOverlayAtRect(view, handle, {
     left: tableRect.left,
     top: rowRect.bottom - 3,
@@ -206,14 +233,125 @@ function hideRowResizeHandles(view: EditorView): void {
 export function RowResizePlugin() {
   let activeSession: MouseDragSession | null = null;
   let destroying = false;
+  let resizeObserver: ResizeObserver | null = null;
+  let observedActive: ActiveRow | null = null;
+
+  const clearResizeObserver = () => {
+    resizeObserver?.disconnect();
+    resizeObserver = null;
+    observedActive = null;
+  };
 
   const clearActiveState = (view: EditorView) => {
     if (destroying || view.isDestroyed) return;
+    clearResizeObserver();
     view.dispatch(
       view.state.tr.setMeta(rowResizePluginKey, {
         active: null,
       } satisfies RowResizeState),
     );
+  };
+
+  const observeActiveRow = (view: EditorView, active: ActiveRow | null) => {
+    if (!active) {
+      clearResizeObserver();
+      return;
+    }
+
+    if (
+      observedActive?.tablePos === active.tablePos &&
+      observedActive?.rowIndex === active.rowIndex &&
+      resizeObserver
+    ) {
+      return;
+    }
+
+    clearResizeObserver();
+
+    const ResizeObserverConstructor = getOwnerWindow(view).ResizeObserver;
+    if (typeof ResizeObserverConstructor !== 'function') return;
+
+    const table = getTableAtPos(view, active.tablePos);
+    const row = table?.rows[active.rowIndex];
+    if (!table || !row) return;
+
+    resizeObserver = new ResizeObserverConstructor(() => {
+      requestViewAnimationFrame(view, () =>
+        positionRowResizeHandle(view, active.tablePos, active.rowIndex),
+      );
+    });
+    resizeObserver.observe(table);
+    resizeObserver.observe(row);
+    resizeObserver.observe(view.dom);
+    observedActive = active;
+  };
+
+  const startRowResize = (
+    view: EditorView,
+    hit: NonNullable<ReturnType<typeof detectRowAtCoords>>,
+    event: MouseEvent,
+  ): boolean => {
+    if (!view.editable || event.button !== 0 || activeSession) return false;
+
+    const drag: RowDrag = {
+      tablePos: hit.tablePos,
+      rowIndex: hit.rowIndex,
+      startY: event.clientY,
+      startHeight: hit.row.getBoundingClientRect().height,
+    };
+    let latestHeight = drag.startHeight;
+    const previews = new Map<HTMLTableRowElement, RowHeightPreview>();
+
+    const getCurrentPreview = () => {
+      const row = getTableAtPos(view, drag.tablePos)?.rows[drag.rowIndex];
+      if (!row) return null;
+
+      const preview = previews.get(row) ?? createRowHeightPreview(row);
+      if (!preview) return null;
+      previews.set(row, preview);
+      return preview;
+    };
+
+    const finish = (commit: boolean) => {
+      activeSession = null;
+      setRowResizeCursor(view, false);
+
+      const didCommit =
+        commit &&
+        latestHeight !== drag.startHeight &&
+        commitRowHeight(view, drag.tablePos, drag.rowIndex, latestHeight);
+
+      if (didCommit) {
+        requestViewAnimationFrame(view, () => {
+          previews.forEach(restoreRowHeightPreview);
+        });
+      } else {
+        previews.forEach(restoreRowHeightPreview);
+      }
+      clearActiveState(view);
+    };
+
+    const initialPreview = getCurrentPreview();
+    if (!initialPreview) return false;
+
+    setRowResizeCursor(view, true);
+
+    activeSession = startMouseDragSession({
+      window: getOwnerWindow(view),
+      cancelOnWindowBlur: false,
+      onMove: (moveEvent) => {
+        latestHeight = clampRowHeight(
+          drag.startHeight + moveEvent.clientY - drag.startY,
+        );
+        const preview = getCurrentPreview();
+        if (preview) applyRowHeightPreview(preview, latestHeight);
+        positionRowResizeHandle(view, drag.tablePos, drag.rowIndex);
+      },
+      onCommit: () => finish(true),
+      onCancel: () => finish(false),
+    });
+
+    return true;
   };
 
   return new Plugin<RowResizeState>({
@@ -247,9 +385,21 @@ export function RowResizePlugin() {
             (view) => {
               const element = view.dom.ownerDocument.createElement('div');
               element.className = 'row-resize-handle';
+              element.contentEditable = 'false';
+              element.draggable = false;
               element.dataset.tablePos = String(active.tablePos);
               element.dataset.rowIndex = String(active.rowIndex);
               element.setAttribute('aria-hidden', 'true');
+              element.addEventListener('mousedown', (event) => {
+                const hit = detectRowAtCoords(view, event);
+                if (hit && startRowResize(view, hit, event)) {
+                  stopResizeStartEvent(event);
+                }
+              }, { capture: true });
+              element.addEventListener('dragstart', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              });
               requestViewAnimationFrame(view, () =>
                 positionRowResizeHandle(view, active.tablePos, active.rowIndex),
               );
@@ -292,60 +442,30 @@ export function RowResizePlugin() {
 
           const hit = detectRowAtCoords(view, event);
           if (!hit) return false;
-          event.preventDefault();
+          if (!startRowResize(view, hit, event)) return false;
 
-          const drag: RowDrag = {
-            tablePos: hit.tablePos,
-            rowIndex: hit.rowIndex,
-            startY: event.clientY,
-            startHeight: hit.row.getBoundingClientRect().height,
-          };
-          let latestHeight = drag.startHeight;
-          const previews = new Map<HTMLTableRowElement, RowHeightPreview>();
-
-          const getCurrentPreview = () => {
-            const row = getTableAtPos(view, drag.tablePos)?.rows[drag.rowIndex];
-            if (!row) return null;
-
-            const preview = previews.get(row) ?? createRowHeightPreview(row);
-            if (!preview) return null;
-            previews.set(row, preview);
-            return preview;
-          };
-
-          const finish = (commit: boolean) => {
-            activeSession = null;
-            previews.forEach(restoreRowHeightPreview);
-            setRowResizeCursor(view, false);
-
-            if (commit && latestHeight !== drag.startHeight) {
-              commitRowHeight(view, drag.tablePos, drag.rowIndex, latestHeight);
-            }
-            clearActiveState(view);
-          };
-
-          const initialPreview = getCurrentPreview();
-          if (!initialPreview) return false;
-
-          activeSession = startMouseDragSession({
-            window: getOwnerWindow(view),
-            onMove: (moveEvent) => {
-              latestHeight = clampRowHeight(
-                drag.startHeight + moveEvent.clientY - drag.startY,
-              );
-              const preview = getCurrentPreview();
-              if (preview) applyRowHeightPreview(preview, latestHeight);
-              positionRowResizeHandle(view, drag.tablePos, drag.rowIndex);
-            },
-            onCommit: () => finish(true),
-            onCancel: () => finish(false),
-          });
-
+          stopResizeStartEvent(event);
           return true;
         },
       },
     },
     view: (view) => {
+      const handleNativeMouseDown = (event: MouseEvent) => {
+        if (
+          !(event.target instanceof getOwnerWindow(view).Node) ||
+          !view.dom.contains(event.target)
+        ) {
+          return;
+        }
+
+        const hit = detectRowAtCoords(view, event);
+        if (hit && startRowResize(view, hit, event)) {
+          stopResizeStartEvent(event);
+        }
+      };
+
+      view.dom.ownerDocument.addEventListener('mousedown', handleNativeMouseDown, true);
+
       requestViewAnimationFrame(view, () => {
         if (!view.editable) return;
         const migration = createLegacyRowHeightMigration(view.state);
@@ -361,12 +481,24 @@ export function RowResizePlugin() {
             activeSession?.cancel();
             setRowResizeCursor(nextView, false);
             hideRowResizeHandles(nextView);
+            clearResizeObserver();
+            return;
           }
+
+          const active = rowResizePluginKey.getState(nextView.state)?.active ?? null;
+          observeActiveRow(nextView, active);
         },
         destroy() {
-          destroying = true;
-          activeSession?.cancel();
-          setRowResizeCursor(view, false);
+          const preserveActiveSession = activeSession && !view.isDestroyed;
+          destroying = !preserveActiveSession;
+          if (!preserveActiveSession) activeSession?.cancel();
+          clearResizeObserver();
+          view.dom.ownerDocument.removeEventListener(
+            'mousedown',
+            handleNativeMouseDown,
+            true,
+          );
+          if (!preserveActiveSession) setRowResizeCursor(view, false);
         },
       };
     },

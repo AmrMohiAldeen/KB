@@ -14,6 +14,7 @@ import {
   createIconButton,
   observeEditorEditable,
 } from '../shared/nodeViewDom';
+import { isResizeHandleEvent } from '../../lib/dom/resizeDom';
 
 export function createAccordionNodeView(props: NodeViewRendererProps): NodeView {
   const dom = document.createElement('div');
@@ -86,6 +87,7 @@ export function createAccordionNodeView(props: NodeViewRendererProps): NodeView 
       return updatedNode.type === props.node.type;
     },
     stopEvent(event) {
+      if (isResizeHandleEvent(event)) return false;
       return footer.contains(event.target as Node);
     },
     ignoreMutation(mutation) {

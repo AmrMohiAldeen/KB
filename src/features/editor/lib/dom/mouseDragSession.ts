@@ -7,6 +7,7 @@ export type MouseDragSessionOptions = {
   onMove: (event: MouseEvent) => void;
   onCommit: (event: MouseEvent) => void;
   onCancel: () => void;
+  cancelOnWindowBlur?: boolean;
 };
 
 export function startMouseDragSession({
@@ -14,6 +15,7 @@ export function startMouseDragSession({
   onMove,
   onCommit,
   onCancel,
+  cancelOnWindowBlur = true,
 }: MouseDragSessionOptions): MouseDragSession {
   let active = true;
 
@@ -23,7 +25,9 @@ export function startMouseDragSession({
     active = false;
     window.removeEventListener('mousemove', handleMove);
     window.removeEventListener('mouseup', handleCommit);
-    window.removeEventListener('blur', handleCancel);
+    if (cancelOnWindowBlur) {
+      window.removeEventListener('blur', handleCancel);
+    }
     window.removeEventListener('keydown', handleKeyDown);
     return true;
   };
@@ -46,7 +50,9 @@ export function startMouseDragSession({
 
   window.addEventListener('mousemove', handleMove);
   window.addEventListener('mouseup', handleCommit);
-  window.addEventListener('blur', handleCancel);
+  if (cancelOnWindowBlur) {
+    window.addEventListener('blur', handleCancel);
+  }
   window.addEventListener('keydown', handleKeyDown);
 
   return {

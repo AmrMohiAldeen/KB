@@ -15,6 +15,7 @@ import {
   observeEditorEditable,
 } from '../shared/nodeViewDom';
 import { createItemActions, createItemLabelInput } from '../shared/itemUi';
+import { isResizeHandleEvent } from '../../lib/dom/resizeDom';
 
 export function createAccordionItemNodeView(
   props: NodeViewRendererProps,
@@ -139,6 +140,7 @@ export function createAccordionItemNodeView(
       return true;
     },
     stopEvent(event) {
+      if (isResizeHandleEvent(event)) return false;
       return summary.contains(event.target as Node);
     },
     ignoreMutation(mutation) {
