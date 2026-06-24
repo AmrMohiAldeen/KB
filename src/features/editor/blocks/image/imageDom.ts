@@ -97,17 +97,55 @@ export function getImageElementAtPos(
   if (!getImageNodeAt(view.state.doc, imagePos)) return null;
 
   try {
-    const dom = view.nodeDOM(imagePos);
     const ownerWindow = getOwnerWindow(view);
+    const findImage = (dom: Node | null): HTMLImageElement | null => {
+      if (dom instanceof ownerWindow.HTMLImageElement) {
+        return dom.dataset.kbImage ? dom : null;
+      }
 
-    if (dom instanceof ownerWindow.HTMLImageElement) return dom;
-    if (!(dom instanceof ownerWindow.HTMLElement)) return null;
+      if (!(dom instanceof ownerWindow.HTMLElement)) return null;
 
-    return dom.querySelector<HTMLImageElement>('img[data-kb-image]');
+      if (dom.matches('img[data-kb-image]')) {
+        return dom as HTMLImageElement;
+      }
+
+      return dom.querySelector<HTMLImageElement>('img[data-kb-image]');
+    };
+
+    const directRaw = view.nodeDOM(imagePos);
+    const directDom = findImage(directRaw);
+    if (directDom) return directDom;
+
+    const { node, offset } = view.domAtPos(imagePos);
+    const parentDom = findImage(node);
+    if (parentDom) return parentDom;
+
+    const startNode =
+      node instanceof ownerWindow.HTMLElement &&
+      node.classList.contains('ProseMirror-widget')
+        ? node
+        : node.childNodes.item(offset);
+
+    for (
+      let current: ChildNode | null = startNode;
+      current;
+      current = current.nextSibling
+    ) {
+      const image = findImage(current);
+      if (image) return image;
+
+      if (
+        current instanceof ownerWindow.HTMLElement &&
+        !current.classList.contains('ProseMirror-widget')
+      ) {
+        break;
+      }
+    }
   } catch (error) {
     logDevError('Image DOM lookup failed:', error);
-    return null;
   }
+
+  return null;
 }
 
 export function getImageContainerAtPos(
@@ -117,4 +155,3 @@ export function getImageContainerAtPos(
   const image = getImageElementAtPos(view, imagePos);
   return image?.parentElement ?? null;
 }
-

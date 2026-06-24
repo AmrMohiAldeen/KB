@@ -25,6 +25,13 @@ import {
   startMouseDragSession,
   type MouseDragSession,
 } from '../../lib/dom/mouseDragSession';
+import {
+  getElementContentWidthPx,
+  getNearestVisibleResizeContainer,
+  getResizeContainerWidthPx,
+  isVisibleResizeElement,
+  stopResizeStartEvent,
+} from '../../lib/dom/resizeDom';
 
 type ImageStyleSnapshot = {
   widthAttribute: string | null;
@@ -37,6 +44,7 @@ type ImageStyleSnapshot = {
 
 type ImageResizeDrag = {
   imagePos: number;
+  image: HTMLImageElement;
   startX: number;
   startWidthPx: number;
   startOffsetPct: number;
@@ -47,13 +55,6 @@ type ImageResizeDrag = {
 export const imageResizePluginKey = new PluginKey<null>(
   'imageResizePlugin',
 );
-
-function getContainerWidthPx(image: HTMLImageElement): number {
-  const width = image.parentElement?.getBoundingClientRect().width;
-  return typeof width === 'number' && Number.isFinite(width) && width > 0
-    ? width
-    : 1;
-}
 
 function createImageStyleSnapshot(image: HTMLImageElement): ImageStyleSnapshot {
   return {
@@ -106,6 +107,12 @@ function positionImageResizeHandle(
   const image = getImageElementAtPos(view, imagePos);
   if (!handle || !image) return;
 
+  if (!isVisibleResizeElement(image)) {
+    handle.hidden = true;
+    return;
+  }
+
+  handle.hidden = false;
   const imageRect = image.getBoundingClientRect();
   positionOverlayAtRect(view, handle, {
     left: imageRect.right - 6,
@@ -119,6 +126,7 @@ function commitImageWidth(
   view: EditorView,
   imagePos: number,
   width: number,
+  containerWidthPx?: number,
 ): boolean {
   if (!view.editable) return false;
 
@@ -126,8 +134,10 @@ function commitImageWidth(
   if (!imageNode) return false;
 
   const image = getImageElementAtPos(view, imagePos);
-  const containerWidthPx = image ? getContainerWidthPx(image) : Number.POSITIVE_INFINITY;
-  const nextWidth = clampImageWidthPx(width, containerWidthPx);
+  const maxWidthPx =
+    containerWidthPx ??
+    (image ? getResizeContainerWidthPx(view, image) : Number.POSITIVE_INFINITY);
+  const nextWidth = clampImageWidthPx(width, maxWidthPx);
   const nextAttrs: Record<string, unknown> = {
     ...imageNode.attrs,
     width: nextWidth,
@@ -137,7 +147,7 @@ function commitImageWidth(
     nextAttrs.imageOffsetPct = normalizeImageOffsetPct(
       imageNode.attrs.imageOffsetPct,
       nextWidth,
-      containerWidthPx,
+      maxWidthPx,
     );
   }
 
@@ -145,7 +155,7 @@ function commitImageWidth(
     imageNode.attrs.width === nextAttrs.width &&
     imageNode.attrs.imageOffsetPct === nextAttrs.imageOffsetPct
   ) {
-    return false;
+    return true;
   }
 
   try {
@@ -171,9 +181,57 @@ function hideImageResizeHandles(view: EditorView): void {
     });
 }
 
+function getCurrentDragImage(
+  view: EditorView,
+  drag: Pick<ImageResizeDrag, 'image' | 'imagePos'>,
+): HTMLImageElement | null {
+  if (drag.image.isConnected && view.dom.contains(drag.image)) {
+    return drag.image;
+  }
+
+  return getImageElementAtPos(view, drag.imagePos);
+}
+
 export function ImageResizePlugin() {
   let activeSession: MouseDragSession | null = null;
   let editable = false;
+  let resizeObserver: ResizeObserver | null = null;
+  let observedImagePos: number | null = null;
+
+  const clearResizeObserver = () => {
+    resizeObserver?.disconnect();
+    resizeObserver = null;
+    observedImagePos = null;
+  };
+
+  const observeSelectedImage = (view: EditorView) => {
+    const selected = getSelectedImage(view.state);
+    if (!selected) {
+      clearResizeObserver();
+      return;
+    }
+
+    if (observedImagePos === selected.pos && resizeObserver) return;
+
+    clearResizeObserver();
+
+    const ResizeObserverConstructor = getOwnerWindow(view).ResizeObserver;
+    if (typeof ResizeObserverConstructor !== 'function') return;
+
+    const image = getImageElementAtPos(view, selected.pos);
+    if (!image) return;
+
+    const container = getNearestVisibleResizeContainer(view, image);
+    resizeObserver = new ResizeObserverConstructor(() => {
+      requestViewAnimationFrame(view, () =>
+        positionImageResizeHandle(view, selected.pos),
+      );
+    });
+    resizeObserver.observe(image);
+    resizeObserver.observe(container);
+    resizeObserver.observe(view.dom);
+    observedImagePos = selected.pos;
+  };
 
   const startImageResize = (
     view: EditorView,
@@ -185,15 +243,16 @@ export function ImageResizePlugin() {
     const image = getImageElementAtPos(view, imagePos);
     if (!image) return false;
 
-    event.preventDefault();
     setImageResizeCursor(view, true);
 
-    const container = image.parentElement ?? view.dom;
-    const containerWidthPx = getContainerWidthPx(image);
+    const container = getNearestVisibleResizeContainer(view, image);
+    const containerWidthPx =
+      getElementContentWidthPx(container) || getResizeContainerWidthPx(view, image);
     const startWidthPx = readImageWidthPx(image);
     const imageNode = getImageNodeAt(view.state.doc, imagePos);
     const drag: ImageResizeDrag = {
       imagePos,
+      image,
       startX: event.clientX,
       startWidthPx,
       startOffsetPct:
@@ -209,18 +268,22 @@ export function ImageResizePlugin() {
       activeSession = null;
       setImageResizeCursor(view, false);
 
-      const currentImage = getImageElementAtPos(view, drag.imagePos);
-      if (currentImage) restoreImageStyleSnapshot(currentImage, drag.snapshot);
+      const currentImage = getCurrentDragImage(view, drag);
+      const didCommit =
+        commit &&
+        latestWidth !== drag.startWidthPx &&
+        commitImageWidth(view, drag.imagePos, latestWidth, drag.containerWidthPx);
 
-      if (commit && latestWidth !== drag.startWidthPx) {
-        commitImageWidth(view, drag.imagePos, latestWidth);
+      if (!didCommit && currentImage) {
+        restoreImageStyleSnapshot(currentImage, drag.snapshot);
       }
     };
 
     activeSession = startMouseDragSession({
       window: getOwnerWindow(view),
+      cancelOnWindowBlur: false,
       onMove: (moveEvent) => {
-        const currentImage = getImageElementAtPos(view, drag.imagePos);
+        const currentImage = getCurrentDragImage(view, drag);
         if (!currentImage) {
           activeSession?.cancel();
           return;
@@ -283,8 +346,12 @@ export function ImageResizePlugin() {
               element.setAttribute('aria-label', 'Resize image');
               element.addEventListener('mousedown', (event) => {
                 if (startImageResize(view, selected.pos, event)) {
-                  event.stopPropagation();
+                  stopResizeStartEvent(event);
                 }
+              }, { capture: true });
+              element.addEventListener('dragstart', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
               });
               requestViewAnimationFrame(view, () =>
                 positionImageResizeHandle(view, selected.pos),
@@ -305,12 +372,40 @@ export function ImageResizePlugin() {
           if (!handle) return false;
 
           const selected = getSelectedImage(view.state);
-          return selected ? startImageResize(view, selected.pos, event) : false;
+          if (!selected || !startImageResize(view, selected.pos, event)) {
+            return false;
+          }
+
+          stopResizeStartEvent(event);
+          return true;
         },
       },
     },
     view: (view) => {
       editable = view.editable;
+
+      const handleNativeMouseDown = (event: MouseEvent) => {
+        if (
+          !(event.target instanceof getOwnerWindow(view).Node) ||
+          !view.dom.contains(event.target)
+        ) {
+          return;
+        }
+
+        const handle = getClosestHTMLElement(
+          view,
+          event.target,
+          '.kb-image-resize-handle',
+        );
+        if (!handle) return;
+
+        const selected = getSelectedImage(view.state);
+        if (selected && startImageResize(view, selected.pos, event)) {
+          stopResizeStartEvent(event);
+        }
+      };
+
+      view.dom.ownerDocument.addEventListener('mousedown', handleNativeMouseDown, true);
 
       return {
         update(nextView, previousState) {
@@ -324,18 +419,30 @@ export function ImageResizePlugin() {
             activeSession?.cancel();
             setImageResizeCursor(nextView, false);
             hideImageResizeHandles(nextView);
+            clearResizeObserver();
+            return;
           }
 
           const selected = getSelectedImage(nextView.state);
           if (selected) {
+            observeSelectedImage(nextView);
             requestViewAnimationFrame(nextView, () =>
               positionImageResizeHandle(nextView, selected.pos),
             );
+          } else {
+            clearResizeObserver();
           }
         },
         destroy() {
-          activeSession?.cancel();
-          setImageResizeCursor(view, false);
+          const preserveActiveSession = activeSession && !view.isDestroyed;
+          if (!preserveActiveSession) activeSession?.cancel();
+          clearResizeObserver();
+          view.dom.ownerDocument.removeEventListener(
+            'mousedown',
+            handleNativeMouseDown,
+            true,
+          );
+          if (!preserveActiveSession) setImageResizeCursor(view, false);
         },
       };
     },

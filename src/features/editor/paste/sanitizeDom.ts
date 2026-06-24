@@ -10,7 +10,11 @@ import {
   MAX_SANITIZE_DEPTH,
   TEXT_DECORATION_FORMATTING_TAGS,
 } from './pasteSanitizerConfig';
-import { applySanitizedAttributes, isAllowedKbAttribute } from './sanitizeAttributes';
+import {
+  applySanitizedAttributes,
+  isAllowedKbAttribute,
+  sanitizeFontSize,
+} from './sanitizeAttributes';
 import {
   getTagName,
   hasOnlyPhrasingContent,
@@ -21,10 +25,35 @@ import {
   replaceElementTag,
   unwrapElement,
 } from './domUtils';
+import { sanitizeFontFamily } from './fontFamilySanitizer';
 import {
   normalizePastedTables,
   normalizePastedTableStructure,
 } from './normalizeTables';
+
+const TEXT_STYLE_CONTAINERS = new Set([
+  'aside',
+  'blockquote',
+  'details',
+  'div',
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'h5',
+  'h6',
+  'li',
+  'p',
+  'section',
+  'summary',
+  'td',
+  'th',
+]);
+
+type InheritedTextStyle = {
+  fontFamily: string | null;
+  fontSize: string | null;
+};
 
 function hasAllowedKbAttribute(element: HTMLElement): boolean {
   return Array.from(element.attributes).some((attribute) =>
@@ -171,7 +200,8 @@ function sanitizeNode(node: Node, depth: number): void {
       element = replaceElementTag(element, 'p');
       tagName = getTagName(element);
     } else {
-       // Wrapper around block content is unnecessary; keep children but remove wrapper.
+      // Wrapper around block content is unnecessary; keep children but remove wrapper.
+      pushInheritedTextStyleIntoChildren(element);
       sanitizeChildNodes(element, depth);
       unwrapElement(element);
       return;
@@ -184,6 +214,7 @@ function sanitizeNode(node: Node, depth: number): void {
       element = replaceElementTag(element, 'p');
     } else {
       // Unsupported tag is removed, but its sanitized children are preserved.
+      pushInheritedTextStyleIntoChildren(element);
       sanitizeChildNodes(element, depth);
       unwrapElement(element);
       return;
@@ -241,6 +272,13 @@ function isInlineLikeNode(node: Node): boolean {
   return INLINE_TAGS.has(getTagName(node));
 }
 
+function isInlineFontRunNode(node: Node): boolean {
+  if (isTextNode(node)) return true;
+  if (!isElementNode(node)) return false;
+
+  return INLINE_TAGS.has(getTagName(node));
+}
+
 function wrapInlineRun(container: Element, run: Node[]): void {
   // Ignore empty whitespace-only nodes when deciding what should become a paragraph.
   const meaningful = run.filter(nodeHasMeaningfulContent);
@@ -286,6 +324,139 @@ function wrapLooseInlineRuns(root: ParentNode): void {
   });
 }
 
+function appendStyleProperty(
+  element: HTMLElement,
+  propertyName: string,
+  value: string,
+): void {
+  const currentStyle = element.getAttribute('style')?.trim();
+  const declaration = `${propertyName}: ${value}`;
+
+  element.setAttribute(
+    'style',
+    currentStyle ? `${currentStyle}; ${declaration}` : declaration,
+  );
+}
+
+function readStyleProperty(element: HTMLElement, propertyName: string): string | null {
+  const style = element.getAttribute('style');
+  if (!style) return null;
+
+  const normalizedPropertyName = propertyName.toLowerCase();
+  const declaration = style
+    .split(';')
+    .map((part) => part.trim())
+    .find((part) => {
+      const colonIndex = part.indexOf(':');
+      if (colonIndex === -1) return false;
+
+      return part.slice(0, colonIndex).trim().toLowerCase() === normalizedPropertyName;
+    });
+
+  if (!declaration) return null;
+
+  const colonIndex = declaration.indexOf(':');
+  const value = declaration.slice(colonIndex + 1).trim();
+
+  return value || null;
+}
+
+function pushInheritedTextStyleIntoChildren(element: HTMLElement): void {
+  const fontFamily = sanitizeFontFamily(
+    readStyleProperty(element, 'font-family') ?? '',
+  );
+  const fontSize = sanitizeFontSize(readStyleProperty(element, 'font-size') ?? '');
+
+  if (!fontFamily && !fontSize) return;
+
+  wrapDirectInlineRunsWithTextStyle(element, { fontFamily, fontSize });
+
+  Array.from(element.children).forEach((child) => {
+    const childElement = child as HTMLElement;
+
+    if (fontFamily && !readStyleProperty(childElement, 'font-family')) {
+      appendStyleProperty(childElement, 'font-family', fontFamily);
+    }
+
+    if (fontSize && !readStyleProperty(childElement, 'font-size')) {
+      appendStyleProperty(childElement, 'font-size', fontSize);
+    }
+  });
+}
+
+function wrapRunWithTextStyle(
+  container: Element,
+  run: Node[],
+  textStyle: InheritedTextStyle,
+): void {
+  if (!run.some(nodeHasMeaningfulContent)) return;
+
+  const styles: string[] = [];
+  if (textStyle.fontFamily) styles.push(`font-family: ${textStyle.fontFamily}`);
+  if (textStyle.fontSize) styles.push(`font-size: ${textStyle.fontSize}`);
+  if (styles.length === 0) return;
+
+  const span = container.ownerDocument.createElement('span');
+  span.setAttribute('style', styles.join('; '));
+  run[0].parentNode?.insertBefore(span, run[0]);
+  run.forEach((node) => span.append(node));
+}
+
+function wrapDirectInlineRunsWithTextStyle(
+  element: HTMLElement,
+  textStyle: InheritedTextStyle,
+): void {
+  let run: Node[] = [];
+
+  Array.from(element.childNodes).forEach((child) => {
+    if (isInlineFontRunNode(child)) {
+      run.push(child);
+      return;
+    }
+
+    if (run.length > 0) {
+      wrapRunWithTextStyle(element, run, textStyle);
+      run = [];
+    }
+  });
+
+  if (run.length > 0) wrapRunWithTextStyle(element, run, textStyle);
+}
+
+function propagateTextStyleToText(
+  element: HTMLElement,
+  inheritedTextStyle: InheritedTextStyle,
+): void {
+  const tagName = getTagName(element);
+  if (tagName === 'pre' || tagName === 'code') return;
+
+  const textStyle = {
+    fontFamily:
+      readStyleProperty(element, 'font-family') ?? inheritedTextStyle.fontFamily,
+    fontSize: readStyleProperty(element, 'font-size') ?? inheritedTextStyle.fontSize,
+  };
+
+  if (
+    (textStyle.fontFamily || textStyle.fontSize) &&
+    TEXT_STYLE_CONTAINERS.has(tagName)
+  ) {
+    wrapDirectInlineRunsWithTextStyle(element, textStyle);
+  }
+
+  Array.from(element.children).forEach((child) => {
+    propagateTextStyleToText(child as HTMLElement, textStyle);
+  });
+}
+
+function propagateInheritedTextStyles(root: ParentNode): void {
+  Array.from(root.children).forEach((child) => {
+    propagateTextStyleToText(child as HTMLElement, {
+      fontFamily: null,
+      fontSize: null,
+    });
+  });
+}
+
 function removeEmptyElements(root: ParentNode): void {
   Array.from(root.querySelectorAll<HTMLElement>('*'))
     .reverse()
@@ -316,6 +487,7 @@ export function normalizePastedStructure(root: ParentNode): void {
   unwrapEmptySpans(root);
   normalizePastedTableStructure(root);
   wrapLooseInlineRuns(root);
+  propagateInheritedTextStyles(root);
   normalizePastedTables(root);
   removeEmptyElements(root);
 }

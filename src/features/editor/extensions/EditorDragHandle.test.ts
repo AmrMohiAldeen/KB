@@ -75,6 +75,7 @@ describe('EditorDragHandle', () => {
       'orderedList',
       'listItem',
       'table',
+      'image',
       'accordion',
       'tabs',
       'callout',
@@ -85,7 +86,7 @@ describe('EditorDragHandle', () => {
     });
   });
 
-  it('falls back from unsafe nested structures to their supported container nodes', () => {
+  it('keeps unsafe nested structures ineligible while allowing nested blocks', () => {
     expect(
       getEditorDragHandleRuleDeduction({
         nodeName: 'paragraph',
@@ -115,7 +116,7 @@ describe('EditorDragHandle', () => {
         parentName: 'accordionItem',
         ancestorNames: ['accordion', 'accordionItem'],
       }),
-    ).toBeGreaterThanOrEqual(1000);
+    ).toBe(0);
     expect(
       getEditorDragHandleRuleDeduction({ nodeName: 'tabItem' }),
     ).toBeGreaterThanOrEqual(1000);
@@ -125,14 +126,28 @@ describe('EditorDragHandle', () => {
         parentName: 'tabItem',
         ancestorNames: ['tabs', 'tabItem'],
       }),
-    ).toBeGreaterThanOrEqual(1000);
+    ).toBe(0);
+    expect(
+      getEditorDragHandleRuleDeduction({
+        nodeName: 'table',
+        parentName: 'tabItem',
+        ancestorNames: ['tabs', 'tabItem'],
+      }),
+    ).toBe(0);
+    expect(
+      getEditorDragHandleRuleDeduction({
+        nodeName: 'image',
+        parentName: 'accordionItem',
+        ancestorNames: ['accordion', 'accordionItem'],
+      }),
+    ).toBe(0);
     expect(
       getEditorDragHandleRuleDeduction({
         nodeName: 'paragraph',
         parentName: 'callout',
         ancestorNames: ['callout'],
       }),
-    ).toBeGreaterThanOrEqual(1000);
+    ).toBe(0);
     expect(
       getEditorDragHandleRuleDeduction({
         nodeName: 'text',

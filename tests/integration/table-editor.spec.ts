@@ -271,6 +271,7 @@ test('outer table resizing works inside tabs and accordions', async ({ page }) =
   await insertTable(page, 2, 2);
 
   const tabTable = page.locator('.kb-tab-card__body table').first();
+  await editor.locator(':scope > p').last().click();
   await resizeOuterTable(page, -0.3, tabTable);
   expect((await tableGeometry(page, tabTable)).storedWidth).toBeLessThan(90);
 
@@ -284,6 +285,7 @@ test('outer table resizing works inside tabs and accordions', async ({ page }) =
   await insertTable(page, 2, 2);
 
   const accordionTable = page.locator('.kb-accordion__panel table').first();
+  await editor.locator(':scope > p').last().click();
   await resizeOuterTable(page, -0.3, accordionTable);
   expect((await tableGeometry(page, accordionTable)).storedWidth).toBeLessThan(90);
 });
@@ -333,6 +335,112 @@ test('row height moves live during resizing and remains undoable', async ({ page
   await expect
     .poll(() => firstRow.evaluate((row) => row.getBoundingClientRect().height))
     .toBeCloseTo(startHeight, 0);
+});
+
+test('internal column resizing works inside tabs', async ({ page }) => {
+  await page.getByRole('button', { name: 'Insert content block' }).click();
+  await page.getByRole('menuitem', { name: /Tabs/ }).click();
+  await page.locator('.kb-tab-card__body p').first().click();
+  await insertTable(page, 2, 2);
+
+  const firstCell = page.locator('.kb-tab-card__body th, .kb-tab-card__body td').first();
+  const startWidth = await firstCell.evaluate((cell) =>
+    cell.getBoundingClientRect().width,
+  );
+  await page.locator('.ProseMirror > p').last().click();
+  const cellRect = await firstCell.boundingBox();
+  if (!cellRect) throw new Error('Nested first table cell is not visible');
+
+  await page.mouse.move(cellRect.x + cellRect.width - 2, cellRect.y + cellRect.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(cellRect.x + cellRect.width + 40, cellRect.y + cellRect.height / 2);
+  await page.mouse.up();
+
+  await expect
+    .poll(() =>
+      firstCell.evaluate((cell) => cell.getBoundingClientRect().width),
+    )
+    .toBeGreaterThan(startWidth + 20);
+});
+
+test('row height resizing works inside tabs', async ({ page }) => {
+  await page.getByRole('button', { name: 'Insert content block' }).click();
+  await page.getByRole('menuitem', { name: /Tabs/ }).click();
+  await page.locator('.kb-tab-card__body p').first().click();
+  await insertTable(page, 2, 2);
+
+  const firstCell = page.locator('.kb-tab-card__body th, .kb-tab-card__body td').first();
+  const firstRow = page.locator('.kb-tab-card__body tr').first();
+
+  const startHeight = await firstRow.evaluate((row) => row.getBoundingClientRect().height);
+  await page.locator('.ProseMirror > p').last().click();
+  const cellRect = await firstCell.boundingBox();
+  if (!cellRect) throw new Error('Nested first table cell is not visible');
+
+  await page.mouse.move(cellRect.x + cellRect.width / 2, cellRect.y + cellRect.height - 2);
+  await page.mouse.down();
+  await page.mouse.move(cellRect.x + cellRect.width / 2, cellRect.y + cellRect.height + 35);
+  await page.mouse.up();
+
+  await expect
+    .poll(() => firstRow.evaluate((row) => row.getBoundingClientRect().height))
+    .toBeGreaterThan(startHeight + 20);
+});
+
+test('internal column resizing works inside accordions', async ({ page }) => {
+  await page.getByRole('button', { name: 'Insert content block' }).click();
+  await page.getByRole('menuitem', { name: /Accordion/ }).click();
+  await page.locator('[data-kb-accordion-item]').first().evaluate((item) => {
+    (item as HTMLDetailsElement).open = true;
+  });
+  await page.locator('.kb-accordion__panel p').first().click();
+  await insertTable(page, 2, 2);
+
+  const firstCell = page.locator('.kb-accordion__panel th, .kb-accordion__panel td').first();
+  const startWidth = await firstCell.evaluate((cell) =>
+    cell.getBoundingClientRect().width,
+  );
+  await page.locator('.ProseMirror > p').last().click();
+  const cellRect = await firstCell.boundingBox();
+  if (!cellRect) throw new Error('Nested accordion first table cell is not visible');
+
+  await page.mouse.move(cellRect.x + cellRect.width - 2, cellRect.y + cellRect.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(cellRect.x + cellRect.width + 40, cellRect.y + cellRect.height / 2);
+  await page.mouse.up();
+
+  await expect
+    .poll(() =>
+      firstCell.evaluate((cell) => cell.getBoundingClientRect().width),
+    )
+    .toBeGreaterThan(startWidth + 20);
+});
+
+test('row height resizing works inside accordions', async ({ page }) => {
+  await page.getByRole('button', { name: 'Insert content block' }).click();
+  await page.getByRole('menuitem', { name: /Accordion/ }).click();
+  await page.locator('[data-kb-accordion-item]').first().evaluate((item) => {
+    (item as HTMLDetailsElement).open = true;
+  });
+  await page.locator('.kb-accordion__panel p').first().click();
+  await insertTable(page, 2, 2);
+
+  const firstCell = page.locator('.kb-accordion__panel th, .kb-accordion__panel td').first();
+  const firstRow = page.locator('.kb-accordion__panel tr').first();
+
+  const startHeight = await firstRow.evaluate((row) => row.getBoundingClientRect().height);
+  await page.locator('.ProseMirror > p').last().click();
+  const cellRect = await firstCell.boundingBox();
+  if (!cellRect) throw new Error('Nested accordion first table cell is not visible');
+
+  await page.mouse.move(cellRect.x + cellRect.width / 2, cellRect.y + cellRect.height - 2);
+  await page.mouse.down();
+  await page.mouse.move(cellRect.x + cellRect.width / 2, cellRect.y + cellRect.height + 35);
+  await page.mouse.up();
+
+  await expect
+    .poll(() => firstRow.evaluate((row) => row.getBoundingClientRect().height))
+    .toBeGreaterThan(startHeight + 20);
 });
 
 test('table border controls persist individual edge settings in rendered attributes', async ({

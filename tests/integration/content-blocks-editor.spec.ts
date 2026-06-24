@@ -1,10 +1,105 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 async function insertTable(page: Page, rows = 2, cols = 2) {
   await page.getByRole('button', { name: 'Insert Table' }).click();
   await page.getByPlaceholder('Rows').fill(String(rows));
   await page.getByPlaceholder('Cols').fill(String(cols));
   await page.getByRole('button', { name: 'Insert', exact: true }).click();
+}
+
+async function insertImage(page: Page) {
+  const imageUrl = new URL('/favicon.ico', page.url()).href;
+
+  await page.getByRole('button', { name: 'Insert image' }).click();
+  await page.getByLabel('Image URL').fill(imageUrl);
+  await page.getByRole('button', { name: 'Insert', exact: true }).click();
+}
+
+async function topLevelBlockOrder(page: Page) {
+  return page.locator('.ProseMirror').evaluate((editor) =>
+    Array.from(editor.children).map((child) => {
+      if ((child as HTMLElement).dataset.kbTabs != null) return 'tabs';
+      if ((child as HTMLElement).dataset.kbAccordion != null) return 'accordion';
+      return child.tagName.toLowerCase();
+    }),
+  );
+}
+
+async function tabBodyParagraphs(page: Page) {
+  return page.locator('.kb-tab-card__body').first().locator(':scope > p');
+}
+
+async function tabBodyParagraphTexts(page: Page) {
+  return page.locator('.kb-tab-card__body').first().evaluate((body) =>
+    Array.from(body.querySelectorAll(':scope > p')).map((paragraph) =>
+      paragraph.textContent?.trim() ?? '',
+    ),
+  );
+}
+
+async function dragHandleTo(
+  page: Page,
+  handle: Locator,
+  target: Locator,
+  targetPosition: { x: number; y: number },
+) {
+  const handleRect = await handle.boundingBox();
+  const targetRect = await target.boundingBox();
+  if (!handleRect || !targetRect) {
+    throw new Error('Drag handle or target is not visible');
+  }
+
+  await page.evaluate(
+    ({ startX, startY, targetX, targetY }) => {
+      const handleElement = document.querySelector<HTMLElement>(
+        '.kb-official-drag-handle',
+      );
+      if (!handleElement) throw new Error('Drag handle element not found');
+
+      const dataTransfer = new DataTransfer();
+      const dragStart = new DragEvent('dragstart', {
+        bubbles: true,
+        cancelable: true,
+        clientX: startX,
+        clientY: startY,
+        dataTransfer,
+      });
+      handleElement.dispatchEvent(dragStart);
+
+      const dragOver = new DragEvent('dragover', {
+        bubbles: true,
+        cancelable: true,
+        clientX: targetX,
+        clientY: targetY,
+        dataTransfer,
+      });
+      document.dispatchEvent(dragOver);
+
+      const drop = new DragEvent('drop', {
+        bubbles: true,
+        cancelable: true,
+        clientX: targetX,
+        clientY: targetY,
+        dataTransfer,
+      });
+      document.dispatchEvent(drop);
+
+      const dragEnd = new DragEvent('dragend', {
+        bubbles: true,
+        cancelable: true,
+        clientX: targetX,
+        clientY: targetY,
+        dataTransfer,
+      });
+      handleElement.dispatchEvent(dragEnd);
+    },
+    {
+      startX: handleRect.x + handleRect.width / 2,
+      startY: handleRect.y + handleRect.height / 2,
+      targetX: targetRect.x + targetPosition.x,
+      targetY: targetRect.y + targetPosition.y,
+    },
+  );
 }
 
 test.beforeEach(async ({ page }) => {
@@ -117,7 +212,7 @@ test('content blocks highlight on selection and move with the shared drag handle
   await page.getByRole('menuitem', { name: /Tabs/ }).click();
 
   const tabs = page.locator('[data-kb-tabs]');
-  await tabs.locator('.kb-tab-card__body p').first().click();
+  await tabs.locator('.kb-tab-card__title-input').first().click();
   const handle = page.getByRole('button', { name: 'Drag content block' });
   await expect(handle).toBeVisible();
   await handle.click();
@@ -137,6 +232,114 @@ test('content blocks highlight on selection and move with the shared drag handle
   await expect(editor.locator(':scope > p').first()).toContainText(
     'Paragraph before content block',
   );
+});
+
+test('tables and images inside tabs get their own drag handles', async ({ page }) => {
+  await page.getByRole('button', { name: 'Insert content block' }).click();
+  await page.getByRole('menuitem', { name: /Tabs/ }).click();
+
+  const firstTabBody = page.locator('.kb-tab-card__body').first();
+  await firstTabBody.locator(':scope > p').first().click();
+  await insertTable(page, 2, 2);
+
+  await firstTabBody.locator('th, td').first().click();
+  await expect(page.getByRole('button', { name: 'Drag table' })).toBeVisible();
+
+  const secondTabBody = page.locator('.kb-tab-card__body').nth(1);
+  await secondTabBody.locator(':scope > p').first().click();
+  await insertImage(page);
+
+  const image = secondTabBody.locator('img[data-kb-image="block"]').first();
+  await expect(image).toBeVisible();
+  await image.click();
+  await expect(page.getByRole('button', { name: 'Drag image' })).toBeVisible();
+});
+
+test('tables and images inside accordions get their own drag handles', async ({
+  page,
+}) => {
+  await page.getByRole('button', { name: 'Insert content block' }).click();
+  await page.getByRole('menuitem', { name: /Accordion/ }).click();
+
+  const firstItem = page.locator('[data-kb-accordion-item]').first();
+  await firstItem.evaluate((item) => {
+    (item as HTMLDetailsElement).open = true;
+  });
+  const firstPanel = firstItem.locator('.kb-accordion__panel');
+
+  await firstPanel.locator(':scope > p').first().click();
+  await insertTable(page, 2, 2);
+
+  await firstPanel.locator('th, td').first().click();
+  await expect(page.getByRole('button', { name: 'Drag table' })).toBeVisible();
+
+  const secondItem = page.locator('[data-kb-accordion-item]').nth(1);
+  await secondItem.evaluate((item) => {
+    (item as HTMLDetailsElement).open = true;
+  });
+  const secondPanel = secondItem.locator('.kb-accordion__panel');
+  await secondPanel.locator(':scope > p').first().click();
+  await insertImage(page);
+
+  const image = secondPanel.locator('img[data-kb-image="block"]').first();
+  await expect(image).toBeVisible();
+  await image.click();
+  await expect(page.getByRole('button', { name: 'Drag image' })).toBeVisible();
+});
+
+test('block reorder works inside a tab', async ({ page }) => {
+  await page.getByRole('button', { name: 'Insert content block' }).click();
+  await page.getByRole('menuitem', { name: /Tabs/ }).click();
+
+  const paragraphs = await tabBodyParagraphs(page);
+  await paragraphs.first().click();
+  await page.keyboard.type('First nested paragraph');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('Second nested paragraph');
+
+  await paragraphs.nth(1).click();
+  const handle = page.getByRole('button', { name: 'Drag block' });
+  await expect(handle).toBeVisible();
+  await dragHandleTo(page, handle, paragraphs.first(), { x: 5, y: 1 });
+
+  expect(await tabBodyParagraphTexts(page)).toEqual([
+    'Second nested paragraph',
+    'First nested paragraph',
+  ]);
+});
+
+test('nested dragging does not move the outer tabs block by mistake', async ({
+  page,
+}) => {
+  const editor = page.locator('.ProseMirror');
+  await editor.click();
+  await page.keyboard.type('Paragraph before tabs');
+  await page.keyboard.press('Enter');
+
+  await page.getByRole('button', { name: 'Insert content block' }).click();
+  await page.getByRole('menuitem', { name: /Tabs/ }).click();
+
+  const paragraphs = await tabBodyParagraphs(page);
+  await paragraphs.first().click();
+  await page.keyboard.type('Nested first');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('Nested second');
+
+  await paragraphs.nth(1).click();
+  const handle = page.getByRole('button', { name: 'Drag block' });
+  await expect(handle).toBeVisible();
+  await dragHandleTo(page, handle, editor.locator(':scope > p').first(), {
+    x: 5,
+    y: 1,
+  });
+
+  const order = await topLevelBlockOrder(page);
+  expect(order[0]).toBe('p');
+  expect(order.indexOf('tabs')).toBeGreaterThan(0);
+  expect(await tabBodyParagraphTexts(page)).toEqual([
+    'Nested second',
+    'Nested first',
+  ]);
 });
 
 test('select all highlights tabs and accordions', async ({ page }) => {

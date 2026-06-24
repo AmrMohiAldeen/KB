@@ -2,7 +2,7 @@
 
 import { Extension } from "@tiptap/core";
 import { Plugin } from "@tiptap/pm/state";
-import { changeFontSize } from "../components/toolbar/toolbarOptions";
+import { changeFontSize } from "../config/fontSizes";
 
 function isModShiftOnly(event: KeyboardEvent): boolean {
   const hasExactlyOneModKey = event.ctrlKey !== event.metaKey;

@@ -4,6 +4,7 @@ import { TextSelection, type Plugin } from '@tiptap/pm/state';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getEditorExtensions } from './';
 import type { EditorFileUploadAdapter } from './FileHandlerIntegration';
+import { PRESERVED_SELECTION_CLASS } from './ReadOnlySelectionHighlight';
 import {
   EDITOR_EXTENSION_BLOCKERS,
   resolveEditorExtensionFeatureFlags,
@@ -115,6 +116,12 @@ function dropFiles(editor: Editor, files: File[]): boolean | void {
   }
 }
 
+function waitForAnimationFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    window.requestAnimationFrame(() => resolve());
+  });
+}
+
 afterEach(() => {
   editors.splice(0).forEach((editor) => editor.destroy());
 });
@@ -131,6 +138,7 @@ describe('official Tiptap extension integration', () => {
     expect(names).toContain('fileHandler');
     expect(names).toContain('Mathematics');
     expect(names).toContain('selection');
+    expect(names).toContain('readOnlySelectionHighlight');
     expect(names).toContain('characterCount');
     expect(names).not.toContain('contentBlockDragHandle');
     expect(names).not.toContain('tableDragHandle');
@@ -259,6 +267,48 @@ describe('official Tiptap extension integration', () => {
     });
 
     expect(decorationCount).toBe(1);
+  });
+
+  it('decorates native DOM selections in read-only editors', async () => {
+    const editor = createEditor({
+      editable: false,
+      content: {
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            content: [{ type: 'text', text: 'Visible read-only text' }],
+          },
+        ],
+      },
+    });
+    const before = editor.getJSON();
+    const textNode = editor.view.dom.querySelector('p')?.firstChild;
+    expect(textNode).toBeInstanceOf(Text);
+
+    const range = document.createRange();
+    range.setStart(textNode!, 0);
+    range.setEnd(textNode!, 'Visible'.length);
+
+    const selection = document.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    document.dispatchEvent(new Event('selectionchange'));
+    await waitForAnimationFrame();
+
+    const highlighted = editor.view.dom.querySelector(
+      `.${PRESERVED_SELECTION_CLASS}`,
+    );
+    expect(highlighted?.textContent).toBe('Visible');
+    expect(editor.getJSON()).toEqual(before);
+
+    selection?.removeAllRanges();
+    document.dispatchEvent(new Event('selectionchange'));
+    await waitForAnimationFrame();
+
+    expect(
+      editor.view.dom.querySelector(`.${PRESERVED_SELECTION_CLASS}`),
+    ).toBeNull();
   });
 
   it('keeps plan/backend dependent extensions feature-flagged with documented blockers', () => {

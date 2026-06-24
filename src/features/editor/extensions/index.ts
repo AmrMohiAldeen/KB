@@ -33,6 +33,10 @@ import { tableExtensions } from '../blocks/table';
 
 import { BlockSelection } from './BlockSelection';
 import { Selection, CharacterCount } from '@tiptap/extensions';
+import {
+  PRESERVED_SELECTION_CLASS,
+  ReadOnlySelectionHighlight,
+} from './ReadOnlySelectionHighlight';
 import { Mathematics } from '@tiptap/extension-mathematics';
 
 import {
@@ -135,7 +139,10 @@ export const getEditorExtensions = (options: EditorExtensionOptions = {}) => {
     // selection
     BlockSelection,
     Selection.configure({
-      className: 'kb-preserved-selection',
+      className: PRESERVED_SELECTION_CLASS,
+    }),
+    ReadOnlySelectionHighlight.configure({
+      className: PRESERVED_SELECTION_CLASS,
     }),
 
     CharacterCount.configure({

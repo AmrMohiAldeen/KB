@@ -12,6 +12,7 @@
 import { Editor } from '@tiptap/core';
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { FONT_FAMILIES } from '../config/fonts';
 import { getEditorExtensions, type EditorExtensionOptions } from '../extensions';
 import {
   sanitizePastedHTML,
@@ -21,6 +22,10 @@ import { sanitizePastedPlainText } from './sanitizePastedText';
 
 const editors: Editor[] = [];
 const editorElements: HTMLElement[] = [];
+const SUPPORTED_FONT_FAMILIES = FONT_FAMILIES.filter((font) => font.value);
+const FONT_VALUE_BY_LABEL = new Map(
+  SUPPORTED_FONT_FAMILIES.map((font) => [font.label, font.value]),
+);
 
 function pasteHTML(editor: Editor, html: string, text = ''): Event {
   const event = new Event('paste', { bubbles: true, cancelable: true });
@@ -133,6 +138,40 @@ function editorNodesByName(editor: Editor, name: string): ProseMirrorNode[] {
   });
 
   return nodes;
+}
+
+function fontValue(label: string): string {
+  const value = FONT_VALUE_BY_LABEL.get(label);
+  if (!value) throw new Error(`Missing test font value for ${label}`);
+
+  return value;
+}
+
+function textStyleAttrsForText(
+  editor: Editor,
+  text: string,
+): Record<string, unknown> | null {
+  let attrs: Record<string, unknown> | null = null;
+
+  editor.state.doc.descendants((node) => {
+    if (attrs) return false;
+    if (!node.isText || node.text !== text) return;
+
+    attrs =
+      node.marks.find((mark) => mark.type.name === 'textStyle')?.attrs ?? null;
+  });
+
+  return attrs;
+}
+
+function expectTextFontFamily(
+  editor: Editor,
+  text: string,
+  expectedFontFamily: string,
+): void {
+  expect(textStyleAttrsForText(editor, text)).toMatchObject({
+    fontFamily: expectedFontFamily,
+  });
 }
 
 describe('sanitizePastedHTML', () => {
@@ -700,6 +739,123 @@ describe('sanitizePastedHTML', () => {
     expect(html).not.toContain('expression');
     expect(html).not.toContain('999px');
     expect(html).not.toContain('font-family');
+  });
+
+  it.each(SUPPORTED_FONT_FAMILIES)(
+    'preserves supported pasted font family $label on paragraph text',
+    (font) => {
+      const editor = insertSanitizedIntoEditor(
+        `<p style="font-family: ${font.label}">Font${font.label.replace(/\W/g, '')}</p>`,
+      );
+
+      expectTextFontFamily(
+        editor,
+        `Font${font.label.replace(/\W/g, '')}`,
+        font.value,
+      );
+    },
+  );
+
+  it('preserves full supported editor font stacks from internal paste HTML', () => {
+    const editor = insertSanitizedIntoEditor(
+      SUPPORTED_FONT_FAMILIES.map(
+        (font, index) =>
+          `<p><span style='font-family: ${font.value}'>Stack${index}</span></p>`,
+      ).join(''),
+    );
+
+    SUPPORTED_FONT_FAMILIES.forEach((font, index) => {
+      expectTextFontFamily(editor, `Stack${index}`, font.value);
+    });
+  });
+
+  it('preserves inherited supported font families across pasted blocks and nested content', () => {
+    const editor = insertSanitizedIntoEditor([
+      '<p style="font-family: Segoe UI">ParagraphFont</p>',
+      '<h2 style="font-family: Georgia">HeadingFont</h2>',
+      '<ul>',
+      '<li style="font-family: Times New Roman">ListFont',
+      '<ul><li style="font-family: Consolas">NestedListFont</li></ul>',
+      '</li>',
+      '</ul>',
+      '<table style="font-family: Courier New"><tbody><tr>',
+      '<td>TableInheritedFont</td>',
+      '<td style="font-family: Monaco">TableCellFont</td>',
+      '</tr></tbody></table>',
+      '<aside data-kb-callout data-kb-callout-variant="info">',
+      '<div data-kb-callout-content style="font-family: Helvetica">NestedPanelFont</div>',
+      '</aside>',
+      '<div style="font-family: Roboto"><p>GenericWrapperFont</p></div>',
+    ].join(''));
+
+    expectTextFontFamily(editor, 'ParagraphFont', fontValue('Segoe UI'));
+    expectTextFontFamily(editor, 'HeadingFont', fontValue('Georgia'));
+    expectTextFontFamily(editor, 'ListFont', fontValue('Times New Roman'));
+    expectTextFontFamily(editor, 'NestedListFont', fontValue('Consolas'));
+    expectTextFontFamily(editor, 'TableInheritedFont', fontValue('Courier New'));
+    expectTextFontFamily(editor, 'TableCellFont', fontValue('Monaco'));
+    expectTextFontFamily(editor, 'NestedPanelFont', fontValue('Helvetica'));
+    expectTextFontFamily(editor, 'GenericWrapperFont', fontValue('Roboto'));
+  });
+
+  it('preserves supported Word stylesheet font families for normal paragraphs and nested content', () => {
+    const editor = insertSanitizedIntoEditor([
+      '<html><head><style>',
+      '<!--',
+      'p.MsoNormal, li.MsoNormal, div.MsoNormal { font-size:10.5pt; font-family:"Segoe UI",sans-serif; }',
+      'p.MsoListParagraph, li.MsoListParagraph, div.MsoListParagraph { font-size:10.5pt; font-family:"Segoe UI",sans-serif; }',
+      'td.MsoCell { font-size:10.5pt; font-family:"Segoe UI",sans-serif; }',
+      '-->',
+      '</style></head><body>',
+      '<h1 style="font-family: Segoe UI">WordHeading</h1>',
+      '<p class="MsoNormal">WordParagraph</p>',
+      '<p class="MsoListParagraph" style="mso-list:l0 level1 lfo1">',
+      '<span style="mso-list:Ignore">1.<span>&nbsp;&nbsp;</span></span>',
+      'WordList</p>',
+      '<table><tbody><tr><td class="MsoCell">WordCell</td></tr></tbody></table>',
+      '</body></html>',
+    ].join(''));
+
+    expectTextFontFamily(editor, 'WordHeading', fontValue('Segoe UI'));
+    ['WordParagraph', 'WordList', 'WordCell'].forEach((text) => {
+      expect(textStyleAttrsForText(editor, text)).toMatchObject({
+        fontFamily: fontValue('Segoe UI'),
+        fontSize: '10.5pt',
+      });
+    });
+    expectNoExecutableHtml(editor.getHTML());
+    expect(editor.getHTML()).not.toContain('Mso');
+    expect(editor.getHTML()).not.toContain('mso-list');
+  });
+
+  it('preserves decimal and non-preset pasted font sizes through the editor schema', () => {
+    const editor = insertSanitizedIntoEditor([
+      '<p><span style="font-size:10.5px">DecimalPx</span></p>',
+      '<p><span style="font-size:10.5pt">DecimalPt</span></p>',
+      '<p><span style="font-size:64px">PresetMaxWasNotPasteMax</span></p>',
+    ].join(''));
+
+    expect(textStyleAttrsForText(editor, 'DecimalPx')).toMatchObject({
+      fontSize: '10.5px',
+    });
+    expect(textStyleAttrsForText(editor, 'DecimalPt')).toMatchObject({
+      fontSize: '10.5pt',
+    });
+    expect(textStyleAttrsForText(editor, 'PresetMaxWasNotPasteMax')).toMatchObject({
+      fontSize: '64px',
+    });
+  });
+
+  it('does not preserve unsupported pasted font families on inherited text runs', () => {
+    const editor = insertSanitizedIntoEditor([
+      '<p style="font-family: Papyrus">UnsupportedParagraphFont</p>',
+      '<ul><li style="font-family: Comic Sans MS">UnsupportedListFont</li></ul>',
+      '<table><tbody><tr><td style="font-family: Fantasy">UnsupportedCellFont</td></tr></tbody></table>',
+    ].join(''));
+
+    expect(textStyleAttrsForText(editor, 'UnsupportedParagraphFont')).toBeNull();
+    expect(textStyleAttrsForText(editor, 'UnsupportedListFont')).toBeNull();
+    expect(textStyleAttrsForText(editor, 'UnsupportedCellFont')).toBeNull();
   });
 
   it('preserves app-owned KB block attributes but removes arbitrary editor-breaking attributes', () => {

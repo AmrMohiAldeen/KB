@@ -1,5 +1,6 @@
 "use client";
 
+import { useId, useState } from "react";
 import { useEditorState, type Editor } from "@tiptap/react";
 import { ContentBlockPicker } from "./ContentBlockPicker";
 import {
@@ -32,24 +33,26 @@ import {
 } from "../../extensions/Glossary";
 import type { TextDirectionSelectionValue } from "../../extensions/TextDirection";
 import {
-  DEFAULT_FONT_SIZE,
-  FONT_FAMILIES,
-  FONT_SIZES,
   HEADING_OPTIONS,
   HIGHLIGHT_COLORS,
   TEXT_COLORS,
+  getTextBlockLabel,
+} from "../../config/toolbarOptions";
+import {
+  DEFAULT_FONT_SIZE,
+  FONT_SIZES,
   applyFontSize,
   changeFontSize,
-  getFontFamilyLabel,
   getFontSizeLabel,
-  getTextBlockLabel,
-} from "./toolbarOptions";
+  normalizeFontSizeInput,
+} from "../../config/fontSizes"
+import {FONT_FAMILIES, getFontFamilyLabel,} from "../../config/fonts"
 import { getToolbarSelectionFormatting } from "./selectionFormatting";
-import { LINE_HEIGHTS, DEFAULT_LINE_HEIGHT } from './toolbarOptions';
+import { LINE_HEIGHTS, DEFAULT_LINE_HEIGHT } from '../../config/toolbarOptions';
 import { MathFormulaControl } from "./MathFormulaControl";
 import { YoutubeControl } from "./YoutubeControl";
 import {ImageControl} from "./ImageControl";
-import { List, ListOrdered, ListChecks, PilcrowLeft, PilcrowRight } from 'lucide-react';
+import { List, ListOrdered, ListChecks, PilcrowLeft, PilcrowRight, ChevronDown } from 'lucide-react';
 import { TableOfContentsControl } from "./TableOfContentsControl";
 
 export interface EditorToolbarProps {
@@ -97,7 +100,7 @@ type ToolbarState = {
   isHeading2: boolean;
   isHeading3: boolean;
   isHeading4: boolean;
-
+  
   isBulletList: boolean;
   isOrderedList: boolean;
   isTaskList: boolean;
@@ -209,7 +212,6 @@ const EMPTY_TOOLBAR_STATE: ToolbarState = {
 };
 
 export default function EditorToolbar({ editor }: EditorToolbarProps) {
-  
   const toolbarState = useEditorState({
     editor,
     selector: ({ editor: currentEditor }) => {
@@ -262,6 +264,7 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
         isHeading1: selectedHeadingLevel === 1,
         isHeading2: selectedHeadingLevel === 2,
         isHeading3: selectedHeadingLevel === 3,
+        isHeading4: selectedHeadingLevel === 4,
 
         isBulletList: currentEditor.isActive("bulletList"),
         isOrderedList: currentEditor.isActive("orderedList"),
@@ -314,11 +317,15 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
     },
   });
 
+  const fontSizeLabel = getFontSizeLabel(toolbarState);
+  const fontSizeInputId = useId();
+  const [fontSizeDraft, setFontSizeDraft] = useState<string | null>(null);
+  const fontSizeInput = fontSizeDraft ?? fontSizeLabel;
+
   if (!toolbarState.isEditable) return null;
 
   const fontFamilyLabel = getFontFamilyLabel(toolbarState.fontFamily);
   const textBlockLabel = getTextBlockLabel(toolbarState);
-  const fontSizeLabel = getFontSizeLabel(toolbarState);
   const inheritedTextDirection =
     toolbarState.textDirection === "ltr" || toolbarState.textDirection === "rtl"
       ? toolbarState.textDirection
@@ -376,6 +383,22 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
     if (editor.isActive("bulletList") || editor.isActive("orderedList")) {
       chain.liftListItem("listItem").run();
     }
+  };
+
+  const commitCustomFontSize = () => {
+    const normalized = normalizeFontSizeInput(fontSizeInput);
+    if (!normalized) {
+      setFontSizeDraft(null);
+      return;
+    }
+
+    const applied = applyFontSize(editor, normalized);
+    if (!applied) {
+      setFontSizeDraft(null);
+      return;
+    }
+
+    setFontSizeDraft(null);
   };
 
   return (
@@ -468,12 +491,14 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
           </DropdownItem>
 
           {HEADING_OPTIONS.map((heading) => {
-            const isActive =
-              heading.level === 1
-                ? toolbarState.isHeading1
-                : heading.level === 2
-                  ? toolbarState.isHeading2
-                  : toolbarState.isHeading3;
+            const activeByLevel = {
+              1: toolbarState.isHeading1,
+              2: toolbarState.isHeading2,
+              3: toolbarState.isHeading3,
+              4: toolbarState.isHeading4,
+            } as const;
+
+            const isActive = activeByLevel[heading.level];
 
             return (
               <DropdownItem
@@ -491,32 +516,60 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
               </DropdownItem>
             );
           })}
+
         </ToolbarDropdown>
 
-        <ToolbarDropdown
-          title="Font size"
-          label={<span className="w-10 truncate text-left">{fontSizeLabel}</span>}
-          isActive={Boolean(toolbarState.fontSize)}
-          menuClassName="w-24"
-        >
-          {FONT_SIZES.map((size) => {
-            const sizeNumber = Number(size.label);
-            const isDefaultSize = sizeNumber === DEFAULT_FONT_SIZE;
+        <div className="flex items-center gap-1">
+          <label className="sr-only" htmlFor={fontSizeInputId}>
+            Custom font size
+          </label>
+          <input
+            id={fontSizeInputId}
+            title="Custom font size"
+            aria-label="Custom font size"
+            inputMode="decimal"
+            value={fontSizeInput}
+            onChange={(event) => setFontSizeDraft(event.target.value)}
+            onBlur={commitCustomFontSize}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                commitCustomFontSize();
+              }
 
-            return (
-              <DropdownItem
-                key={size.value}
-                onActivate={() => applyFontSize(editor, sizeNumber)}
-                isActive={
-                  toolbarState.fontSize === size.value ||
-                  (toolbarState.fontSize === "" && isDefaultSize)
-                }
-              >
-                {size.label}
-              </DropdownItem>
-            );
-          })}
-        </ToolbarDropdown>
+              if (event.key === "Escape") {
+                event.preventDefault();
+                setFontSizeDraft(null);
+              }
+            }}
+            className="h-6 w-12 rounded border border-gray-300 px-1.5 text-center text-sm text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+          />
+          <ToolbarDropdown
+            title="Font size presets"
+            label=''
+            isActive={Boolean(toolbarState.fontSize)}
+            menuClassName="w-24"
+          >
+            {FONT_SIZES.map((size) => {
+              const sizeNumber = Number(size.label);
+              const isDefaultSize = sizeNumber === DEFAULT_FONT_SIZE;
+
+              return (
+                <DropdownItem
+                  key={size.value}
+                  onActivate={() => applyFontSize(editor, sizeNumber)}
+                  isActive={
+                    toolbarState.fontSize === size.value ||
+                    (toolbarState.fontSize === "" && isDefaultSize)
+                  }
+                >
+                  {size.label}
+                </DropdownItem>
+              );
+            })}
+          </ToolbarDropdown>
+          
+        </div>
         <ToolbarButton
           title="Decrease font size (Ctrl+Shift+<)"
           onActivate={() => changeFontSize(editor, -1)}
@@ -546,13 +599,6 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
             label=""
             isActive={toolbarState.isBulletList}
           >
-            <DropdownItem
-              onActivate={applyTaskList}
-              isActive={toolbarState.isTaskList}
-            >
-              Task list
-            </DropdownItem>
-            <div className="my-1 border-t border-gray-200" />
             {toolbarState.canRemoveList && toolbarState.isBulletList && (
               <>
                 <DropdownItem onActivate={removeList}>Remove list</DropdownItem>

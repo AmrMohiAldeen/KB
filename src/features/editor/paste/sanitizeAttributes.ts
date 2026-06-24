@@ -23,6 +23,7 @@ import {
   TEXT_ALIGN_STYLE_TAGS,
 } from './pasteSanitizerConfig';
 import type { SanitizedUrl } from './pasteSanitizerTypes';
+import { sanitizeFontFamily } from './fontFamilySanitizer';
 
 function decodeCssEscapes(value: string): string {
   return value.replace(/\\([0-9a-fA-F]{1,6}\s?|.)/g, (_, escape: string) => {
@@ -69,7 +70,7 @@ function sanitizeCssColor(
   return probe.style.color || null;
 }
 
-function sanitizeFontSize(value: string): string | null {
+export function sanitizeFontSize(value: string): string | null {
   const trimmed = value.trim().toLowerCase();
   if (isDangerousCssValue(trimmed)) return null;
 
@@ -81,10 +82,10 @@ function sanitizeFontSize(value: string): string | null {
   if (!Number.isFinite(amount)) return null;
 
   const inRange =
-    (unit === 'px' && amount >= 8 && amount <= 48) ||
-    (unit === 'pt' && amount >= 6 && amount <= 36) ||
-    ((unit === 'em' || unit === 'rem') && amount >= 0.5 && amount <= 3) ||
-    (unit === '%' && amount >= 50 && amount <= 300);
+    (unit === 'px' && amount >= 1 && amount <= 300) ||
+    (unit === 'pt' && amount >= 1 && amount <= 225) ||
+    ((unit === 'em' || unit === 'rem') && amount >= 0.1 && amount <= 20) ||
+    (unit === '%' && amount >= 1 && amount <= 2000);
 
   return inRange ? `${amount}${unit}` : null;
 }
@@ -178,6 +179,10 @@ function sanitizeStyleProperty(
   const tagName = getTagName(element);
   const document = element.ownerDocument;
   const normalizedProperty = property.toLowerCase();
+
+  if (normalizedProperty === 'font-family') {
+    return sanitizeFontFamily(value);
+  }
 
   if (!value.trim() || isDangerousCssValue(value)) return null;
 

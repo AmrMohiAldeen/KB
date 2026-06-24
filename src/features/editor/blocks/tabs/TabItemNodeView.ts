@@ -15,6 +15,7 @@ import {
   observeEditorEditable,
 } from '../shared/nodeViewDom';
 import { createItemActions, createItemLabelInput } from '../shared/itemUi';
+import { isResizeHandleEvent } from '../../lib/dom/resizeDom';
 
 export function createTabItemNodeView(props: NodeViewRendererProps): NodeView {
   let currentNode = props.node;
@@ -130,6 +131,7 @@ export function createTabItemNodeView(props: NodeViewRendererProps): NodeView {
       return true;
     },
     stopEvent(event) {
+      if (isResizeHandleEvent(event)) return false;
       return header.contains(event.target as Node);
     },
     ignoreMutation(mutation) {
