@@ -21,14 +21,16 @@ import type { ChildrenType, Direction, SystemMode } from '@core/types'
 // Component Imports
 import ModeChanger from './ModeChanger'
 
-// Config Imports
-import themeConfig from '@configs/themeConfig'
-
 // Hook Imports
 import { useSettings } from '@core/hooks/useSettings'
 
 // Core Theme Imports
 import defaultCoreTheme from '@core/theme'
+import {
+  DEFAULT_THEME_MODE,
+  MUI_COLOR_SCHEME_STORAGE_KEY,
+  MUI_MODE_STORAGE_KEY
+} from '@core/theme/colorScheme'
 
 type Props = ChildrenType & {
   direction: Direction
@@ -45,15 +47,16 @@ const ThemeProvider = (props: Props) => {
 
   // Vars
   const isServer = typeof window === 'undefined'
+  const mode = settings.mode ?? DEFAULT_THEME_MODE
   let currentMode: SystemMode
 
   if (isServer) {
     currentMode = systemMode
   } else {
-    if (settings.mode === 'system') {
+    if (mode === 'system') {
       currentMode = isDark ? 'dark' : 'light'
     } else {
-      currentMode = settings.mode as SystemMode
+      currentMode = mode
     }
   }
 
@@ -84,13 +87,10 @@ const ThemeProvider = (props: Props) => {
 
     const coreTheme = deepmerge(defaultCoreTheme(settings, currentMode, direction), newColorScheme)
 
-    return createTheme({
-      ...coreTheme,
-      cssVariables: true
-    })
+    return createTheme(coreTheme)
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.primaryColor, settings.skin, currentMode])
+  }, [settings.primaryColor, settings.skin, currentMode, direction])
 
   return (
     <AppRouterCacheProvider
@@ -105,8 +105,10 @@ const ThemeProvider = (props: Props) => {
     >
       <MuiThemeProvider
         theme={theme}
-        defaultMode={systemMode}
-        modeStorageKey={`${themeConfig.templateName.toLowerCase().split(' ').join('-')}-mui-template-mode`}
+        defaultMode={mode}
+        modeStorageKey={MUI_MODE_STORAGE_KEY}
+        colorSchemeStorageKey={MUI_COLOR_SCHEME_STORAGE_KEY}
+        disableTransitionOnChange
       >
         <>
           <ModeChanger />

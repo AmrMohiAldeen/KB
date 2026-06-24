@@ -2,7 +2,7 @@
 import { Public_Sans } from 'next/font/google'
 
 // MUI Imports
-import type { Theme } from '@mui/material/styles'
+import type { Theme, ThemeOptions } from '@mui/material/styles'
 
 // Type Imports
 import type { Settings } from '@core/contexts/settingsContext'
@@ -15,12 +15,16 @@ import spacing from './spacing'
 import shadows from './shadows'
 import customShadows from './customShadows'
 import typography from './typography'
+import { MUI_COLOR_SCHEME_SELECTOR } from './colorScheme'
 
 const public_sans = Public_Sans({ subsets: ['latin'], weight: ['300', '400', '500', '600', '700', '800', '900'] })
 
-const theme = (settings: Settings, mode: SystemMode, direction: Theme['direction']): Theme => {
+const theme = (settings: Settings, mode: SystemMode, direction: Theme['direction']): ThemeOptions => {
   return {
     direction,
+    cssVariables: {
+      colorSchemeSelector: MUI_COLOR_SCHEME_SELECTOR
+    },
     components: overrides(settings.skin as Skin),
     colorSchemes: colorSchemes(settings.skin as Skin),
     ...spacing,
@@ -43,7 +47,7 @@ const theme = (settings: Settings, mode: SystemMode, direction: Theme['direction
       lightShadow: '47 43 61',
       darkShadow: '19 17 32'
     }
-  } as Theme
+  }
 }
 
 export default theme
