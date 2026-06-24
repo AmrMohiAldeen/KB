@@ -43,7 +43,7 @@ export default function EditorWorkspace() {
       <EditorCanvas
         onChange={handleContentChange}
         onChangeError={handleAutosaveError}
-        editable={false}
+         editable={false}
       />
     </div>
   );
