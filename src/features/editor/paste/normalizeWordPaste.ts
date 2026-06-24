@@ -1,4 +1,6 @@
 import { getTagName, isTextNode } from './domUtils';
+import { sanitizeFontFamily } from './fontFamilySanitizer';
+import { sanitizeFontSize } from './sanitizeAttributes';
 import type { ListTagName } from './pasteSanitizerTypes';
 
 type WordListContext = {
@@ -7,6 +9,117 @@ type WordListContext = {
   list: HTMLOListElement | HTMLUListElement;
   tagName: ListTagName;
 };
+
+type ClassTextStyle = {
+  selector: string;
+  fontFamily: string | null;
+  fontSize: string | null;
+};
+
+function rootDocument(root: ParentNode): Document | null {
+  const node = root as Node;
+  if (node.nodeType === 9) return root as Document;
+
+  return node.ownerDocument;
+}
+
+function cleanupStyleSheetText(cssText: string): string {
+  return cssText
+    .replace(/<!--|-->/g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+}
+
+function readCssDeclaration(
+  declarationBlock: string,
+  propertyName: string,
+): string | null {
+  const normalizedPropertyName = propertyName.toLowerCase();
+
+  for (const part of declarationBlock.split(';')) {
+    const colonIndex = part.indexOf(':');
+    if (colonIndex === -1) continue;
+
+    const property = part.slice(0, colonIndex).trim().toLowerCase();
+    if (property !== normalizedPropertyName) continue;
+
+    const value = part.slice(colonIndex + 1).trim();
+    return value || null;
+  }
+
+  return null;
+}
+
+function isSafeClassSelector(selector: string): boolean {
+  return /^(?:[a-z][a-z0-9-]*)?(?:\.[_a-z][\w-]*)+$/i.test(selector);
+}
+
+function collectClassTextStyles(document: Document): ClassTextStyle[] {
+  const styles: ClassTextStyle[] = [];
+
+  document.querySelectorAll('style').forEach((styleElement) => {
+    const cssText = cleanupStyleSheetText(styleElement.textContent ?? '');
+    const rulePattern = /([^{}]+)\{([^{}]*)\}/g;
+    let match: RegExpExecArray | null;
+
+    while ((match = rulePattern.exec(cssText)) !== null) {
+      const selectorText = match[1];
+      const declarationBlock = match[2];
+      const fontFamily = sanitizeFontFamily(
+        readCssDeclaration(declarationBlock, 'font-family') ?? '',
+      );
+      const fontSize = sanitizeFontSize(
+        readCssDeclaration(declarationBlock, 'font-size') ?? '',
+      );
+
+      if (!fontFamily && !fontSize) continue;
+
+      selectorText
+        .split(',')
+        .map((selector) => selector.trim())
+        .filter(isSafeClassSelector)
+        .forEach((selector) => {
+          styles.push({ selector, fontFamily, fontSize });
+        });
+    }
+  });
+
+  return styles;
+}
+
+function readStyleProperty(element: HTMLElement, propertyName: string): string | null {
+  return readCssDeclaration(element.getAttribute('style') ?? '', propertyName);
+}
+
+function appendStyleProperty(
+  element: HTMLElement,
+  propertyName: string,
+  value: string,
+): void {
+  const currentStyle = element.getAttribute('style')?.trim();
+  const declaration = `${propertyName}: ${value}`;
+
+  element.setAttribute(
+    'style',
+    currentStyle ? `${currentStyle}; ${declaration}` : declaration,
+  );
+}
+
+function applyClassBasedTextStyles(root: ParentNode): void {
+  const document = rootDocument(root);
+  if (!document) return;
+
+  collectClassTextStyles(document).forEach(({ selector, fontFamily, fontSize }) => {
+    root.querySelectorAll<HTMLElement>(selector).forEach((element) => {
+      if (fontFamily && !readStyleProperty(element, 'font-family')) {
+        appendStyleProperty(element, 'font-family', fontFamily);
+      }
+
+      if (fontSize && !readStyleProperty(element, 'font-size')) {
+        appendStyleProperty(element, 'font-size', fontSize);
+      }
+    });
+  });
+}
 
 function removeLeadingWhitespace(node: Node): void {
   if (isTextNode(node)) {
@@ -96,6 +209,9 @@ function convertWordListParagraphs(container: ParentNode): void {
     }
 
     const item = child.ownerDocument.createElement('li');
+    const style = child.getAttribute('style');
+    if (style) item.setAttribute('style', style);
+
     while (child.firstChild) item.append(child.firstChild);
     removeLeadingWhitespace(item);
     current.list.append(item);
@@ -116,6 +232,7 @@ function normalizeAppleConvertedSpaces(root: ParentNode): void {
 }
 
 export function normalizeWordPaste(root: ParentNode): void {
+  applyClassBasedTextStyles(root);
   normalizeAppleConvertedSpaces(root);
   convertWordListParagraphs(root);
 }

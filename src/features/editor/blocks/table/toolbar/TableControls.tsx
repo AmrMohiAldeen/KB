@@ -4,7 +4,7 @@ import { useEditorState, type Editor } from '@tiptap/react';
 import { selectionCell } from '@tiptap/pm/tables';
 import { logDevError } from '../../../lib/utils/logDevError';
 import { RgbColorItem } from '../../../components/toolbar/RgbColorItem';
-import { HIGHLIGHT_COLORS } from '../../../components/toolbar/toolbarOptions';
+import { HIGHLIGHT_COLORS } from '../../../config/toolbarOptions';
 import {
   Divider,
   DropdownCheckboxItem,

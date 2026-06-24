@@ -9,7 +9,7 @@ import {
   readSharedTextDirection,
   type TextDirectionSelectionValue,
 } from '../../extensions/TextDirection';
-import { DEFAULT_FONT_SIZE } from './toolbarOptions';
+import { DEFAULT_FONT_SIZE } from '../../config/fontSizes';
 
 type SharedString = string | null;
 type TextBlockValue = 'paragraph' | `heading:${number}` | string;
