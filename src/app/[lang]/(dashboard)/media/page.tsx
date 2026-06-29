@@ -1,6 +1,5 @@
-import KbSectionPage from '@/views/kb/KbSectionPage'
-import { mediaPage } from '@/views/kb/sampleData'
+import MediaLibraryPage from '@/views/kb/MediaLibraryPage'
 
 export default function MediaPage() {
-  return <KbSectionPage {...mediaPage} />
+  return <MediaLibraryPage />
 }

@@ -1,6 +1,5 @@
-import KbSectionPage from '@/views/kb/KbSectionPage'
-import { usersPage } from '@/views/kb/sampleData'
+import UsersManagementPage from '@/views/kb/UsersManagementPage'
 
 export default function UsersPage() {
-  return <KbSectionPage {...usersPage} />
+  return <UsersManagementPage />
 }

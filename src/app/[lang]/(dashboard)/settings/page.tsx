@@ -1,6 +1,5 @@
-import KbSectionPage from '@/views/kb/KbSectionPage'
-import { settingsPage } from '@/views/kb/sampleData'
+import KbSettingsPage from '@/views/kb/SettingsPage'
 
 export default function SettingsPage() {
-  return <KbSectionPage {...settingsPage} />
+  return <KbSettingsPage />
 }

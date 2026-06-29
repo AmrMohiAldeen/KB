@@ -1,6 +1,5 @@
-import KbSectionPage from '@/views/kb/KbSectionPage'
-import { auditLogsPage } from '@/views/kb/sampleData'
+import AuditActivityFeed from '@/views/kb/AuditActivityFeed'
 
 export default function AuditLogsPage() {
-  return <KbSectionPage {...auditLogsPage} />
+  return <AuditActivityFeed />
 }

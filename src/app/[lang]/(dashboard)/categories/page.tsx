@@ -1,6 +1,5 @@
-import KbSectionPage from '@/views/kb/KbSectionPage'
-import { categoriesPage } from '@/views/kb/sampleData'
+import CategoryManagementPage from '@/views/kb/CategoryManagementPage'
 
 export default function CategoriesPage() {
-  return <KbSectionPage {...categoriesPage} />
+  return <CategoryManagementPage />
 }
