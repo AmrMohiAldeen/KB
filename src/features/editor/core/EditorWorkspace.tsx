@@ -19,7 +19,8 @@ export default function EditorWorkspace() {
     setSaveStatus("saving");
 
     try {
-      // TODO: replace this with real backend autosave later
+      // TODO: Replace with backend API call to PATCH /api/kb/article-drafts/{draftId}/autosave.
+      // Expected payload: locked user's Tiptap JSON content, contentStoragePath target, and RowVersion for optimistic concurrency.
       setSaveStatus("saved");
     } catch (error) {
       setSaveStatus("failed");

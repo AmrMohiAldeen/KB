@@ -10,6 +10,9 @@
 
 
 :root {
+  --font-inter: Inter, Arial, sans-serif;
+  --font-roboto: Roboto, Arial, sans-serif;
+  --font-eb-garamond: Georgia, serif;
   --border-radius: var(--mui-shape-borderRadius);
   --border-color: var(--mui-palette-divider);
   --primary-color: var(--mui-palette-primary-main);

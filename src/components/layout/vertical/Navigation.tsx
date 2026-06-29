@@ -2,11 +2,13 @@
 
 // React Imports
 import { useEffect, useRef } from 'react'
+import type { UIEvent } from 'react'
 
 // MUI Imports
 import { styled, useColorScheme, useTheme } from '@mui/material/styles'
 
 // Type Imports
+import type { getDictionary } from '@/utils/getDictionary'
 import type { Mode, SystemMode } from '@core/types'
 
 // Component Imports
@@ -22,6 +24,7 @@ import { useSettings } from '@core/hooks/useSettings'
 import navigationCustomStyles from '@core/styles/vertical/navigationCustomStyles'
 
 type Props = {
+  dictionary: Awaited<ReturnType<typeof getDictionary>>
   mode: Mode
   systemMode: SystemMode
 }
@@ -46,7 +49,7 @@ const StyledBoxForShadow = styled('div')(({ theme }) => ({
 
 const Navigation = (props: Props) => {
   // Props
-  const { mode, systemMode } = props
+  const { dictionary, mode, systemMode } = props
 
   // Hooks
   const verticalNavOptions = useVerticalNav()
@@ -55,7 +58,7 @@ const Navigation = (props: Props) => {
   const theme = useTheme()
 
   // Refs
-  const shadowRef = useRef(null)
+  const shadowRef = useRef<HTMLDivElement>(null)
 
   // Vars
   const { isCollapsed, isHovered, collapseVerticalNav, isBreakpointReached } = verticalNavOptions
@@ -69,17 +72,19 @@ const Navigation = (props: Props) => {
     isDark = muiMode === 'system' ? muiSystemMode === 'dark' : muiMode === 'dark'
   }
 
-  const scrollMenu = (container: any, isPerfectScrollbar: boolean) => {
-    container = isBreakpointReached || !isPerfectScrollbar ? container.target : container
+  const scrollMenu = (container: HTMLElement | UIEvent<HTMLElement>, isPerfectScrollbar: boolean) => {
+    const scrollElement =
+      isBreakpointReached || !isPerfectScrollbar
+        ? (container as UIEvent<HTMLElement>).currentTarget
+        : (container as HTMLElement)
 
-    if (shadowRef && container.scrollTop > 0) {
-      // @ts-ignore
+    if (!shadowRef.current) return
+
+    if (scrollElement.scrollTop > 0) {
       if (!shadowRef.current.classList.contains('scrolled')) {
-        // @ts-ignore
         shadowRef.current.classList.add('scrolled')
       }
     } else {
-      // @ts-ignore
       shadowRef.current.classList.remove('scrolled')
     }
   }
@@ -90,17 +95,14 @@ const Navigation = (props: Props) => {
     } else {
       collapseVerticalNav(false)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.layout])
+  }, [collapseVerticalNav, settings.layout])
 
   return (
-    // eslint-disable-next-line lines-around-comment
     // Sidebar Vertical Menu
     <VerticalNav
       customStyles={navigationCustomStyles(verticalNavOptions, theme)}
       collapsedWidth={71}
       backgroundColor='var(--mui-palette-background-paper)'
-      // eslint-disable-next-line lines-around-comment
       // The following condition adds the data-mui-color-scheme='dark' attribute to the VerticalNav component
       // when semiDark is enabled and the mode or systemMode is light
       {...(isSemiDark &&
@@ -121,7 +123,7 @@ const Navigation = (props: Props) => {
         )}
       </NavHeader>
       <StyledBoxForShadow ref={shadowRef} />
-      <VerticalMenu scrollMenu={scrollMenu} />
+      <VerticalMenu dictionary={dictionary} scrollMenu={scrollMenu} />
     </VerticalNav>
   )
 }

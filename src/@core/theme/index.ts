@@ -1,6 +1,3 @@
-// Next Imports
-import { Public_Sans } from 'next/font/google'
-
 // MUI Imports
 import type { Theme, ThemeOptions } from '@mui/material/styles'
 
@@ -16,8 +13,6 @@ import shadows from './shadows'
 import customShadows from './customShadows'
 import typography from './typography'
 import { MUI_COLOR_SCHEME_SELECTOR } from './colorScheme'
-
-const public_sans = Public_Sans({ subsets: ['latin'], weight: ['300', '400', '500', '600', '700', '800', '900'] })
 
 const theme = (settings: Settings, mode: SystemMode, direction: Theme['direction']): ThemeOptions => {
   return {
@@ -39,7 +34,7 @@ const theme = (settings: Settings, mode: SystemMode, direction: Theme['direction
       }
     },
     shadows: shadows(mode),
-    typography: typography(public_sans.style.fontFamily),
+    typography: typography(''),
     customShadows: customShadows(mode),
     mainColorChannels: {
       light: '47 43 61',

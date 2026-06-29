@@ -1,8 +1,10 @@
 // MUI Imports
 import Button from '@mui/material/Button'
+import { notFound } from 'next/navigation'
 
 // Type Imports
 import type { ChildrenType } from '@core/types'
+import type { Locale } from '@configs/i18n'
 
 // Layout Imports
 import LayoutWrapper from '@layouts/LayoutWrapper'
@@ -16,14 +18,37 @@ import Header from '@components/layout/horizontal/Header'
 import Navbar from '@components/layout/vertical/Navbar'
 import VerticalFooter from '@components/layout/vertical/Footer'
 import HorizontalFooter from '@components/layout/horizontal/Footer'
+import Customizer from '@core/components/customizer'
 import ScrollToTop from '@core/components/scroll-to-top'
 
+// Config Imports
+import { i18n } from '@configs/i18n'
+
 // Util Imports
+import { getDictionary } from '@/utils/getDictionary'
 import { getMode, getSystemMode } from '@core/utils/serverHelpers'
 
-const Layout = async ({ children }: ChildrenType) => {
+const isLocale = (value: string): value is Locale => i18n.locales.includes(value as Locale)
+
+const getLangParam = async (params: Promise<unknown>) => {
+  const resolvedParams = await params
+
+  if (!resolvedParams || typeof resolvedParams !== 'object' || !('lang' in resolvedParams)) {
+    notFound()
+  }
+
+  const lang = String((resolvedParams as { lang: unknown }).lang)
+
+  if (!isLocale(lang)) notFound()
+
+  return lang
+}
+
+const Layout = async ({ children, params }: ChildrenType & { params: Promise<unknown> }) => {
   // Vars
-  const direction = 'ltr'
+  const lang = await getLangParam(params)
+  const direction = i18n.langDirection[lang]
+  const dictionary = await getDictionary(lang)
   const mode = await getMode()
   const systemMode = await getSystemMode()
 
@@ -33,7 +58,7 @@ const Layout = async ({ children }: ChildrenType) => {
         systemMode={systemMode}
         verticalLayout={
           <VerticalLayout
-            navigation={<Navigation mode={mode} systemMode={systemMode} />}
+            navigation={<Navigation dictionary={dictionary} mode={mode} systemMode={systemMode} />}
             navbar={<Navbar />}
             footer={<VerticalFooter />}
           >
@@ -41,7 +66,7 @@ const Layout = async ({ children }: ChildrenType) => {
           </VerticalLayout>
         }
         horizontalLayout={
-          <HorizontalLayout header={<Header />} footer={<HorizontalFooter />}>
+          <HorizontalLayout header={<Header dictionary={dictionary} />} footer={<HorizontalFooter />}>
             {children}
           </HorizontalLayout>
         }
@@ -51,6 +76,7 @@ const Layout = async ({ children }: ChildrenType) => {
           <i className='tabler-arrow-up' />
         </Button>
       </ScrollToTop>
+      <Customizer dir={direction} />
     </Providers>
   )
 }

@@ -1,7 +1,8 @@
 'use client'
 
 // React Imports
-import { useRef, useState } from 'react'
+import { useState } from 'react'
+import type { MouseEvent } from 'react'
 
 // MUI Imports
 import Tooltip from '@mui/material/Tooltip'
@@ -23,9 +24,7 @@ const ModeDropdown = () => {
   // States
   const [open, setOpen] = useState(false)
   const [tooltipOpen, setTooltipOpen] = useState(false)
-
-  // Refs
-  const anchorRef = useRef<HTMLButtonElement>(null)
+  const [anchorEl, setAnchorEl] = useState<HTMLButtonElement | null>(null)
 
   // Hooks
   const { settings, updateSettings } = useSettings()
@@ -35,7 +34,8 @@ const ModeDropdown = () => {
     setTooltipOpen(false)
   }
 
-  const handleToggle = () => {
+  const handleToggle = (event: MouseEvent<HTMLButtonElement>) => {
+    setAnchorEl(event.currentTarget)
     setOpen(prevOpen => !prevOpen)
   }
 
@@ -70,7 +70,7 @@ const ModeDropdown = () => {
           }
         }}
       >
-        <IconButton ref={anchorRef} onClick={handleToggle} className='text-textPrimary'>
+        <IconButton onClick={handleToggle} className='text-textPrimary'>
           <i className={getModeIcon()} />
         </IconButton>
       </Tooltip>
@@ -79,7 +79,7 @@ const ModeDropdown = () => {
         transition
         disablePortal
         placement='bottom-start'
-        anchorEl={anchorRef.current}
+        anchorEl={anchorEl}
         className='min-is-[160px] !mbs-3 z-[1]'
       >
         {({ TransitionProps, placement }) => (

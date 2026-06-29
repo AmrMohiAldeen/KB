@@ -1,5 +1,9 @@
 'use client'
 
+// Next Imports
+import { useParams } from 'next/navigation'
+import type { UIEvent } from 'react'
+
 // MUI Imports
 import { useTheme } from '@mui/material/styles'
 
@@ -7,10 +11,11 @@ import { useTheme } from '@mui/material/styles'
 import PerfectScrollbar from 'react-perfect-scrollbar'
 
 // Type Imports
+import type { getDictionary } from '@/utils/getDictionary'
 import type { VerticalMenuContextProps } from '@menu/components/vertical-menu/Menu'
 
 // Component Imports
-import { Menu, MenuItem } from '@menu/vertical-menu'
+import { Menu, MenuItem, MenuSection } from '@menu/vertical-menu'
 
 // Hook Imports
 import { useSettings } from '@core/hooks/useSettings'
@@ -29,7 +34,8 @@ type RenderExpandIconProps = {
 }
 
 type Props = {
-  scrollMenu: (container: any, isPerfectScrollbar: boolean) => void
+  dictionary: Awaited<ReturnType<typeof getDictionary>>
+  scrollMenu: (container: HTMLElement | UIEvent<HTMLElement>, isPerfectScrollbar: boolean) => void
 }
 
 const RenderExpandIcon = ({ open, transitionDuration }: RenderExpandIconProps) => (
@@ -38,21 +44,21 @@ const RenderExpandIcon = ({ open, transitionDuration }: RenderExpandIconProps) =
   </StyledVerticalNavExpandIcon>
 )
 
-const VerticalMenu = ({ scrollMenu }: Props) => {
+const VerticalMenu = ({ dictionary, scrollMenu }: Props) => {
   // Hooks
   const theme = useTheme()
   const verticalNavOptions = useVerticalNav()
   const { settings } = useSettings()
+  const { lang: locale } = useParams<{ lang: string }>()
   const { isBreakpointReached } = useVerticalNav()
 
   // Vars
   const { transitionDuration } = verticalNavOptions
-
   const ScrollWrapper = isBreakpointReached ? 'div' : PerfectScrollbar
+  const href = (path: string) => `/${locale}${path}`
+  const navigation = dictionary.navigation
 
   return (
-    // eslint-disable-next-line lines-around-comment
-    /* Custom scrollbar instead of browser scroll, remove if you want browser scroll only */
     <ScrollWrapper
       {...(isBreakpointReached
         ? {
@@ -64,8 +70,6 @@ const VerticalMenu = ({ scrollMenu }: Props) => {
             onScrollY: container => scrollMenu(container, true)
           })}
     >
-      {/* Incase you also want to scroll NavHeader to scroll with Vertical Menu, remove NavHeader from above and paste it below this comment */}
-      {/* Vertical Menu */}
       <Menu
         popoutMenuOffset={{ mainAxis: 23 }}
         menuItemStyles={menuItemStyles(verticalNavOptions, theme, settings)}
@@ -73,22 +77,60 @@ const VerticalMenu = ({ scrollMenu }: Props) => {
         renderExpandedMenuItemIcon={{ icon: <i className='tabler-circle text-xs' /> }}
         menuSectionStyles={menuSectionStyles(verticalNavOptions, theme)}
       >
-        <MenuItem href='/home' icon={<i className='tabler-smart-home' />}>
-          Home
-        </MenuItem>
-        <MenuItem href='/about' icon={<i className='tabler-info-circle' />}>
-          About
-        </MenuItem>
+        <MenuSection label={navigation.content}>
+          <MenuItem href={href('/articles')} icon={<i className='tabler-article' />}>
+            {navigation.articles}
+          </MenuItem>
+          <MenuItem href={href('/editor')} icon={<i className='tabler-pencil' />}>
+            {navigation.editor}
+          </MenuItem>
+          <MenuItem href={href('/categories')} icon={<i className='tabler-folder' />}>
+            {navigation.categories}
+          </MenuItem>
+          <MenuItem href={href('/templates')} icon={<i className='tabler-template' />}>
+            {navigation.templates}
+          </MenuItem>
+          <MenuItem href={href('/reusable-blocks')} icon={<i className='tabler-components' />}>
+            {navigation.reusableBlocks}
+          </MenuItem>
+          <MenuItem href={href('/media')} icon={<i className='tabler-photo' />}>
+            {navigation.media}
+          </MenuItem>
+        </MenuSection>
+
+        <MenuSection label={navigation.workflow}>
+          <MenuItem href={href('/review')} icon={<i className='tabler-checkup-list' />}>
+            {navigation.review}
+          </MenuItem>
+          <MenuItem href={href('/notifications')} icon={<i className='tabler-bell' />}>
+            {navigation.notifications}
+          </MenuItem>
+          <MenuItem href={href('/audit-logs')} icon={<i className='tabler-history' />}>
+            {navigation.auditLogs}
+          </MenuItem>
+        </MenuSection>
+
+        <MenuSection label={navigation.operations}>
+          <MenuItem href={href('/search-index')} icon={<i className='tabler-database-search' />}>
+            {navigation.searchIndex}
+          </MenuItem>
+          <MenuItem href={href('/export-jobs')} icon={<i className='tabler-file-export' />}>
+            {navigation.exportJobs}
+          </MenuItem>
+        </MenuSection>
+
+        <MenuSection label={navigation.administration}>
+          <MenuItem href={href('/users')} icon={<i className='tabler-users' />}>
+            {navigation.users}
+          </MenuItem>
+          <MenuItem href={href('/roles')} icon={<i className='tabler-shield-lock' />}>
+            {navigation.roles}
+          </MenuItem>
+          <MenuItem href={href('/settings')} icon={<i className='tabler-settings' />}>
+            {navigation.settings}
+          </MenuItem>
+        </MenuSection>
       </Menu>
-      {/* <Menu
-        popoutMenuOffset={{ mainAxis: 23 }}
-        menuItemStyles={menuItemStyles(verticalNavOptions, theme, settings)}
-        renderExpandIcon={({ open }) => <RenderExpandIcon open={open} transitionDuration={transitionDuration} />}
-        renderExpandedMenuItemIcon={{ icon: <i className='tabler-circle text-xs' /> }}
-        menuSectionStyles={menuSectionStyles(verticalNavOptions, theme)}
-      >
-        <GenerateVerticalMenu menuData={menuData(dictionary, params)} />
-      </Menu> */}
     </ScrollWrapper>
   )
 }

@@ -1,0 +1,22 @@
+{
+  "navigation": {
+    "content": "Content",
+    "workflow": "Workflow",
+    "operations": "Operations",
+    "administration": "Administration",
+    "articles": "Articles",
+    "editor": "Editor",
+    "review": "Review",
+    "categories": "Categories",
+    "templates": "Templates",
+    "reusableBlocks": "Reusable Blocks",
+    "media": "Media",
+    "searchIndex": "Search Index",
+    "exportJobs": "Export Jobs",
+    "auditLogs": "Audit Logs",
+    "users": "Users",
+    "roles": "Roles",
+    "notifications": "Notifications",
+    "settings": "Settings"
+  }
+}

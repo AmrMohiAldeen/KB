@@ -3,6 +3,7 @@ import 'react-perfect-scrollbar/dist/css/styles.css'
 
 // Type Imports
 import type { ChildrenType } from '@core/types'
+import type { Locale } from '@configs/i18n'
 
 // Style Imports
 import '@/app/globals.css'
@@ -10,8 +11,7 @@ import '@/app/globals.css'
 // Generated Icon CSS Imports
 import '@assets/iconify-icons/generated-icons.css'
 
-// Font Imports
-import { Inter, Roboto, EB_Garamond } from 'next/font/google'
+import { notFound } from 'next/navigation'
 
 import InitColorSchemeScript from '@mui/material/InitColorSchemeScript'
 
@@ -25,44 +25,38 @@ import {
   MUI_MODE_STORAGE_KEY
 } from '@core/theme/colorScheme'
 
-const inter = Inter({
-  subsets: ['latin'],
-  variable: '--font-inter',
-  display: 'swap'
-})
+// Config Imports
+import { i18n } from '@configs/i18n'
 
-const roboto = Roboto({
-  subsets: ['latin'],
-  weight: ['400', '500', '700'],
-  variable: '--font-roboto',
-  display: 'swap'
-})
+const isLocale = (value: string): value is Locale => i18n.locales.includes(value as Locale)
 
-const ebGaramond = EB_Garamond({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
-  variable: '--font-eb-garamond',
-  display: 'swap'
-})
+const getLangParam = async (params: Promise<unknown>) => {
+  const resolvedParams = await params
+
+  if (!resolvedParams || typeof resolvedParams !== 'object' || !('lang' in resolvedParams)) {
+    notFound()
+  }
+
+  const lang = String((resolvedParams as { lang: unknown }).lang)
+
+  if (!isLocale(lang)) notFound()
+
+  return lang
+}
 
 export const metadata = {
   title: 'Knowledge Base',
   description: 'Company Knowledge Base platform'
 }
 
-const RootLayout = async ({ children }: ChildrenType) => {
+const RootLayout = async ({ children, params }: ChildrenType & { params: Promise<unknown> }) => {
   // Vars
-  const direction = 'ltr'
+  const lang = await getLangParam(params)
+  const direction = i18n.langDirection[lang]
   const mode = await getMode()
 
   return (
-    <html
-      id='__next'
-      lang='en'
-      dir={direction}
-      suppressHydrationWarning
-      className={`${inter.variable} ${roboto.variable} ${ebGaramond.variable}`}
-    >
+    <html id='__next' lang={lang} dir={direction} suppressHydrationWarning>
       <body className='flex is-full min-bs-full flex-auto flex-col'>
         <InitColorSchemeScript
           attribute={MUI_INIT_COLOR_SCHEME_ATTRIBUTE}

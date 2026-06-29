@@ -8,7 +8,7 @@ export const DEFAULT_FONT_FAMILY_LABEL = 'Arial';
 export const FONT_FAMILIES: ToolbarOption[] = [
   { label: DEFAULT_FONT_FAMILY_LABEL, value: '' },
 
-  // Loaded by next/font/google
+  // CSS variables are defined in app/globals.css and fall back to system fonts for offline builds.
   { label: 'Inter', value: 'var(--font-inter), Arial, sans-serif' },
   { label: 'Roboto', value: 'var(--font-roboto), Arial, sans-serif' },
   { label: 'EB Garamond', value: 'var(--font-eb-garamond), Georgia, serif' },
