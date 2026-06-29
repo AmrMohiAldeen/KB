@@ -7,7 +7,9 @@ import type { ElementType, ReactNode } from 'react'
 import { useParams, usePathname, useRouter } from 'next/navigation'
 
 // MUI Imports
+import Box from '@mui/material/Box'
 import { IconButton } from '@mui/material'
+import Typography from '@mui/material/Typography'
 
 // Third-party Imports
 import { useMedia } from 'react-use'
@@ -98,12 +100,32 @@ const NavSearch = () => {
           )
         })}
       >
-        <div className='flex items-center gap-2'>
-          <IconButton className='text-textPrimary'>
+        <Box
+          sx={theme => ({
+            display: 'flex',
+            alignItems: 'center',
+            gap: 2,
+            inlineSize: { xs: 180, sm: 260, lg: 360 },
+            maxInlineSize: '42vw',
+            blockSize: 40,
+            border: `1px solid ${theme.palette.divider}`,
+            borderRadius: 2,
+            px: 2,
+            color: 'text.secondary',
+            bgcolor: 'background.paper',
+            transition: theme.transitions.create(['border-color', 'box-shadow']),
+            '&:hover': {
+              borderColor: 'action.active'
+            }
+          })}
+        >
+          <IconButton className='text-textSecondary' size='small' sx={{ p: 0.5 }}>
             <i className='tabler-search' />
           </IconButton>
-          <div className='whitespace-nowrap text-textDisabled'>Search</div>
-        </div>
+          <Typography color='text.disabled' noWrap>
+            Search knowledge base
+          </Typography>
+        </Box>
       </ComponentWithUseKBar>
       <KBarPortal>
         <KBarPositioner className='!p-0 !items-center z-[calc(var(--search-z-index)+1)]'>

@@ -43,16 +43,10 @@ const menuItemStyles = (verticalNavOptions: VerticalNavState, theme: Theme, sett
               }
             }
           : {
-              color: 'var(--mui-palette-primary-contrastText)',
-              background:
-                theme.direction === 'ltr'
-                  ? `linear-gradient(270deg,
-                    rgb(var(--mui-palette-primary-mainChannel) / 0.7) 0%,
-                    var(--mui-palette-primary-main) 100%) !important`
-                  : `linear-gradient(270deg,
-                     var(--mui-palette-primary-main) 100%,
-                     rgb(var(--mui-palette-primary-mainChannel) / 0.7) 100%) !important`,
-              boxShadow: 'var(--mui-customShadows-primary-sm)',
+              color: 'var(--mui-palette-primary-main)',
+              backgroundColor: 'var(--mui-palette-primary-lighterOpacity) !important',
+              borderInlineStart: '3px solid var(--mui-palette-primary-main)',
+              boxShadow: 'none',
               [`& .${menuClasses.icon}`]: {
                 color: 'inherit'
               }
@@ -60,9 +54,10 @@ const menuItemStyles = (verticalNavOptions: VerticalNavState, theme: Theme, sett
       }
     }),
     button: ({ level, active }) => ({
-      paddingBlock: '8px',
+      paddingBlock: '7px',
       paddingInline: '12px',
-      borderRadius: 'var(--border-radius)',
+      minBlockSize: 40,
+      borderRadius: '10px',
       ...(!(isCollapsed && !isHovered) && {
         '&:has(.MuiChip-root)': {
           paddingBlock: theme.spacing(1.75)
@@ -70,7 +65,7 @@ const menuItemStyles = (verticalNavOptions: VerticalNavState, theme: Theme, sett
       }),
 
       ...((!isPopoutWhenCollapsed || popoutExpanded || (popoutCollapsed && level === 0)) && {
-        borderRadius: 'var(--mui-shape-borderRadius)',
+        borderRadius: '10px',
         transition: `padding-inline-start ${transitionDuration}ms ease-in-out`
       }),
       ...(!active && {
@@ -85,7 +80,7 @@ const menuItemStyles = (verticalNavOptions: VerticalNavState, theme: Theme, sett
     icon: ({ level }) => ({
       transition: `margin-inline-end ${transitionDuration}ms ease-in-out`,
       ...(level === 0 && {
-        fontSize: '1.375rem'
+        fontSize: '1.25rem'
       }),
       ...(level > 0 && {
         fontSize: '0.75rem',
@@ -119,6 +114,8 @@ const menuItemStyles = (verticalNavOptions: VerticalNavState, theme: Theme, sett
       marginInlineEnd: theme.spacing(2)
     },
     label: ({ level }) => ({
+      fontSize: '0.9375rem',
+      fontWeight: 500,
       ...((!isPopoutWhenCollapsed || popoutExpanded || (popoutCollapsed && level === 0)) && {
         transition: `opacity ${transitionDuration}ms ease-in-out`,
         ...(collapsedNotHovered && {

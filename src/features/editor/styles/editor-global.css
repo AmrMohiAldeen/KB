@@ -1,6 +1,12 @@
 .ProseMirror {
   font-family: Arial, sans-serif;
-  font-size: 11px;
+  font-size: 15px;
+  line-height: 1.7;
+  color: rgb(31, 41, 55);
+}
+
+.kb-editor-frame .ProseMirror {
+  min-height: 520px;
 }
 
 :is(.tiptap, .ProseMirror, .kb-viewer) [dir='rtl'] {

@@ -1,21 +1,22 @@
-// Third-party Imports
-import styled from '@emotion/styled'
-
-// Config Imports
-import themeConfig from '@configs/themeConfig'
+// MUI Imports
+import { styled } from '@mui/material/styles'
 
 type StyledMainProps = {
   isContentCompact: boolean
 }
 
-const StyledMain = styled.main<StyledMainProps>`
-  padding: ${themeConfig.layoutPadding}px;
-  ${({ isContentCompact }) =>
-    isContentCompact &&
-    `
-    margin-inline: auto;
-    max-inline-size: ${themeConfig.compactContentWidth}px;
-  `}
-`
+const StyledMain = styled('main', {
+  shouldForwardProp: prop => prop !== 'isContentCompact'
+})<StyledMainProps>(({ isContentCompact }) => ({
+  padding: 20,
+  backgroundColor: 'var(--mui-palette-background-default)',
+  '@media (min-width: 900px)': {
+    padding: 32
+  },
+  ...(isContentCompact && {
+    marginInline: 'auto',
+    maxInlineSize: 1440
+  })
+}))
 
 export default StyledMain

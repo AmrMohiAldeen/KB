@@ -6,27 +6,21 @@ import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Card from '@mui/material/Card'
 import CardContent from '@mui/material/CardContent'
-import Checkbox from '@mui/material/Checkbox'
-import Divider from '@mui/material/Divider'
-import InputAdornment from '@mui/material/InputAdornment'
+import IconButton from '@mui/material/IconButton'
 import MenuItem from '@mui/material/MenuItem'
 import Stack from '@mui/material/Stack'
-import Table from '@mui/material/Table'
-import TableBody from '@mui/material/TableBody'
-import TableCell from '@mui/material/TableCell'
-import TableHead from '@mui/material/TableHead'
-import TableRow from '@mui/material/TableRow'
 import Typography from '@mui/material/Typography'
-import { FileText, Folder, Plus, Search } from 'lucide-react'
+import { FileText, Folder, MoreHorizontal, Plus } from 'lucide-react'
 
 import CustomTextField from '@core/components/mui/TextField'
+import KbDataTable from '@/views/shared/tables/KbDataTable'
+import type { KbDataTableColumn, KbDataTableSort } from '@/views/shared/tables/KbDataTable'
+import KbTableToolbar from '@/views/shared/tables/KbTableToolbar'
 
 import KbCategoryDialog from './KbCategoryDialog'
-import { CategoryTree, PageHeader, StatusChip, articleStatusColor, formatDate } from './KbShared'
-import { articleFilters, kbCategories, kbRows } from './kbMockData'
-import type { ArticleFilter, ArticleStatus, KbListRow } from './kbMockData'
-
-type SortValue = 'position' | 'updated' | 'title' | 'status'
+import { CategoryTree, KbPageShell, PageHeader, StatusChip, articleStatusColor, formatDate } from './KbShared'
+import { articleFilterLabels, articleStatuses, emptyArticleRows, emptyCategories } from './kbMockData'
+import type { ArticleFilter, KbListRow } from './kbMockData'
 
 const rowMatchesFilter = (row: KbListRow, filter: ArticleFilter) => {
   if (filter === 'Everything') return true
@@ -39,44 +33,156 @@ const rowMatchesFilter = (row: KbListRow, filter: ArticleFilter) => {
 const rowText = (row: KbListRow) =>
   row.kind === 'category'
     ? row.name
-    : `${row.article.title} ${row.article.categoryPath} ${row.article.owner} ${row.article.status}`
+    : `${row.article.title} ${row.article.categoryPath} ${row.article.ownerName} ${row.article.status}`
 
-const compareRows = (sort: SortValue) => (a: KbListRow, b: KbListRow) => {
-  if (sort === 'position') return 0
-  if (sort === 'updated') {
-    const aDate = a.kind === 'category' ? a.updatedAt : a.article.updatedAt
-    const bDate = b.kind === 'category' ? b.updatedAt : b.article.updatedAt
+const getSortValue = (row: KbListRow, columnId: string) => {
+  if (row.kind === 'category') {
+    if (columnId === 'updated') return row.updatedAt
+    if (columnId === 'views') return 0
+    if (columnId === 'owner') return 'Organization'
+    if (columnId === 'status') return row.articleCount
 
-    return new Date(bDate).getTime() - new Date(aDate).getTime()
+    return row.name
   }
 
-  const aValue = a.kind === 'category' ? a.name : sort === 'status' ? a.article.status : a.article.title
-  const bValue = b.kind === 'category' ? b.name : sort === 'status' ? b.article.status : b.article.title
+  if (columnId === 'updated') return row.article.updatedAt
+  if (columnId === 'views') return row.article.views
+  if (columnId === 'owner') return row.article.ownerName
+  if (columnId === 'status') return row.article.status
 
-  return aValue.localeCompare(bValue)
+  return row.article.title
 }
 
-const statusCountOrder: ArticleStatus[] = ['Published', 'Draft', 'To Review', 'Archived']
+const compareRows = (sort: KbDataTableSort) => (a: KbListRow, b: KbListRow) => {
+  const aValue = getSortValue(a, sort.columnId)
+  const bValue = getSortValue(b, sort.columnId)
+  const direction = sort.direction === 'asc' ? 1 : -1
+
+  if (typeof aValue === 'number' && typeof bValue === 'number') return (aValue - bValue) * direction
+
+  if (sort.columnId === 'updated') {
+    return (new Date(String(aValue)).getTime() - new Date(String(bValue)).getTime()) * direction
+  }
+
+  return String(aValue).localeCompare(String(bValue)) * direction
+}
 
 const ArticlesDashboard = () => {
   const [activeFilter, setActiveFilter] = useState<ArticleFilter>('Everything')
   const [search, setSearch] = useState('')
-  const [sort, setSort] = useState<SortValue>('position')
+  const [sort, setSort] = useState<KbDataTableSort>({ columnId: 'name', direction: 'asc' })
+  const [selectedRows, setSelectedRows] = useState<string[]>([])
+  const [visibleColumnIds, setVisibleColumnIds] = useState(['name', 'status', 'owner', 'updated', 'views', 'actions'])
   const [dialogOpen, setDialogOpen] = useState(false)
+  const rows = emptyArticleRows
+  const categories = emptyCategories
+
+  const filterCounts = useMemo<Record<ArticleFilter, number>>(() => {
+    // TODO: connect to backend API.
+    // Counts should come from GET /api/kb/articles/summary or the article list response metadata.
+    return articleFilterLabels.reduce(
+      (counts, filter) => ({
+        ...counts,
+        [filter]: rows.filter(row => rowMatchesFilter(row, filter)).length
+      }),
+      {} as Record<ArticleFilter, number>
+    )
+  }, [rows])
 
   const visibleRows = useMemo(() => {
     // TODO: connect to backend API.
     // GET /api/kb/articles should accept filter, search, sort, pagination, and categoryId.
     const needle = search.trim().toLowerCase()
 
-    return kbRows
+    return [...rows]
       .filter(row => rowMatchesFilter(row, activeFilter))
       .filter(row => (needle ? rowText(row).toLowerCase().includes(needle) : true))
-      .toSorted(compareRows(sort))
-  }, [activeFilter, search, sort])
+      .sort(compareRows(sort))
+  }, [activeFilter, rows, search, sort])
+
+  const columns = useMemo<Array<KbDataTableColumn<KbListRow>>>(
+    () => [
+      {
+        id: 'name',
+        label: 'Name',
+        sortable: true,
+        render: row => (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 3, minInlineSize: 260 }}>
+            {row.kind === 'category' ? (
+              <Folder size={20} color='var(--mui-palette-text-secondary)' />
+            ) : (
+              <FileText size={20} color='var(--mui-palette-text-secondary)' />
+            )}
+            <Box sx={{ minInlineSize: 0 }}>
+              <Typography color='text.primary' sx={{ fontWeight: 700 }} noWrap>
+                {row.kind === 'category' ? `${row.name} (${row.articleCount})` : row.article.title}
+              </Typography>
+              <Typography variant='body2' color='text.secondary' noWrap>
+                {row.kind === 'category' ? 'Category' : `${row.article.categoryPath} / ${row.article.versionLabel}`}
+              </Typography>
+            </Box>
+          </Box>
+        )
+      },
+      {
+        id: 'status',
+        label: 'Status Counts',
+        sortable: true,
+        render: row =>
+          row.kind === 'category' ? (
+            <Stack direction='row' spacing={1} useFlexGap sx={{ flexWrap: 'wrap', maxInlineSize: 460 }}>
+              {articleStatuses.map(status => (
+                <StatusChip
+                  key={status}
+                  label={`${row.statusCounts[status]} ${status}`}
+                  color={articleStatusColor[status]}
+                />
+              ))}
+            </Stack>
+          ) : (
+            <StatusChip label={row.article.status} color={articleStatusColor[row.article.status]} />
+          )
+      },
+      {
+        id: 'owner',
+        label: 'Owner',
+        sortable: true,
+        render: row => (row.kind === 'category' ? 'Organization' : row.article.ownerName)
+      },
+      {
+        id: 'updated',
+        label: 'Updated',
+        sortable: true,
+        render: row => formatDate(row.kind === 'category' ? row.updatedAt : row.article.updatedAt)
+      },
+      {
+        id: 'views',
+        label: 'Views',
+        sortable: true,
+        align: 'right',
+        render: row => (row.kind === 'category' ? '-' : row.article.views.toLocaleString())
+      },
+      {
+        id: 'actions',
+        label: 'Actions',
+        align: 'right',
+        hideable: false,
+        render: row => (
+          <IconButton
+            size='small'
+            aria-label={`Open ${row.kind === 'category' ? row.name : row.article.title} actions`}
+            disabled
+          >
+            <MoreHorizontal size={18} />
+          </IconButton>
+        )
+      }
+    ],
+    []
+  )
 
   return (
-    <Stack spacing={6}>
+    <KbPageShell>
       <PageHeader
         title='Articles'
         subtitle='Manage categories, drafts, reviews, published content, and archived knowledge base articles.'
@@ -98,166 +204,101 @@ const ArticlesDashboard = () => {
         }
       />
 
-      <Box className='grid grid-cols-1 gap-6 xl:grid-cols-[300px_minmax(0,1fr)]'>
-        <Card variant='outlined'>
-          <CardContent>
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: { xs: '1fr', xl: '300px minmax(0, 1fr)' },
+          gap: 5,
+          alignItems: 'start'
+        }}
+      >
+        <Card variant='outlined' sx={{ position: { xl: 'sticky' }, top: { xl: 88 }, borderRadius: 2, boxShadow: 'none' }}>
+          <CardContent sx={{ p: 5, '&:last-child': { pb: 5 } }}>
             <Stack spacing={5}>
               <Box>
-                <Typography variant='overline' color='text.secondary'>
+                <Typography variant='overline' color='text.secondary' sx={{ fontWeight: 700 }}>
                   Articles
                 </Typography>
-                <Stack spacing={1} className='mbe-2'>
-                  {articleFilters.map(filter => (
+                <Stack spacing={1} sx={{ mt: 2 }}>
+                  {articleFilterLabels.map(filter => (
                     <Button
-                      key={filter.label}
-                      variant={activeFilter === filter.label ? 'tonal' : 'text'}
-                      color={activeFilter === filter.label ? 'primary' : 'secondary'}
-                      className='justify-between'
-                      onClick={() => setActiveFilter(filter.label)}
+                      key={filter}
+                      fullWidth
+                      variant={activeFilter === filter ? 'tonal' : 'text'}
+                      color={activeFilter === filter ? 'primary' : 'secondary'}
+                      onClick={() => setActiveFilter(filter)}
+                      sx={{
+                        justifyContent: 'space-between',
+                        minBlockSize: 38,
+                        px: 3,
+                        borderRadius: 1.5,
+                        '& .MuiButton-endIcon': { m: 0 }
+                      }}
                     >
-                      <span>{filter.label}</span>
-                      <span>{filter.count}</span>
+                      <span>{filter}</span>
+                      <span>{filterCounts[filter] ?? 0}</span>
                     </Button>
                   ))}
                 </Stack>
               </Box>
-              <Divider />
               <Box>
-                <Typography variant='overline' color='text.secondary'>
+                <Typography variant='overline' color='text.secondary' sx={{ fontWeight: 700 }}>
                   Categories
                 </Typography>
-                <CategoryTree categories={kbCategories} />
-              </Box>
-            </Stack>
-          </CardContent>
-        </Card>
-
-        <Card variant='outlined'>
-          <CardContent className='pbs-4'>
-            <Stack spacing={4}>
-              <Box className='flex flex-col gap-3 md:flex-row md:items-center md:justify-between'>
-                <Box className='flex flex-1 flex-col gap-3 md:flex-row md:items-center'>
-                  <Checkbox aria-label='Select all articles' />
-                  <Button variant='outlined' color='secondary'>
-                    Actions
-                  </Button>
-                  <CustomTextField
-                    value={search}
-                    onChange={event => setSearch(event.target.value)}
-                    placeholder='Search articles or categories'
-                    className='min-is-0 flex-1'
-                    slotProps={{
-                      input: {
-                        startAdornment: (
-                          <InputAdornment position='start'>
-                            <Search size={18} />
-                          </InputAdornment>
-                        )
-                      }
-                    }}
-                  />
+                <Box sx={{ mt: 2 }}>
+                  <CategoryTree categories={categories} compact />
                 </Box>
-                <CustomTextField
-                  select
-                  label='Sort By'
-                  value={sort}
-                  onChange={event => setSort(event.target.value as SortValue)}
-                  className='is-full md:is-[190px]'
-                >
-                  <MenuItem value='position'>Position</MenuItem>
-                  <MenuItem value='updated'>Updated Date</MenuItem>
-                  <MenuItem value='title'>Title</MenuItem>
-                  <MenuItem value='status'>Status</MenuItem>
-                </CustomTextField>
-              </Box>
-
-              <Box className='overflow-x-auto'>
-                <Table size='small' aria-label='Articles dashboard table'>
-                  <TableHead>
-                    <TableRow>
-                      <TableCell padding='checkbox' />
-                      <TableCell>Name</TableCell>
-                      <TableCell>Status Counts</TableCell>
-                      <TableCell>Owner</TableCell>
-                      <TableCell>Updated</TableCell>
-                      <TableCell align='right'>Views</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {visibleRows.map(row =>
-                      row.kind === 'category' ? (
-                        <TableRow key={row.id} hover>
-                          <TableCell padding='checkbox'>
-                            <Checkbox aria-label={`Select ${row.name}`} />
-                          </TableCell>
-                          <TableCell>
-                            <Box className='flex items-center gap-3'>
-                              <Folder size={20} className='text-textSecondary' />
-                              <Box>
-                                <Typography color='text.primary' className='font-medium'>
-                                  {row.name} ({row.articleCount})
-                                </Typography>
-                                <Typography variant='body2' color='text.secondary'>
-                                  Category
-                                </Typography>
-                              </Box>
-                            </Box>
-                          </TableCell>
-                          <TableCell>
-                            <Stack direction='row' spacing={1} className='flex-wrap'>
-                              {statusCountOrder.map(status => (
-                                <StatusChip
-                                  key={status}
-                                  label={`${row.statusCounts[status]} ${status}`}
-                                  color={articleStatusColor[status]}
-                                />
-                              ))}
-                            </Stack>
-                          </TableCell>
-                          <TableCell>Organization</TableCell>
-                          <TableCell>{formatDate(row.updatedAt)}</TableCell>
-                          <TableCell align='right'>-</TableCell>
-                        </TableRow>
-                      ) : (
-                        <TableRow key={row.article.id} hover>
-                          <TableCell padding='checkbox'>
-                            <Checkbox aria-label={`Select ${row.article.title}`} />
-                          </TableCell>
-                          <TableCell>
-                            <Box className='flex items-center gap-3'>
-                              <FileText size={20} className='text-textSecondary' />
-                              <Box>
-                                <Typography color='text.primary' className='font-medium'>
-                                  {row.article.title}
-                                </Typography>
-                                <Typography variant='body2' color='text.secondary'>
-                                  {row.article.categoryPath} / {row.article.version}
-                                </Typography>
-                              </Box>
-                            </Box>
-                          </TableCell>
-                          <TableCell>
-                            <StatusChip
-                              label={row.article.status}
-                              color={articleStatusColor[row.article.status]}
-                            />
-                          </TableCell>
-                          <TableCell>{row.article.owner}</TableCell>
-                          <TableCell>{formatDate(row.article.updatedAt)}</TableCell>
-                          <TableCell align='right'>{row.article.views.toLocaleString()}</TableCell>
-                        </TableRow>
-                      )
-                    )}
-                  </TableBody>
-                </Table>
               </Box>
             </Stack>
           </CardContent>
         </Card>
+
+        <KbDataTable
+          ariaLabel='Articles dashboard table'
+          rows={visibleRows}
+          columns={columns}
+          getRowId={row => (row.kind === 'category' ? row.id : row.article.id)}
+          enableSelection
+          selectedRowIds={selectedRows}
+          onSelectedRowIdsChange={setSelectedRows}
+          visibleColumnIds={visibleColumnIds}
+          sort={sort}
+          onSortChange={setSort}
+          toolbar={
+            <KbTableToolbar
+              searchValue={search}
+              onSearchChange={setSearch}
+              searchPlaceholder='Search articles or categories'
+              selectedCount={selectedRows.length}
+              columns={columns.map(column => ({ id: column.id, label: column.label, hideable: column.hideable }))}
+              visibleColumnIds={visibleColumnIds}
+              onVisibleColumnIdsChange={setVisibleColumnIds}
+              filters={
+                <CustomTextField select label='Status' value={activeFilter} onChange={event => setActiveFilter(event.target.value as ArticleFilter)} sx={{ inlineSize: { xs: '100%', md: 180 } }}>
+                  {articleFilterLabels.map(filter => (
+                    <MenuItem key={filter} value={filter}>
+                      {filter}
+                    </MenuItem>
+                  ))}
+                </CustomTextField>
+              }
+              actions={
+                <Button variant='outlined' color='secondary' disabled={!visibleRows.length}>
+                  Actions
+                </Button>
+              }
+            />
+          }
+          emptyState={{
+            title: 'No articles loaded',
+            description: 'Article and category rows will appear here after the backend article API is connected.'
+          }}
+          pagination={{ page: 0, rowsPerPage: 10, totalRows: visibleRows.length }}
+        />
       </Box>
 
-      <KbCategoryDialog open={dialogOpen} categories={kbCategories} onClose={() => setDialogOpen(false)} />
-    </Stack>
+      <KbCategoryDialog open={dialogOpen} categories={categories} onClose={() => setDialogOpen(false)} />
+    </KbPageShell>
   )
 }
 

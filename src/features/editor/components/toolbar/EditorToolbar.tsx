@@ -52,7 +52,7 @@ import { LINE_HEIGHTS, DEFAULT_LINE_HEIGHT } from '../../config/toolbarOptions';
 import { MathFormulaControl } from "./MathFormulaControl";
 import { YoutubeControl } from "./YoutubeControl";
 import {ImageControl} from "./ImageControl";
-import { List, ListOrdered, ListChecks, PilcrowLeft, PilcrowRight, ChevronDown } from 'lucide-react';
+import { List, ListOrdered, ListChecks, PilcrowLeft, PilcrowRight } from 'lucide-react';
 import { TableOfContentsControl } from "./TableOfContentsControl";
 
 export interface EditorToolbarProps {
@@ -406,7 +406,7 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
       <div
         role="toolbar"
         aria-label="Editor formatting"
-        className="flex flex-wrap items-center gap-0.5 rounded-t-lg border-b border-gray-200 bg-white p-1.5 shadow-sm"
+        className="sticky top-0 z-10 flex flex-wrap items-center gap-1 rounded-t-xl border-b border-gray-200 bg-white/95 p-2 shadow-sm backdrop-blur"
       >
         <ToolbarButton
           title="Undo (Ctrl+Z)"

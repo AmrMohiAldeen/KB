@@ -65,7 +65,7 @@ export default function KnowledgeBaseEditor({
       editable,
       editorProps: {
         attributes: {
-          class: "min-h-125 bg-white p-6 focus:outline-none",
+          class: "min-h-[520px] bg-white px-8 py-7 text-[15px] leading-7 text-slate-800 focus:outline-none md:px-12 md:py-10",
         },
       },
       onUpdate: ({ editor }) => {
@@ -86,11 +86,11 @@ export default function KnowledgeBaseEditor({
   }
 
   return (
-    <div className="flex flex-col overflow-visible rounded-lg border border-gray-300 bg-white shadow-sm">
+    <div className="kb-editor-frame flex flex-col overflow-visible rounded-xl border border-gray-200 bg-white shadow-sm">
       {editable && <EditorDragHandle editor={editor} />}
       {editable && <EditorToolbar editor={editor} />}
 
-      <div className="max-h-[70vh] overflow-y-auto">
+      <div className="max-h-[72vh] overflow-y-auto">
         <div className="prose prose-base max-w-none">
           <ImageBubbleMenu editor={editor} />
           <EditorContent editor={editor} className="kb-editor-content" />

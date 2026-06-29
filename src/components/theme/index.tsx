@@ -96,7 +96,6 @@ const ThemeProvider = (props: Props) => {
     <AppRouterCacheProvider
       options={{
         enableCssLayer: true,
-        prepend: true,
         ...(direction === 'rtl' && {
           key: 'rtl',
           stylisPlugins: [stylisRTLPlugin]

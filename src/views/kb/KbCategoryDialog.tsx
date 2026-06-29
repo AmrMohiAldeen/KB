@@ -2,15 +2,11 @@
 
 import { useState } from 'react'
 
-import Button from '@mui/material/Button'
-import Dialog from '@mui/material/Dialog'
-import DialogActions from '@mui/material/DialogActions'
-import DialogContent from '@mui/material/DialogContent'
-import DialogTitle from '@mui/material/DialogTitle'
 import MenuItem from '@mui/material/MenuItem'
-import Stack from '@mui/material/Stack'
 
 import CustomTextField from '@core/components/mui/TextField'
+import KbFormDialog from '@/views/shared/dialogs/KbFormDialog'
+import KbFormGrid from '@/views/shared/forms/KbFormGrid'
 
 import type { KbCategoryNode } from './kbMockData'
 
@@ -50,12 +46,10 @@ const toSlug = (value: string) =>
 
 const KbCategoryDialogForm = ({
   category,
-  categories,
-  onClose
+  categories
 }: {
   category?: KbCategoryNode
   categories: KbCategoryNode[]
-  onClose: () => void
 }) => {
   const [form, setForm] = useState<CategoryFormState>(() => getInitialForm(category))
   const categoryOptions = flattenCategories(categories).filter(option => option.id !== category?.id)
@@ -68,65 +62,46 @@ const KbCategoryDialogForm = ({
     }))
   }
 
-  const handleSubmit = () => {
-    // TODO: connect to backend category API.
-    // Create: POST /api/kb/categories with name, subtitle, slug, parentId.
-    // Update: PATCH /api/kb/categories/{categoryId} with rowVersion for concurrency.
-    onClose()
-  }
-
   return (
-    <>
-      <DialogContent>
-        <Stack spacing={4} className='pbs-2'>
-          <CustomTextField
-            label='Name'
-            value={form.name}
-            onChange={event => handleNameChange(event.target.value)}
-            placeholder='Getting Started'
-            fullWidth
-          />
-          <CustomTextField
-            label='Description'
-            value={form.subtitle}
-            onChange={event => setForm(current => ({ ...current, subtitle: event.target.value }))}
-            placeholder='Short category subtitle'
-            fullWidth
-            multiline
-            minRows={2}
-          />
-          <CustomTextField
-            label='Slug'
-            value={form.slug}
-            onChange={event => setForm(current => ({ ...current, slug: toSlug(event.target.value) }))}
-            placeholder='getting-started'
-            fullWidth
-          />
-          <CustomTextField
-            select
-            label='Parent Category'
-            value={form.parentId}
-            onChange={event => setForm(current => ({ ...current, parentId: event.target.value }))}
-            fullWidth
-          >
-            <MenuItem value=''>Top level</MenuItem>
-            {categoryOptions.map(option => (
-              <MenuItem key={option.id} value={option.id}>
-                {option.name}
-              </MenuItem>
-            ))}
-          </CustomTextField>
-        </Stack>
-      </DialogContent>
-      <DialogActions className='pli-6 pbs-0 pbe-6'>
-        <Button variant='tonal' color='secondary' onClick={onClose}>
-          Cancel
-        </Button>
-        <Button variant='contained' onClick={handleSubmit}>
-          {category ? 'Update Category' : 'Create Category'}
-        </Button>
-      </DialogActions>
-    </>
+    <KbFormGrid columns={1}>
+      <CustomTextField
+        label='Name'
+        value={form.name}
+        onChange={event => handleNameChange(event.target.value)}
+        placeholder='Category name'
+        fullWidth
+      />
+      <CustomTextField
+        label='Description'
+        value={form.subtitle}
+        onChange={event => setForm(current => ({ ...current, subtitle: event.target.value }))}
+        placeholder='Short category subtitle'
+        fullWidth
+        multiline
+        minRows={2}
+      />
+      <CustomTextField
+        label='Slug'
+        value={form.slug}
+        onChange={event => setForm(current => ({ ...current, slug: toSlug(event.target.value) }))}
+        placeholder='category-slug'
+        fullWidth
+      />
+      <CustomTextField
+        select
+        label='Parent Category'
+        value={form.parentId}
+        onChange={event => setForm(current => ({ ...current, parentId: event.target.value }))}
+        fullWidth
+      >
+        <MenuItem value=''>Top level</MenuItem>
+        {categoryOptions.map(option => (
+          <MenuItem key={option.id} value={option.id}>
+            {option.name}
+          </MenuItem>
+        ))}
+      </CustomTextField>
+    </KbFormGrid>
   )
 }
 
@@ -142,12 +117,24 @@ export const KbCategoryDialog = ({
   onClose: () => void
 }) => {
   const formKey = open ? category?.id ?? 'new-category' : 'closed'
+  const handleSubmit = () => {
+    // TODO: connect to backend category API.
+    // Create: POST /api/kb/categories with name, subtitle, slug, parentId.
+    // Update: PATCH /api/kb/categories/{categoryId} with rowVersion for concurrency.
+    onClose()
+  }
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth='sm'>
-      <DialogTitle>{category ? 'Edit Category' : 'New Category'}</DialogTitle>
-      <KbCategoryDialogForm key={formKey} category={category} categories={categories} onClose={onClose} />
-    </Dialog>
+    <KbFormDialog
+      open={open}
+      title={category ? 'Edit Category' : 'New Category'}
+      description='Categories structure navigation only and do not define permissions.'
+      submitLabel={category ? 'Update Category' : 'Create Category'}
+      onClose={onClose}
+      onSubmit={handleSubmit}
+    >
+      <KbCategoryDialogForm key={formKey} category={category} categories={categories} />
+    </KbFormDialog>
   )
 }
 

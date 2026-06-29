@@ -19,9 +19,7 @@ import Paper from '@mui/material/Paper'
 import Popper from '@mui/material/Popper'
 import Typography from '@mui/material/Typography'
 
-// Type Imports
 import type { Locale } from '@configs/i18n'
-import type { UsersType } from '@/types/apps/userTypes'
 
 // Hook Imports
 import { useSettings } from '@core/hooks/useSettings'
@@ -31,18 +29,11 @@ import { getLocalizedUrl } from '@/utils/i18n'
 
 type DropdownCloseEvent = ReactMouseEvent<HTMLElement> | globalThis.MouseEvent | globalThis.TouchEvent
 
-// TODO: Replace with backend API call to GET /api/kb/me.
-// Expected response: UsersType for the current SSO-authenticated user, with global roles from UserRoles and no local auth credentials.
-const currentUser: UsersType = {
-  id: 'current-user',
-  ssoId: 'sso-current-user',
-  email: 'user@example.com',
-  fullName: 'KB User',
-  role: 'author',
-  status: 'active',
-  createdAt: '2026-06-01',
-  lastLoginAt: null
-}
+// TODO: Replace these placeholders with backend API call to GET /api/kb/me.
+// Expected response: current SSO-authenticated user profile with global roles and no local auth credentials.
+const userDisplayName = 'SSO profile not loaded'
+const userEmail = 'Profile details will load from SSO.'
+const userRole: string | null = null
 
 const UserDropdown = () => {
   // States
@@ -97,17 +88,24 @@ const UserDropdown = () => {
                 <MenuList>
                   <div className='flex flex-col plb-3 pli-5 gap-1' tabIndex={-1}>
                     <Typography className='font-medium' color='text.primary'>
-                      {currentUser.fullName}
+                      {userDisplayName}
                     </Typography>
-                    <Typography variant='caption'>{currentUser.email}</Typography>
-                    <Typography variant='caption' color='text.secondary' className='capitalize'>
-                      {currentUser.role}
-                    </Typography>
+                    <Typography variant='caption'>{userEmail}</Typography>
+                    {userRole && (
+                      <Typography variant='caption' color='text.secondary' className='capitalize'>
+                        {userRole}
+                      </Typography>
+                    )}
                   </div>
 
                   <Divider className='mlb-1' />
 
-                  <MenuItem className='mli-2 gap-3' onClick={event => handleDropdownClose(event, '/notifications')}>
+                  <MenuItem className='mli-2 gap-3' onClick={event => handleDropdownClose(event, '/account/profile')}>
+                    <i className='tabler-user-circle text-[20px]' />
+                    <Typography color='text.primary'>My Profile</Typography>
+                  </MenuItem>
+
+                  <MenuItem className='mli-2 gap-3' onClick={event => handleDropdownClose(event, '/account/notifications')}>
                     <i className='tabler-bell text-[22px]' />
                     <Typography color='text.primary'>Notifications</Typography>
                   </MenuItem>

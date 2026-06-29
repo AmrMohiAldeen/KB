@@ -4,8 +4,6 @@ import { useState } from 'react'
 
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
-import Card from '@mui/material/Card'
-import CardContent from '@mui/material/CardContent'
 import Divider from '@mui/material/Divider'
 import FormControlLabel from '@mui/material/FormControlLabel'
 import MenuItem from '@mui/material/MenuItem'
@@ -15,8 +13,10 @@ import Typography from '@mui/material/Typography'
 import { KeyRound, Save, ShieldCheck, UploadCloud, Webhook } from 'lucide-react'
 
 import CustomTextField from '@core/components/mui/TextField'
+import KbFormGrid from '@/views/shared/forms/KbFormGrid'
+import KbFormSection from '@/views/shared/forms/KbFormSection'
 
-import { MetricStrip, PageHeader, StatusChip } from './KbShared'
+import { KbPageShell, PageHeader, StatusChip } from './KbShared'
 
 const SettingsPage = () => {
   const [reviewRequired, setReviewRequired] = useState(true)
@@ -29,7 +29,7 @@ const SettingsPage = () => {
   }
 
   return (
-    <Stack spacing={6}>
+    <KbPageShell>
       <PageHeader
         title='Settings'
         subtitle='Configure global knowledge base behavior and integrations.'
@@ -40,141 +40,101 @@ const SettingsPage = () => {
         }
       />
 
-      <MetricStrip
-        metrics={[
-          { label: 'Review required', value: reviewRequired ? 'Yes' : 'No' },
-          { label: 'Public search', value: publicSearch ? 'Enabled' : 'Disabled' },
-          { label: 'SSO provider', value: 'SAML' },
-          { label: 'Webhooks', value: webhooksEnabled ? 'Enabled' : 'Disabled' }
-        ]}
-      />
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: 'minmax(0, 1fr) 360px' }, gap: 5 }}>
+        <Stack spacing={5}>
+          <KbFormSection title='General' description='Knowledge base defaults.'>
+            <KbFormGrid>
+              <CustomTextField label='Knowledge Base Name' placeholder='Knowledge base name' fullWidth />
+              <CustomTextField label='Default Language' select defaultValue='' fullWidth>
+                <MenuItem value=''>Not selected</MenuItem>
+                <MenuItem value='en'>English</MenuItem>
+                <MenuItem value='fr'>French</MenuItem>
+                <MenuItem value='ar'>Arabic</MenuItem>
+              </CustomTextField>
+              <CustomTextField label='Public Base URL' placeholder='Public help center URL' fullWidth />
+              <CustomTextField label='Autosave Interval' placeholder='Autosave interval' fullWidth />
+            </KbFormGrid>
+            <Stack spacing={2}>
+              <FormControlLabel
+                control={<Switch checked={reviewRequired} onChange={event => setReviewRequired(event.target.checked)} />}
+                label='Require reviewer approval before publishing'
+              />
+              <FormControlLabel
+                control={<Switch checked={publicSearch} onChange={event => setPublicSearch(event.target.checked)} />}
+                label='Allow public search on published articles'
+              />
+            </Stack>
+          </KbFormSection>
 
-      <Box className='grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_360px]'>
-        <Stack spacing={6}>
-          <Card variant='outlined'>
-            <CardContent>
-              <Stack spacing={5}>
-                <Box>
-                  <Typography variant='h6'>General</Typography>
-                  <Typography color='text.secondary'>Knowledge base defaults.</Typography>
-                </Box>
-                <Box className='grid grid-cols-1 gap-4 md:grid-cols-2'>
-                  <CustomTextField label='Knowledge Base Name' defaultValue='SwiftAssess Knowledge Base' fullWidth />
-                  <CustomTextField label='Default Language' select defaultValue='en' fullWidth>
-                    <MenuItem value='en'>English</MenuItem>
-                    <MenuItem value='fr'>French</MenuItem>
-                    <MenuItem value='ar'>Arabic</MenuItem>
-                  </CustomTextField>
-                  <CustomTextField label='Public Base URL' defaultValue='https://help.example.com' fullWidth />
-                  <CustomTextField label='Autosave Interval' defaultValue='1000 ms' fullWidth />
-                </Box>
-                <FormControlLabel
-                  control={<Switch checked={reviewRequired} onChange={event => setReviewRequired(event.target.checked)} />}
-                  label='Require reviewer approval before publishing'
-                />
-                <FormControlLabel
-                  control={<Switch checked={publicSearch} onChange={event => setPublicSearch(event.target.checked)} />}
-                  label='Allow public search on published articles'
-                />
-              </Stack>
-            </CardContent>
-          </Card>
+          <KbFormSection
+            title='SSO'
+            description='Authentication is handled by the configured identity provider.'
+            actions={<ShieldCheck size={22} color='var(--mui-palette-primary-main)' />}
+          >
+            <KbFormGrid>
+              <CustomTextField label='Provider' select defaultValue='' fullWidth>
+                <MenuItem value=''>Not selected</MenuItem>
+                <MenuItem value='saml'>SAML</MenuItem>
+                <MenuItem value='oidc'>OIDC</MenuItem>
+              </CustomTextField>
+              <CustomTextField label='Default Role' select defaultValue='' fullWidth>
+                <MenuItem value=''>Not selected</MenuItem>
+                <MenuItem value='viewer'>Viewer</MenuItem>
+                <MenuItem value='contributor'>Contributor</MenuItem>
+              </CustomTextField>
+            </KbFormGrid>
+          </KbFormSection>
 
-          <Card variant='outlined'>
-            <CardContent>
-              <Stack spacing={5}>
-                <Box className='flex items-start gap-3'>
-                  <ShieldCheck size={24} className='text-primary' />
-                  <Box>
-                    <Typography variant='h6'>SSO</Typography>
-                    <Typography color='text.secondary'>Authentication is handled by the configured identity provider.</Typography>
-                  </Box>
-                </Box>
-                <Box className='grid grid-cols-1 gap-4 md:grid-cols-2'>
-                  <CustomTextField label='Provider' select defaultValue='saml' fullWidth>
-                    <MenuItem value='saml'>SAML</MenuItem>
-                    <MenuItem value='oidc'>OIDC</MenuItem>
-                  </CustomTextField>
-                  <CustomTextField label='Default Role' select defaultValue='viewer' fullWidth>
-                    <MenuItem value='viewer'>Viewer</MenuItem>
-                    <MenuItem value='contributor'>Contributor</MenuItem>
-                  </CustomTextField>
-                </Box>
-              </Stack>
-            </CardContent>
-          </Card>
-
-          <Card variant='outlined'>
-            <CardContent>
-              <Stack spacing={5}>
-                <Box className='flex items-start gap-3'>
-                  <UploadCloud size={24} className='text-primary' />
-                  <Box>
-                    <Typography variant='h6'>Export</Typography>
-                    <Typography color='text.secondary'>Configure export formats and retention.</Typography>
-                  </Box>
-                </Box>
-                <Box className='grid grid-cols-1 gap-4 md:grid-cols-2'>
-                  <CustomTextField label='Default Format' select defaultValue='pdf' fullWidth>
-                    <MenuItem value='pdf'>PDF</MenuItem>
-                    <MenuItem value='html'>HTML</MenuItem>
-                    <MenuItem value='zip'>ZIP</MenuItem>
-                  </CustomTextField>
-                  <CustomTextField label='Export Retention' defaultValue='30 days' fullWidth />
-                </Box>
-              </Stack>
-            </CardContent>
-          </Card>
+          <KbFormSection
+            title='Export'
+            description='Configure export formats and retention.'
+            actions={<UploadCloud size={22} color='var(--mui-palette-primary-main)' />}
+          >
+            <KbFormGrid>
+              <CustomTextField label='Default Format' select defaultValue='' fullWidth>
+                <MenuItem value=''>Not selected</MenuItem>
+                <MenuItem value='pdf'>PDF</MenuItem>
+                <MenuItem value='html'>HTML</MenuItem>
+                <MenuItem value='zip'>ZIP</MenuItem>
+              </CustomTextField>
+              <CustomTextField label='Export Retention' placeholder='Retention period' fullWidth />
+            </KbFormGrid>
+          </KbFormSection>
         </Stack>
 
-        <Stack spacing={6}>
-          <Card variant='outlined'>
-            <CardContent>
-              <Stack spacing={4}>
-                <Box className='flex items-start gap-3'>
-                  <KeyRound size={24} className='text-primary' />
-                  <Box>
-                    <Typography variant='h6'>API</Typography>
-                    <Typography color='text.secondary'>Service access settings.</Typography>
-                  </Box>
-                </Box>
-                <Divider />
-                <Box>
-                  <Typography variant='body2' color='text.secondary'>
-                    API status
-                  </Typography>
-                  <StatusChip label='Enabled' color='success' />
-                </Box>
-                <CustomTextField label='Rate Limit' defaultValue='600 requests/min' fullWidth />
-              </Stack>
-            </CardContent>
-          </Card>
+        <Stack spacing={5}>
+          <KbFormSection
+            title='API'
+            description='Service access settings.'
+            actions={<KeyRound size={22} color='var(--mui-palette-primary-main)' />}
+          >
+            <Divider />
+            <Box>
+              <Typography variant='body2' color='text.secondary'>
+                API status
+              </Typography>
+              <StatusChip label='Not loaded' />
+            </Box>
+            <CustomTextField label='Rate Limit' placeholder='Rate limit' fullWidth />
+          </KbFormSection>
 
-          <Card variant='outlined'>
-            <CardContent>
-              <Stack spacing={4}>
-                <Box className='flex items-start gap-3'>
-                  <Webhook size={24} className='text-primary' />
-                  <Box>
-                    <Typography variant='h6'>Webhooks</Typography>
-                    <Typography color='text.secondary'>Notify external systems about KB events.</Typography>
-                  </Box>
-                </Box>
-                <Divider />
-                <FormControlLabel
-                  control={<Switch checked={webhooksEnabled} onChange={event => setWebhooksEnabled(event.target.checked)} />}
-                  label='Enable webhooks'
-                />
-                <CustomTextField label='Endpoint URL' placeholder='https://example.com/kb-webhook' fullWidth />
-                <CustomTextField label='Events' defaultValue='article.published, review.submitted' fullWidth multiline minRows={2} />
-              </Stack>
-            </CardContent>
-          </Card>
+          <KbFormSection
+            title='Webhooks'
+            description='Notify external systems about KB events.'
+            actions={<Webhook size={22} color='var(--mui-palette-primary-main)' />}
+          >
+            <Divider />
+            <FormControlLabel
+              control={<Switch checked={webhooksEnabled} onChange={event => setWebhooksEnabled(event.target.checked)} />}
+              label='Enable webhooks'
+            />
+            <CustomTextField label='Endpoint URL' placeholder='Webhook endpoint URL' fullWidth />
+            <CustomTextField label='Events' placeholder='Webhook event names' fullWidth multiline minRows={2} />
+          </KbFormSection>
         </Stack>
       </Box>
-    </Stack>
+    </KbPageShell>
   )
 }
 
 export default SettingsPage
-

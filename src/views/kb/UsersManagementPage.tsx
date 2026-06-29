@@ -5,170 +5,144 @@ import { useMemo, useState } from 'react'
 import Avatar from '@mui/material/Avatar'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
-import Card from '@mui/material/Card'
-import CardContent from '@mui/material/CardContent'
-import Dialog from '@mui/material/Dialog'
-import DialogActions from '@mui/material/DialogActions'
-import DialogContent from '@mui/material/DialogContent'
-import DialogTitle from '@mui/material/DialogTitle'
-import InputAdornment from '@mui/material/InputAdornment'
 import MenuItem from '@mui/material/MenuItem'
-import Stack from '@mui/material/Stack'
-import Table from '@mui/material/Table'
-import TableBody from '@mui/material/TableBody'
-import TableCell from '@mui/material/TableCell'
-import TableHead from '@mui/material/TableHead'
-import TableRow from '@mui/material/TableRow'
 import Typography from '@mui/material/Typography'
-import { Plus, Search, UserPlus } from 'lucide-react'
+import { UserPlus } from 'lucide-react'
 
 import CustomTextField from '@core/components/mui/TextField'
-import type { KbUserRole } from '@/types/apps/userTypes'
+import KbUserDrawer from '@/views/shared/admin/KbUserDrawer'
+import KbDataTable from '@/views/shared/tables/KbDataTable'
+import type { KbDataTableColumn, KbDataTableSort } from '@/views/shared/tables/KbDataTable'
+import KbTableToolbar from '@/views/shared/tables/KbTableToolbar'
+import type { KbUserRole, UsersType } from '@/types/apps/userTypes'
 
-import { MetricStrip, PageHeader, StatusChip, formatDate, roleLabels } from './KbShared'
-import { roleDefinitions, sampleUsers } from './kbMockData'
+import { KbPageShell, PageHeader, StatusChip, formatDate, roleLabels } from './KbShared'
+import { emptyUsers } from './kbMockData'
 
-const roleOptions: KbUserRole[] = ['admin', 'author', 'reviewer', 'contributor', 'viewer']
+const roleOptions: Array<KbUserRole | 'all'> = ['all', 'admin', 'author', 'reviewer', 'contributor', 'viewer']
 
 const UsersManagementPage = () => {
   const [search, setSearch] = useState('')
-  const [dialogOpen, setDialogOpen] = useState(false)
-  const [role, setRole] = useState<KbUserRole>('viewer')
+  const [roleFilter, setRoleFilter] = useState<KbUserRole | 'all'>('all')
+  const [sort, setSort] = useState<KbDataTableSort>({ columnId: 'fullName', direction: 'asc' })
+  const [selectedRows, setSelectedRows] = useState<string[]>([])
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const users = emptyUsers
 
   const visibleUsers = useMemo(() => {
     // TODO: connect to backend users API.
     // GET /api/kb/users should return SSO-backed users and global role assignments only.
     const needle = search.trim().toLowerCase()
 
-    return sampleUsers.filter(user =>
-      needle ? `${user.fullName} ${user.email} ${user.role} ${user.ssoId}`.toLowerCase().includes(needle) : true
-    )
-  }, [search])
+    return [...users]
+      .filter(user => (roleFilter === 'all' ? true : user.role === roleFilter))
+      .filter(user =>
+        needle ? `${user.fullName} ${user.email} ${user.role} ${user.ssoId}`.toLowerCase().includes(needle) : true
+      )
+      .sort((a, b) => {
+        const direction = sort.direction === 'asc' ? 1 : -1
+        const aValue = String(a[sort.columnId as keyof UsersType] ?? '')
+        const bValue = String(b[sort.columnId as keyof UsersType] ?? '')
+
+        return aValue.localeCompare(bValue) * direction
+      })
+  }, [roleFilter, search, sort, users])
+
+  const columns = useMemo<Array<KbDataTableColumn<UsersType>>>(
+    () => [
+      {
+        id: 'fullName',
+        label: 'Name',
+        sortable: true,
+        render: user => (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 3, minInlineSize: 260 }}>
+            <Avatar sx={{ inlineSize: 34, blockSize: 34 }}>{user.fullName.slice(0, 1)}</Avatar>
+            <Box sx={{ minInlineSize: 0 }}>
+              <Typography color='text.primary' sx={{ fontWeight: 700 }} noWrap>
+                {user.fullName}
+              </Typography>
+              <Typography variant='body2' color='text.secondary' noWrap>
+                {user.email}
+              </Typography>
+            </Box>
+          </Box>
+        )
+      },
+      { id: 'role', label: 'Role', sortable: true, render: user => roleLabels[user.role] },
+      {
+        id: 'status',
+        label: 'Status',
+        sortable: true,
+        render: user => <StatusChip label={user.status} color={user.status === 'active' ? 'success' : 'secondary'} />
+      },
+      { id: 'ssoId', label: 'SSO ID', sortable: true, render: user => user.ssoId },
+      { id: 'createdAt', label: 'Joined', sortable: true, render: user => formatDate(user.createdAt) },
+      { id: 'lastLoginAt', label: 'Last Login', sortable: true, render: user => (user.lastLoginAt ? formatDate(user.lastLoginAt) : '-') }
+    ],
+    []
+  )
 
   const handleAddUser = () => {
     // TODO: connect to backend SSO user provisioning API.
     // POST /api/kb/users should attach an existing SSO identity to one global KB role.
-    setDialogOpen(false)
+    setDrawerOpen(false)
   }
 
   return (
-    <Stack spacing={6}>
+    <KbPageShell>
       <PageHeader
         title='Users'
         subtitle='Manage SSO users and global KB roles.'
         actions={
-          <Button variant='contained' startIcon={<UserPlus size={18} />} onClick={() => setDialogOpen(true)}>
+          <Button variant='contained' startIcon={<UserPlus size={18} />} onClick={() => setDrawerOpen(true)}>
             Add User
           </Button>
         }
       />
 
-      <MetricStrip
-        metrics={[
-          { label: 'Active users', value: String(sampleUsers.filter(user => user.status === 'active').length) },
-          { label: 'Admins', value: String(sampleUsers.filter(user => user.role === 'admin').length) },
-          { label: 'Reviewers', value: String(sampleUsers.filter(user => user.role === 'reviewer').length) },
-          { label: 'Global roles', value: String(roleDefinitions.length) }
-        ]}
+      <KbDataTable
+        ariaLabel='Users table'
+        rows={visibleUsers}
+        columns={columns}
+        getRowId={user => user.id}
+        enableSelection
+        selectedRowIds={selectedRows}
+        onSelectedRowIdsChange={setSelectedRows}
+        sort={sort}
+        onSortChange={setSort}
+        toolbar={
+          <KbTableToolbar
+            searchValue={search}
+            onSearchChange={setSearch}
+            searchPlaceholder='Search users'
+            selectedCount={selectedRows.length}
+            filters={
+              <CustomTextField
+                select
+                label='Role'
+                value={roleFilter}
+                onChange={event => setRoleFilter(event.target.value as KbUserRole | 'all')}
+                sx={{ inlineSize: { xs: '100%', md: 180 } }}
+              >
+                {roleOptions.map(option => (
+                  <MenuItem key={option} value={option}>
+                    {option === 'all' ? 'All roles' : roleLabels[option]}
+                  </MenuItem>
+                ))}
+              </CustomTextField>
+            }
+          />
+        }
+        emptyState={{
+          title: 'No users loaded',
+          description: 'SSO-backed users will appear here after the backend users API is connected.'
+        }}
+        pagination={{ page: 0, rowsPerPage: 10, totalRows: visibleUsers.length }}
       />
 
-      <Card variant='outlined'>
-        <CardContent className='pbs-4'>
-          <Stack spacing={4}>
-            <CustomTextField
-              value={search}
-              onChange={event => setSearch(event.target.value)}
-              placeholder='Search users'
-              fullWidth
-              slotProps={{
-                input: {
-                  startAdornment: (
-                    <InputAdornment position='start'>
-                      <Search size={18} />
-                    </InputAdornment>
-                  )
-                }
-              }}
-            />
-
-            <Box className='overflow-x-auto'>
-              <Table size='small' aria-label='Users table'>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Name</TableCell>
-                    <TableCell>Role</TableCell>
-                    <TableCell>Status</TableCell>
-                    <TableCell>SSO ID</TableCell>
-                    <TableCell>Joined</TableCell>
-                    <TableCell>Last Login</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {visibleUsers.map(user => (
-                    <TableRow key={user.id} hover>
-                      <TableCell>
-                        <Box className='flex items-center gap-3'>
-                          <Avatar>{user.fullName.slice(0, 1)}</Avatar>
-                          <Box>
-                            <Typography color='text.primary' className='font-medium'>
-                              {user.fullName}
-                            </Typography>
-                            <Typography variant='body2' color='text.secondary'>
-                              {user.email}
-                            </Typography>
-                          </Box>
-                        </Box>
-                      </TableCell>
-                      <TableCell>{roleLabels[user.role]}</TableCell>
-                      <TableCell>
-                        <StatusChip label={user.status} color={user.status === 'active' ? 'success' : 'secondary'} />
-                      </TableCell>
-                      <TableCell>{user.ssoId}</TableCell>
-                      <TableCell>{formatDate(user.createdAt)}</TableCell>
-                      <TableCell>{user.lastLoginAt ? formatDate(user.lastLoginAt) : '-'}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </Box>
-          </Stack>
-        </CardContent>
-      </Card>
-
-      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} fullWidth maxWidth='md'>
-        <DialogTitle>Add New User</DialogTitle>
-        <DialogContent>
-          <Box className='grid grid-cols-1 gap-4 pbs-2 md:grid-cols-2'>
-            <CustomTextField label='Full Name' placeholder='Name from SSO profile' fullWidth />
-            <CustomTextField label='Email' placeholder='user@example.com' fullWidth />
-            <CustomTextField label='SSO Subject ID' placeholder='Identity provider subject' fullWidth />
-            <CustomTextField
-              select
-              label='User Role'
-              value={role}
-              onChange={event => setRole(event.target.value as KbUserRole)}
-              fullWidth
-            >
-              {roleOptions.map(option => (
-                <MenuItem key={option} value={option}>
-                  {roleLabels[option]}
-                </MenuItem>
-              ))}
-            </CustomTextField>
-          </Box>
-        </DialogContent>
-        <DialogActions className='pli-6 pbs-0 pbe-6'>
-          <Button variant='tonal' color='secondary' onClick={() => setDialogOpen(false)}>
-            Cancel
-          </Button>
-          <Button variant='contained' startIcon={<Plus size={18} />} onClick={handleAddUser}>
-            Add User
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </Stack>
+      <KbUserDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} onSubmit={handleAddUser} />
+    </KbPageShell>
   )
 }
 
 export default UsersManagementPage
-

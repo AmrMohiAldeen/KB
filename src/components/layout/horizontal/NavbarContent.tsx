@@ -9,12 +9,11 @@ import Logo from '@components/layout/shared/Logo'
 import NavSearch from '@components/layout/shared/search'
 import LanguageDropdown from '@components/layout/shared/LanguageDropdown'
 import ModeDropdown from '@components/layout/shared/ModeDropdown'
-import ShortcutsDropdown from '@components/layout/shared/ShortcutsDropdown'
 import NotificationsDropdown from '@components/layout/shared/NotificationsDropdown'
 import UserDropdown from '@components/layout/shared/UserDropdown'
 
 // Data Imports
-import { kbNotifications, kbShortcuts } from '@/data/navigation/headerData'
+import { kbNotifications } from '@/data/navigation/headerData'
 
 // Hook Imports
 import useHorizontalNav from '@menu/hooks/useHorizontalNav'
@@ -33,11 +32,10 @@ const NavbarContent = () => {
         {!isBreakpointReached && <Logo />}
       </div>
 
-      <div className='flex items-center'>
+      <div className='kb-topbar-actions flex items-center gap-1'>
         <NavSearch />
         <LanguageDropdown />
         <ModeDropdown />
-        <ShortcutsDropdown shortcuts={kbShortcuts} />
         <NotificationsDropdown notifications={kbNotifications} />
         <UserDropdown />
       </div>

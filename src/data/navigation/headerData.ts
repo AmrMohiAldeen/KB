@@ -42,29 +42,4 @@ export const kbShortcuts: ShortcutsType[] = [
 
 // TODO: Replace with backend API call to GET /api/kb/notifications?limit=6.
 // Expected response: notification rows with id, title, body, type, readAt, entityType, entityId, and createdAt for the current SSO user.
-export const kbNotifications: NotificationsType[] = [
-  {
-    icon: 'tabler-eye-check',
-    color: 'warning',
-    title: 'Draft awaiting review',
-    subtitle: 'Reset SSO session needs approval',
-    time: 'Today',
-    read: false
-  },
-  {
-    icon: 'tabler-file-export',
-    color: 'info',
-    title: 'Export queued',
-    subtitle: 'Security handbook PDF is waiting',
-    time: 'Today',
-    read: false
-  },
-  {
-    icon: 'tabler-database-search',
-    color: 'success',
-    title: 'Search index updated',
-    subtitle: '18 article versions indexed',
-    time: 'Yesterday',
-    read: true
-  }
-]
+export const kbNotifications: NotificationsType[] = []

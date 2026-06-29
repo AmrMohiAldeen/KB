@@ -38,9 +38,10 @@ const menuSectionStyles = (verticalNavOptions: VerticalNavState, theme: Theme): 
         [`& .${menuClasses.menuSectionLabel}`]: {
           flexGrow: 0,
           textTransform: 'uppercase',
-          fontSize: '13px',
+          fontSize: '11px',
           lineHeight: 1.38462,
-          letterSpacing: '0.4px',
+          letterSpacing: '0.8px',
+          fontWeight: 700,
           ...(collapsedNotHovered && {
             display: 'none'
           })
