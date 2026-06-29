@@ -1,3 +1,5 @@
+@layer theme, base, mui, components, utilities;
+
 @import 'katex/dist/katex.min.css';
 @import '../features/editor/styles/tiptap-table.css';
 @import '../features/editor/styles/tiptap-image.css';
@@ -18,7 +20,7 @@
   --primary-color: var(--mui-palette-primary-main);
   --background-color: var(--mui-palette-background-default);
   --background-color-rgb: var(--mui-palette-background-paperChannel);
-  --header-height: 54px;
+  --header-height: 64px;
   --header-z-index: var(--mui-zIndex-appBar);
   --footer-z-index: 10;
   --customizer-z-index: var(--mui-zIndex-drawer);
@@ -29,17 +31,6 @@
 
 [data-mui-color-scheme='dark'] {
   --backdrop-color: rgb(23 25 37 / 0.6);
-}
-
-*,
-::before,
-::after {
-  box-sizing: border-box;
-  padding: 0;
-  margin: 0;
-  border-width: 0;
-  border-style: solid;
-  border-color: theme('borderColor.DEFAULT', currentColor);
 }
 
 html {
@@ -121,7 +112,17 @@ ul:not([class]) {
 }
 
 :where([class^='tabler-']) {
-  font-size: 1.5rem;
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.kb-topbar-actions .MuiIconButton-root {
+  inline-size: 36px;
+  block-size: 36px;
+}
+
+.kb-topbar-actions :where([class^='tabler-']) {
+  font-size: 1.25rem;
 }
 
 code {
