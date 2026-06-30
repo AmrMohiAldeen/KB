@@ -1,5 +1,8 @@
-import KbSectionPage from '@/views/kb/KbSectionPage'
-import { searchIndexPage } from '@/views/kb/sectionConfigs'
+// View Imports
+import KbSectionPage from '@/views/kb/sections/KbSectionPage'
+
+// Config Imports
+import { searchIndexPage } from '@/views/kb/config/sections'
 
 export default function SearchIndexPage() {
   return <KbSectionPage {...searchIndexPage} />

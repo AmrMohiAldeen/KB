@@ -177,28 +177,26 @@ const NotificationDropdown = ({ notifications }: { notifications: NotificationsT
                     {notificationCount > 0 && (
                       <Chip size='small' variant='tonal' color='primary' label={`${notificationCount} New`} />
                     )}
-                    <Tooltip
-                      title={readAll ? 'Mark all as unread' : 'Mark all as read'}
-                      placement={placement === 'bottom-end' ? 'left' : 'right'}
-                      slotProps={{
-                        popper: {
-                          sx: {
-                            '& .MuiTooltip-tooltip': {
-                              transformOrigin:
-                                placement === 'bottom-end' ? 'right center !important' : 'right center !important'
+                    {notificationsState.length > 0 && (
+                      <Tooltip
+                        title={readAll ? 'Mark all as unread' : 'Mark all as read'}
+                        placement={placement === 'bottom-end' ? 'left' : 'right'}
+                        slotProps={{
+                          popper: {
+                            sx: {
+                              '& .MuiTooltip-tooltip': {
+                                transformOrigin:
+                                  placement === 'bottom-end' ? 'right center !important' : 'right center !important'
+                              }
                             }
                           }
-                        }
-                      }}
-                    >
-                      {notificationsState.length > 0 ? (
-                        <IconButton size='small' onClick={() => readAllNotifications()} className='text-textPrimary'>
+                        }}
+                      >
+                        <IconButton size='small' onClick={readAllNotifications} className='text-textPrimary'>
                           <i className={readAll ? 'tabler-mail' : 'tabler-mail-opened'} />
                         </IconButton>
-                      ) : (
-                        <></>
-                      )}
-                    </Tooltip>
+                      </Tooltip>
+                    )}
                   </div>
                   <Divider />
                   <ScrollWrapper hidden={hidden}>

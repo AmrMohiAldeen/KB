@@ -1,7 +1,9 @@
 'use client'
 
+// React Imports
 import type { ReactNode } from 'react'
 
+// MUI Imports
 import Box from '@mui/material/Box'
 import Checkbox from '@mui/material/Checkbox'
 import CircularProgress from '@mui/material/CircularProgress'
@@ -16,8 +18,11 @@ import TableSortLabel from '@mui/material/TableSortLabel'
 import Typography from '@mui/material/Typography'
 import type { TableCellProps } from '@mui/material/TableCell'
 
+// Component Imports
 import KbSectionCard from '../KbSectionCard'
 import KbTableEmptyState from './KbTableEmptyState'
+
+// Type Imports
 import type { KbTableEmptyStateProps } from './KbTableEmptyState'
 
 export type KbSortDirection = 'asc' | 'desc'

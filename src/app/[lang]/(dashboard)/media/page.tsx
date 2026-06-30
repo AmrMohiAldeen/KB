@@ -1,4 +1,5 @@
-import MediaLibraryPage from '@/views/kb/MediaLibraryPage'
+// View Imports
+import MediaLibraryPage from '@/views/kb/media/MediaLibraryPage'
 
 export default function MediaPage() {
   return <MediaLibraryPage />

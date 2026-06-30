@@ -1,5 +1,8 @@
-import KbSectionPage from '@/views/kb/KbSectionPage'
-import { reusableBlocksPage } from '@/views/kb/sectionConfigs'
+// View Imports
+import KbSectionPage from '@/views/kb/sections/KbSectionPage'
+
+// Config Imports
+import { reusableBlocksPage } from '@/views/kb/config/sections'
 
 export default function ReusableBlocksPage() {
   return <KbSectionPage {...reusableBlocksPage} />

@@ -1,4 +1,5 @@
-import PublicArticleViewerPage from '@/views/kb/PublicArticleViewerPage'
+// View Imports
+import PublicArticleViewerPage from '@/views/kb/public/PublicArticleViewerPage'
 
 export default async function KbArticlePage({
   params
@@ -9,4 +10,3 @@ export default async function KbArticlePage({
 
   return <PublicArticleViewerPage lang={lang} slug={slug} />
 }
-
