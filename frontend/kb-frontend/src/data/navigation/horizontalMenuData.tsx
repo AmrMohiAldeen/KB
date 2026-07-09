@@ -50,6 +50,11 @@ const horizontalMenuData = (
       label: navigation.operations,
       icon: 'tabler-settings-automation',
       children: [
+        {
+          label: navigation.helpJuiceMigration,
+          icon: 'tabler-file-import',
+          href: localizedHref(params, '/kb/migration/helpjuice')
+        },
         { label: navigation.searchIndex, icon: 'tabler-database-search', href: localizedHref(params, '/search-index') },
         { label: navigation.exportJobs, icon: 'tabler-file-export', href: localizedHref(params, '/export-jobs') }
       ]

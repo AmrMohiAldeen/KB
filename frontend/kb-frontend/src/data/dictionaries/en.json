@@ -11,6 +11,7 @@
     "templates": "Templates",
     "reusableBlocks": "Reusable Blocks",
     "media": "Media",
+    "helpJuiceMigration": "HelpJuice Migration",
     "searchIndex": "Search Index",
     "exportJobs": "Export Jobs",
     "auditLogs": "Audit Logs",
