@@ -1,0 +1,175 @@
+.tableWrapper {
+  position: relative;
+  overflow-x: auto;
+}
+
+:is(.tiptap, .ProseMirror) {
+  position: relative;
+}
+
+:is(.tiptap, .ProseMirror) table {
+  width: var(--table-width-pct, 100%) !important;
+  min-width: 0 !important;
+  max-width: 100%;
+  margin-top: 0;
+  margin-right: 0;
+  margin-bottom: 0;
+  margin-left: var(--table-offset-pct, 0%) !important;
+  margin-inline-start: var(--table-offset-pct, 0%) !important;
+  margin-inline-end: 0 !important;
+  table-layout: fixed;
+  border-collapse: collapse;
+  overflow: hidden;
+  border-spacing: 0;
+}
+
+:is(.tiptap, .ProseMirror) table[dir='rtl'] {
+  direction: ltr;
+}
+
+:is(.tiptap, .ProseMirror) table[dir='rtl'] :is(td, th):not([dir='ltr']) {
+  direction: rtl;
+  text-align: start;
+}
+
+:is(.tiptap, .ProseMirror) table[dir='ltr'] :is(td, th):not([dir='rtl']) {
+  direction: ltr;
+  text-align: start;
+}
+
+:is(.tiptap, .ProseMirror) table :is(td, th) {
+  position: relative;
+  box-sizing: border-box;
+  min-width: 40px;
+  height: 20px;
+  padding: 1px 6px;
+  border: 1px solid #8e8f93;
+  font-size: 14px;
+  line-height: 1.25;
+}
+
+:is(.tiptap, .ProseMirror) table :is(td, th) > p {
+  min-height: 1.25em;
+  margin: 0;
+}
+
+:is(.tiptap, .ProseMirror) table th {
+  background: #f3f4f6;
+  font-weight: 600;
+}
+
+/* Resize handles */
+:is(.tiptap, .ProseMirror) .row-resize-handle {
+  position: absolute;
+  z-index: 5;
+  height: 6px;
+  background-color: rgba(59, 130, 246, 0.5);
+  cursor: row-resize;
+}
+
+:is(.tiptap, .ProseMirror).resize-cursor-row {
+  cursor: row-resize;
+}
+
+.tiptap .column-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -2px;
+  bottom: -2px;
+  width: 4px;
+  background-color: #adf;
+  pointer-events: none;
+}
+
+.tiptap.resize-cursor {
+  cursor: col-resize;
+}
+
+:is(.tiptap, .ProseMirror) .table-outer-resize-handle {
+  position: absolute;
+  z-index: 6;
+  width: 8px;
+  cursor: ew-resize;
+  background: rgba(59, 130, 246, 0.25);
+}
+
+:is(.tiptap, .ProseMirror).resize-cursor-table-outer .table-outer-resize-handle {
+  background: rgba(59, 130, 246, 0.5);
+}
+
+:is(.tiptap, .ProseMirror).resize-cursor-table-outer {
+  cursor: ew-resize;
+}
+
+/* Persistent table border visibility */
+:is(.tiptap, .ProseMirror)
+  table[data-table-border-top='false']
+  tr:first-child
+  > :is(td, th) {
+  border-top-color: transparent !important;
+}
+
+:is(.tiptap, .ProseMirror)
+  table[data-table-border-bottom='false']
+  tr:last-child
+  > :is(td, th) {
+  border-bottom-color: transparent !important;
+}
+
+:is(.tiptap, .ProseMirror)
+  table[data-table-border-left='false']
+  tr
+  > :is(td, th):first-child {
+  border-left-color: transparent !important;
+}
+
+:is(.tiptap, .ProseMirror)
+  table[data-table-border-right='false']
+  tr
+  > :is(td, th):last-child {
+  border-right-color: transparent !important;
+}
+
+:is(.tiptap, .ProseMirror) table[data-table-border-inner='false'] :is(td, th) {
+  border-color: transparent !important;
+}
+
+:is(.tiptap, .ProseMirror)
+  table[data-table-border-inner='false'][data-table-border-top='true']
+  tr:first-child
+  > :is(td, th) {
+  border-top-color: #8e8f93 !important;
+}
+
+:is(.tiptap, .ProseMirror)
+  table[data-table-border-inner='false'][data-table-border-bottom='true']
+  tr:last-child
+  > :is(td, th) {
+  border-bottom-color: #8e8f93 !important;
+}
+
+:is(.tiptap, .ProseMirror)
+  table[data-table-border-inner='false'][data-table-border-left='true']
+  tr
+  > :is(td, th):first-child {
+  border-left-color: #8e8f93 !important;
+}
+
+:is(.tiptap, .ProseMirror)
+  table[data-table-border-inner='false'][data-table-border-right='true']
+  tr
+  > :is(td, th):last-child {
+  border-right-color: #8e8f93 !important;
+}
+
+:is(.tiptap, .ProseMirror) :is(td, th).selectedCell {
+  background: rgba(59, 130, 246, 0.18);
+}
+
+:is(.tiptap, .ProseMirror) :is(td, th).selectedCell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 2px solid rgba(59, 130, 246, 0.55);
+  pointer-events: none;
+}

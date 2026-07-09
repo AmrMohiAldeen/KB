@@ -1,0 +1,150 @@
+.ProseMirror {
+  font-family: Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.7;
+  color: rgb(31, 41, 55);
+}
+
+.kb-editor-frame .ProseMirror {
+  min-height: 520px;
+}
+
+:is(.tiptap, .ProseMirror, .kb-viewer) [dir='rtl'] {
+  direction: rtl;
+  text-align: start;
+}
+
+:is(.tiptap, .ProseMirror, .kb-viewer) [dir='ltr'] {
+  direction: ltr;
+  text-align: start;
+}
+
+:is(.tiptap, .ProseMirror, .kb-viewer) :is(ul, ol) {
+  padding-inline-start: 1.625em;
+  padding-inline-end: 0;
+}
+
+:is(.tiptap, .ProseMirror, .kb-viewer) ul[data-type='taskList'] {
+  padding-inline-start: 0;
+  padding-inline-end: 0;
+  list-style: none;
+}
+
+:is(.tiptap, .ProseMirror, .kb-viewer) :is(li[data-type='taskItem'], li.kb-task-item) {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+:is(.tiptap, .ProseMirror, .kb-viewer)
+  :is(li[data-type='taskItem'], li.kb-task-item)
+  > label {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  margin-top: 0.2em;
+}
+
+:is(.tiptap, .ProseMirror, .kb-viewer)
+  :is(li[data-type='taskItem'], li.kb-task-item)
+  > div {
+  min-width: 0;
+  flex: 1;
+}
+
+:is(.tiptap, .ProseMirror, .kb-viewer)
+  :is(li[data-type='taskItem'], li.kb-task-item)
+  > div
+  > p:first-child {
+  margin-top: 0;
+}
+
+.kb-editor-content {
+  position: relative;
+  overflow: visible;
+}
+
+.ProseMirror a {
+  color: rgb(83, 83, 154);
+  text-decoration: underline;
+}
+
+.kb-glossary {
+  position: relative;
+  display: inline;
+  border-bottom: 1px dotted rgb(37, 99, 235);
+  color: rgb(30, 64, 175);
+  cursor: help;
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
+}
+
+.kb-glossary:focus-visible {
+  border-radius: 2px;
+  outline: 2px solid rgb(37, 99, 235);
+  outline-offset: 2px;
+}
+
+.kb-glossary__tooltip {
+  position: absolute;
+  z-index: 40;
+  bottom: calc(100% + 0.45rem);
+  left: 0;
+  width: max-content;
+  max-width: min(18rem, 80vw);
+  padding: 0.4rem 0.55rem;
+  border-radius: 6px;
+  background: rgb(17, 24, 39);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.2);
+  color: white;
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1.35;
+  opacity: 0;
+  pointer-events: none;
+  text-align: start;
+  transform: translateY(2px);
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease,
+    visibility 120ms ease;
+  visibility: hidden;
+  white-space: normal;
+}
+
+.kb-glossary:hover > .kb-glossary__tooltip,
+.kb-glossary:focus > .kb-glossary__tooltip,
+.kb-glossary[data-kb-glossary-open='true'] > .kb-glossary__tooltip {
+  opacity: 1;
+  transform: translateY(0);
+  visibility: visible;
+}
+
+.kb-glossary[data-kb-glossary-open='false'] > .kb-glossary__tooltip {
+  opacity: 0;
+  transform: translateY(2px);
+  visibility: hidden;
+}
+
+.ProseMirror div[data-youtube-video] {
+  display: flex;
+  justify-content: center;
+}
+
+.kb-preserved-selection {
+  background-color: rgba(59, 130, 246, 0.25);
+}
+
+.ProseMirror div[data-youtube-video] iframe {
+  max-width: 100%;
+}
+
+.ProseMirror > img:not([data-kb-image]),
+.ProseMirror p > img:not([data-kb-image]):only-child {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 1rem auto;
+}

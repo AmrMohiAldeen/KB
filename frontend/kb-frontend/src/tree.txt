@@ -1,0 +1,604 @@
+Folder PATH listing
+Volume serial number is 00000012 AE95:084C
+C:.
+|   proxy.ts
+|   tree.txt
+|   
++---@core
+|   |   types.ts
+|   |   
+|   +---components
+|   |   +---custom-inputs
+|   |   |       Horizontal.tsx
+|   |   |       Image.tsx
+|   |   |       types.ts
+|   |   |       Vertical.tsx
+|   |   |       
+|   |   +---customizer
+|   |   |       index.tsx
+|   |   |       styles.module.css
+|   |   |       
+|   |   +---mui
+|   |   |       Autocomplete.tsx
+|   |   |       Avatar.tsx
+|   |   |       Badge.tsx
+|   |   |       Chip.tsx
+|   |   |       TabList.tsx
+|   |   |       TextField.tsx
+|   |   |       
+|   |   +---option-menu
+|   |   |       index.tsx
+|   |   |       types.ts
+|   |   |       
+|   |   \---scroll-to-top
+|   |           index.tsx
+|   |           
+|   +---contexts
+|   |       settingsContext.tsx
+|   |       
+|   +---hooks
+|   |       useImageVariant.ts
+|   |       useLayoutInit.ts
+|   |       useObjectCookie.ts
+|   |       useSettings.tsx
+|   |       
+|   +---styles
+|   |   |   stepper.ts
+|   |   |   table.module.css
+|   |   |   
+|   |   +---horizontal
+|   |   |       menuItemStyles.ts
+|   |   |       menuRootStyles.ts
+|   |   |       
+|   |   \---vertical
+|   |           menuItemStyles.ts
+|   |           menuSectionStyles.ts
+|   |           navigationCustomStyles.ts
+|   |           
+|   +---svg
+|   |       ContentCompact.tsx
+|   |       ContentWide.tsx
+|   |       DirectionLtr.tsx
+|   |       DirectionRtl.tsx
+|   |       LayoutCollapsed.tsx
+|   |       LayoutHorizontal.tsx
+|   |       LayoutVertical.tsx
+|   |       Logo.tsx
+|   |       SkinBordered.tsx
+|   |       SkinDefault.tsx
+|   |       
+|   +---tailwind
+|   |       plugin.ts
+|   |       
+|   +---theme
+|   |   |   colorScheme.ts
+|   |   |   colorSchemes.ts
+|   |   |   customShadows.ts
+|   |   |   index.ts
+|   |   |   shadows.ts
+|   |   |   spacing.ts
+|   |   |   typography.ts
+|   |   |   
+|   |   \---overrides
+|   |           accordion.tsx
+|   |           alert.tsx
+|   |           autocomplete.tsx
+|   |           avatar.ts
+|   |           backdrop.ts
+|   |           badges.ts
+|   |           breadcrumbs.ts
+|   |           button-group.ts
+|   |           button.ts
+|   |           card.ts
+|   |           checkbox.tsx
+|   |           chip.ts
+|   |           dialog.ts
+|   |           drawer.ts
+|   |           fab.ts
+|   |           form-control-label.ts
+|   |           icon-button.ts
+|   |           index.ts
+|   |           input.ts
+|   |           list.ts
+|   |           menu.ts
+|   |           pagination.ts
+|   |           paper.ts
+|   |           popover.ts
+|   |           progress.ts
+|   |           radio.tsx
+|   |           rating.tsx
+|   |           select.tsx
+|   |           slider.ts
+|   |           snackbar.ts
+|   |           switch.ts
+|   |           table-pagination.ts
+|   |           tabs.ts
+|   |           timeline.ts
+|   |           toggle-button.ts
+|   |           tooltip.ts
+|   |           typography.ts
+|   |           
+|   \---utils
+|           serverHelpers.ts
+|           
++---@layouts
+|   |   BlankLayout.tsx
+|   |   HorizontalLayout.tsx
+|   |   LayoutWrapper.tsx
+|   |   VerticalLayout.tsx
+|   |   
+|   +---components
+|   |   +---horizontal
+|   |   |       Footer.tsx
+|   |   |       Header.tsx
+|   |   |       LayoutContent.tsx
+|   |   |       Navbar.tsx
+|   |   |       
+|   |   \---vertical
+|   |           Footer.tsx
+|   |           LayoutContent.tsx
+|   |           Navbar.tsx
+|   |           
+|   +---styles
+|   |   +---horizontal
+|   |   |       StyledFooter.tsx
+|   |   |       StyledHeader.tsx
+|   |   |       
+|   |   +---shared
+|   |   |       StyledMain.tsx
+|   |   |       
+|   |   \---vertical
+|   |           StyledFooter.tsx
+|   |           StyledHeader.tsx
+|   |           
+|   \---utils
+|           layoutClasses.ts
+|           
++---@menu
+|   |   defaultConfigs.ts
+|   |   types.ts
+|   |   
+|   +---components
+|   |   |   RouterLink.tsx
+|   |   |   
+|   |   +---horizontal-menu
+|   |   |       HorizontalNav.tsx
+|   |   |       Menu.tsx
+|   |   |       MenuButton.tsx
+|   |   |       MenuItem.tsx
+|   |   |       SubMenu.tsx
+|   |   |       SubMenuContent.tsx
+|   |   |       VerticalNavInHorizontal.tsx
+|   |   |       
+|   |   \---vertical-menu
+|   |           Menu.tsx
+|   |           MenuButton.tsx
+|   |           MenuItem.tsx
+|   |           MenuSection.tsx
+|   |           NavCollapseIcons.tsx
+|   |           NavHeader.tsx
+|   |           SubMenu.tsx
+|   |           SubMenuContent.tsx
+|   |           VerticalNav.tsx
+|   |           
+|   +---contexts
+|   |       horizontalNavContext.tsx
+|   |       verticalNavContext.tsx
+|   |       
+|   +---hooks
+|   |       useHorizontalMenu.tsx
+|   |       useHorizontalNav.tsx
+|   |       useMediaQuery.tsx
+|   |       useVerticalMenu.tsx
+|   |       useVerticalNav.tsx
+|   |       
+|   +---horizontal-menu
+|   |       index.tsx
+|   |       
+|   +---styles
+|   |   |   StyledBackdrop.tsx
+|   |   |   StyledMenuIcon.tsx
+|   |   |   StyledMenuLabel.tsx
+|   |   |   StyledMenuPrefix.tsx
+|   |   |   StyledMenuSectionLabel.tsx
+|   |   |   StyledMenuSuffix.tsx
+|   |   |   StyledSubMenuContent.tsx
+|   |   |   styles.module.css
+|   |   |   
+|   |   +---horizontal
+|   |   |       horizontalUl.module.css
+|   |   |       StyledHorizontalMenu.tsx
+|   |   |       StyledHorizontalMenuItem.tsx
+|   |   |       StyledHorizontalNav.tsx
+|   |   |       StyledHorizontalNavExpandIcon.tsx
+|   |   |       StyledHorizontalSubMenuContent.tsx
+|   |   |       StyledHorizontalSubMenuContentWrapper.tsx
+|   |   |       
+|   |   \---vertical
+|   |           StyledVerticalMenu.tsx
+|   |           StyledVerticalMenuItem.tsx
+|   |           StyledVerticalMenuSection.tsx
+|   |           StyledVerticalNav.tsx
+|   |           StyledVerticalNavBgColorContainer.tsx
+|   |           StyledVerticalNavContainer.tsx
+|   |           StyledVerticalNavExpandIcon.tsx
+|   |           verticalNavBgImage.module.css
+|   |           
+|   +---svg
+|   |       ChevronRight.tsx
+|   |       Close.tsx
+|   |       RadioCircle.tsx
+|   |       RadioCircleMarked.tsx
+|   |       
+|   +---utils
+|   |       menuClasses.ts
+|   |       menuUtils.tsx
+|   |       
+|   \---vertical-menu
+|           index.tsx
+|           
++---app
+|   |   favicon.ico
+|   |   globals.css
+|   |   
+|   \---[lang]
+|       |   layout.tsx
+|       |   
+|       +---(dashboard)
+|       |   |   layout.tsx
+|       |   |   
+|       |   +---articles
+|       |   |       page.tsx
+|       |   |       
+|       |   +---audit-logs
+|       |   |       page.tsx
+|       |   |       
+|       |   +---categories
+|       |   |       page.tsx
+|       |   |       
+|       |   +---editor
+|       |   |       page.tsx
+|       |   |       
+|       |   +---export-jobs
+|       |   |       page.tsx
+|       |   |       
+|       |   +---media
+|       |   |       page.tsx
+|       |   |       
+|       |   +---not-authorized
+|       |   |       page.tsx
+|       |   |       
+|       |   +---notifications
+|       |   |       page.tsx
+|       |   |       
+|       |   +---reusable-blocks
+|       |   |       page.tsx
+|       |   |       
+|       |   +---review
+|       |   |       page.tsx
+|       |   |       
+|       |   +---roles
+|       |   |       page.tsx
+|       |   |       
+|       |   +---search-index
+|       |   |       page.tsx
+|       |   |       
+|       |   +---settings
+|       |   |       page.tsx
+|       |   |       
+|       |   +---templates
+|       |   |       page.tsx
+|       |   |       
+|       |   \---users
+|       |           page.tsx
+|       |           
+|       \---[...not-found]
+|               page.tsx
+|               
++---assets
+|   +---iconify-icons
+|   |       bundle-icons-css.ts
+|   |       generated-icons.css
+|   |       
+|   \---svg
+|           Keyboard.tsx
+|           Paper.tsx
+|           Rocket.tsx
+|           
++---components
+|   |   GenerateMenu.tsx
+|   |   Link.tsx
+|   |   Providers.tsx
+|   |   
+|   +---layout
+|   |   +---horizontal
+|   |   |       Footer.tsx
+|   |   |       FooterContent.tsx
+|   |   |       Header.tsx
+|   |   |       HorizontalMenu.tsx
+|   |   |       NavbarContent.tsx
+|   |   |       Navigation.tsx
+|   |   |       NavToggle.tsx
+|   |   |       VerticalNavContent.tsx
+|   |   |       
+|   |   +---shared
+|   |   |   |   LanguageDropdown.tsx
+|   |   |   |   Logo.tsx
+|   |   |   |   ModeDropdown.tsx
+|   |   |   |   NotificationsDropdown.tsx
+|   |   |   |   ShortcutsDropdown.tsx
+|   |   |   |   UserDropdown.tsx
+|   |   |   |   
+|   |   |   \---search
+|   |   |           DefaultSuggestions.tsx
+|   |   |           index.tsx
+|   |   |           NoResult.tsx
+|   |   |           SearchResultItem.tsx
+|   |   |           SearchResults.tsx
+|   |   |           StyledKBarAnimator.tsx
+|   |   |           
+|   |   \---vertical
+|   |           Footer.tsx
+|   |           FooterContent.tsx
+|   |           Navbar.tsx
+|   |           NavbarContent.tsx
+|   |           Navigation.tsx
+|   |           NavToggle.tsx
+|   |           VerticalMenu.tsx
+|   |           
+|   +---stepper-dot
+|   |       index.tsx
+|   |       styles.module.css
+|   |       
+|   \---theme
+|           index.tsx
+|           mergedTheme.ts
+|           ModeChanger.tsx
+|           types.ts
+|           userTheme.ts
+|           
++---configs
+|       demoConfigs.ts
+|       i18n.ts
+|       primaryColorConfig.ts
+|       themeConfig.ts
+|       
++---data
+|   |   searchData.ts
+|   |   
+|   +---dictionaries
+|   |       ar.json
+|   |       en.json
+|   |       fr.json
+|   |       
+|   \---navigation
+|           headerData.ts
+|           horizontalMenuData.tsx
+|           verticalMenuData.tsx
+|           
++---features
+|   \---editor
+|       |   editorResilience.integration.test.ts
+|       |   
+|       +---blocks
+|       |   |   blocks.integration.test.ts
+|       |   |   catalog.ts
+|       |   |   index.ts
+|       |   |   model.test.ts
+|       |   |   model.ts
+|       |   |   
+|       |   +---accordion
+|       |   |       Accordion.ts
+|       |   |       AccordionItemNodeView.ts
+|       |   |       AccordionNodeView.ts
+|       |   |       index.ts
+|       |   |       
+|       |   +---callout
+|       |   |       callout.integration.test.ts
+|       |   |       Callout.ts
+|       |   |       index.ts
+|       |   |       model.ts
+|       |   |       
+|       |   +---image
+|       |   |   |   ImageBubbleMenu.test.ts
+|       |   |   |   ImageBubbleMenu.tsx
+|       |   |   |   imageDimensions.ts
+|       |   |   |   imageDom.ts
+|       |   |   |   ImageExtensions.integration.test.ts
+|       |   |   |   ImageExtensions.ts
+|       |   |   |   ImageResizePlugin.ts
+|       |   |   |   imageTypes.ts
+|       |   |   |   index.ts
+|       |   |   |   
+|       |   |   \---drag
+|       |   |           imageDragOffset.ts
+|       |   |           useImageDragOffset.ts
+|       |   |           
+|       |   +---shared
+|       |   |       itemUi.ts
+|       |   |       nodeViewDom.ts
+|       |   |       
+|       |   +---table
+|       |   |   |   index.ts
+|       |   |   |   tableResilience.integration.test.ts
+|       |   |   |   
+|       |   |   +---commands
+|       |   |   |       tableCommands.test.ts
+|       |   |   |       tableCommands.ts
+|       |   |   |       
+|       |   |   +---dom
+|       |   |   |       tableDom.ts
+|       |   |   |       
+|       |   |   +---drag
+|       |   |   |       tableDragOffset.test.ts
+|       |   |   |       tableDragOffset.ts
+|       |   |   |       useTableDragOffset.ts
+|       |   |   |       
+|       |   |   +---extensions
+|       |   |   |       index.ts
+|       |   |   |       TableCellExtensions.ts
+|       |   |   |       TableCellFormatting.ts
+|       |   |   |       TableExtension.ts
+|       |   |   |       tableExtensions.integration.test.ts
+|       |   |   |       TableRowExtension.ts
+|       |   |   |       
+|       |   |   +---plugins
+|       |   |   |       RowResizePlugin.ts
+|       |   |   |       TableOuterResizePlugin.ts
+|       |   |   |       
+|       |   |   +---resizing
+|       |   |   |       rowHeightPreview.ts
+|       |   |   |       tableDimensions.test.ts
+|       |   |   |       tableDimensions.ts
+|       |   |   |       
+|       |   |   +---toolbar
+|       |   |   |       index.ts
+|       |   |   |       TableControls.test.ts
+|       |   |   |       TableControls.tsx
+|       |   |   |       TableCreationPicker.tsx
+|       |   |   |       TableIcons.tsx
+|       |   |   |       
+|       |   |   \---utils
+|       |   |           tableBorders.test.ts
+|       |   |           tableBorders.ts
+|       |   |           
+|       |   +---tableOfContents
+|       |   |       index.ts
+|       |   |       TableOfContentsBlock.test.ts
+|       |   |       TableOfContentsBlock.tsx
+|       |   |       
+|       |   \---tabs
+|       |           index.ts
+|       |           TabItemNodeView.ts
+|       |           Tabs.ts
+|       |           TabsNodeView.ts
+|       |           
+|       +---components
+|       |   |   LinkControl.tsx
+|       |   |   
+|       |   \---toolbar
+|       |           ContentBlockPicker.tsx
+|       |           EditorToolbar.test.ts
+|       |           EditorToolbar.tsx
+|       |           GlossaryControl.tsx
+|       |           ImageControl.tsx
+|       |           mathFormulaActions.ts
+|       |           MathFormulaControl.tsx
+|       |           mediaControls.test.ts
+|       |           RgbColorItem.tsx
+|       |           selectionFormatting.test.ts
+|       |           selectionFormatting.ts
+|       |           TableOfContentsControl.tsx
+|       |           ToolbarPrimitives.tsx
+|       |           YoutubeControl.tsx
+|       |           
+|       +---config
+|       |       fonts.ts
+|       |       fontSizes.test.ts
+|       |       fontSizes.ts
+|       |       toolbarOptions.ts
+|       |       
+|       +---core
+|       |       EditorWorkspace.tsx
+|       |       KnowledgeBaseEditor.tsx
+|       |       KnowledgeBaseViewer.tsx
+|       |       
+|       +---extensions
+|       |       BlockSelection.ts
+|       |       EditorDragHandle.test.ts
+|       |       EditorDragHandle.tsx
+|       |       editorFeatureFlags.ts
+|       |       FileHandlerIntegration.ts
+|       |       FontSizeShortcuts.test.ts
+|       |       FontSizeShortcuts.ts
+|       |       Glossary.test.ts
+|       |       Glossary.ts
+|       |       index.ts
+|       |       ListStyles.test.ts
+|       |       ListStyles.ts
+|       |       officialExtensions.integration.test.ts
+|       |       ReadOnlySelectionHighlight.ts
+|       |       TextDirection.test.ts
+|       |       TextDirection.ts
+|       |       
+|       +---hooks
+|       |       useDebouncedEditorUpdate.test.ts
+|       |       useDebouncedEditorUpdate.ts
+|       |       useNodeHorizontalDragOffset.ts
+|       |       
+|       +---lib
+|       |   +---commands
+|       |   |       contentBlockCommands.test.ts
+|       |   |       contentBlockCommands.ts
+|       |   |       
+|       |   +---dom
+|       |   |       editorDom.ts
+|       |   |       mouseDragSession.test.ts
+|       |   |       mouseDragSession.ts
+|       |   |       resizeDom.ts
+|       |   |       
+|       |   +---link
+|       |   |       linkUrl.test.ts
+|       |   |       linkUrl.ts
+|       |   |       
+|       |   +---transactions
+|       |   |       contentBlockTransactions.ts
+|       |   |       
+|       |   \---utils
+|       |           logDevError.test.ts
+|       |           logDevError.ts
+|       |           
+|       +---paste
+|       |       domLimits.ts
+|       |       domUtils.ts
+|       |       fontFamilySanitizer.ts
+|       |       index.ts
+|       |       normalizeTables.ts
+|       |       normalizeWordPaste.ts
+|       |       PasteSanitizer.ts
+|       |       pasteSanitizerConfig.ts
+|       |       pasteSanitizerTypes.ts
+|       |       sanitizeAttributes.ts
+|       |       sanitizeDom.ts
+|       |       sanitizePastedHtml.test.ts
+|       |       sanitizePastedHtml.ts
+|       |       sanitizePastedText.ts
+|       |       
+|       +---slashMenu
+|       |       catalog.ts
+|       |       commands.ts
+|       |       index.ts
+|       |       SlashMenu.test.ts
+|       |       SlashMenu.ts
+|       |       
+|       \---styles
+|               editor-global.css
+|               tiptap-content-blocks.css
+|               tiptap-image.css
+|               tiptap-table.css
+|               
++---tests
+|       setup.ts
+|       
++---types
+|   |   menuTypes.ts
+|   |   
+|   \---apps
+|           permissionTypes.ts
+|           userTypes.ts
+|           
++---utils
+|       getDictionary.ts
+|       getInitials.ts
+|       i18n.ts
+|       rgbaToHex.ts
+|       string.ts
+|       
+\---views
+    |   NotAuthorized.tsx
+    |   NotFound.tsx
+    |   
+    \---kb
+            KbSectionPage.tsx
+            sectionConfigs.ts
+            
