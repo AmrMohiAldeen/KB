@@ -1,1 +1,0 @@
-export { tableExtensions } from './extensions';

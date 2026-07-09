@@ -1,36 +1,156 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Introduction
 
-## Getting Started
+KB is a custom Knowledge Base platform being built to replace HelpJuice for internal company documentation.
 
-First, run the development server:
+The goal of the project is to provide a modern, structured, and production-ready knowledge base with support for article creation, rich editing, review workflows, role-based access control, publishing, version history, audit logs, media handling, and search.
+
+The current repository contains the frontend implementation under `frontend/kb-frontend`. The backend folder is currently reserved for the future ASP.NET Core Web API implementation.
+
+# Getting Started
+
+## 1. Installation Process
+
+Clone the repository:
+
+```bash
+git clone <repository-url>
+cd knowledge-nase-platform
+```
+
+Navigate to the frontend project:
+
+```bash
+cd frontend/kb-frontend
+```
+
+Install dependencies:
+
+```bash
+npm install
+```
+
+Start the development server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The frontend should then be available at the local development URL shown in the terminal.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 2. Software Dependencies
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Main frontend dependencies:
 
-## Learn More
+* Next.js
+* React
+* TypeScript
+* Material UI
+* Tiptap editor
+* Lucide React icons
 
-To learn more about Next.js, take a look at the following resources:
+Planned backend stack:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+* ASP.NET Core Web API
+* SQL Server
+* Entity Framework Core
+* Typesense for search indexing
+* File/object storage for article content and media files
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## 3. Latest Releases
 
-## Deploy on Vercel
+No production release has been published yet.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Current status:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+* Frontend structure is under development.
+* Knowledge Base views and editor UI are being built.
+* Backend implementation has not started yet.
+* The `backend` folder is reserved for future backend work.
+
+## 4. API References
+
+Backend APIs are not available yet.
+
+Planned API areas include:
+
+* Articles
+* Drafts
+* Published versions
+* Categories
+* Users and roles
+* Review workflow
+* Comments and suggestions
+* Media upload and references
+* Search indexing
+* Export jobs
+* Audit logs
+
+# Build and Test
+
+Navigate to the frontend project:
+
+```bash
+cd frontend/kb-frontend
+```
+
+Run the development server:
+
+```bash
+npm run dev
+```
+
+Build the frontend:
+
+```bash
+npm run build
+```
+
+Run lint checks:
+
+```bash
+npm run lint
+```
+
+Run tests if configured:
+
+```bash
+npm test
+```
+
+If a command is not available, check `frontend/kb-frontend/package.json` for the currently supported scripts.
+
+# Contribute
+
+When contributing to the project:
+
+1. Create a new branch for your work.
+
+```bash
+git checkout -b feature/your-feature-name
+```
+
+2. Make focused changes related to one feature or fix.
+
+3. Run the available checks before committing.
+
+```bash
+npm run lint
+npm run build
+```
+
+4. Commit your changes with a clear message.
+
+```bash
+git add .
+git commit -m "Describe your change"
+```
+
+5. Push your branch.
+
+```bash
+git push origin feature/your-feature-name
+```
+
+6. Open a pull request for review.
+
+##

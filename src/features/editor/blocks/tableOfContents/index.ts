@@ -1,1 +1,0 @@
-export { TableOfContentsBlock } from './TableOfContentsBlock';
