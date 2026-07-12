@@ -2,6 +2,8 @@
 
 import { useMemo, useState, type ChangeEvent } from 'react'
 
+import type { Content } from '@tiptap/core'
+
 import Alert from '@mui/material/Alert'
 import AlertTitle from '@mui/material/AlertTitle'
 import Box from '@mui/material/Box'
@@ -34,6 +36,7 @@ import {
 } from 'lucide-react'
 
 import { KbEmptyState, KbPageShell, KbSectionCard } from '@/views/shared'
+import KnowledgeBaseViewer from '@/features/editor/core/KnowledgeBaseViewer'
 import KbWorkflowDialog from '@/views/shared/dialogs/KbWorkflowDialog'
 import KbDataTable from '@/views/shared/tables/KbDataTable'
 import type { KbDataTableColumn } from '@/views/shared/tables/KbDataTable'
@@ -117,6 +120,14 @@ const getCandidateIssueCounts = (candidates: readonly HelpJuiceImportCandidate[]
   warnings: candidates.reduce((total, candidate) => total + candidate.warnings.length, 0),
   errors: candidates.reduce((total, candidate) => total + candidate.errors.length, 0)
 })
+
+const isRenderableTiptapContent = (value: unknown): value is Content => {
+  if (typeof value === 'string') return true
+  if (Array.isArray(value)) return true
+  if (!value || typeof value !== 'object') return false
+
+  return 'type' in value && typeof (value as { type?: unknown }).type === 'string'
+}
 
 const UploadCard = ({ kind, title, description, requiredColumns, state, onFileSelected }: UploadCardProps) => {
   const issues = getStateIssues(state)
@@ -276,13 +287,9 @@ const CandidateDetailsDialog = ({
   candidate: HelpJuiceImportCandidate | null
   onClose: () => void
 }) => {
-  const tiptapPreview = useMemo(() => {
-    if (!candidate) return ''
-
-    return JSON.stringify(candidate.tiptapJson, null, 2) ?? ''
-  }, [candidate])
-
   if (!candidate) return null
+
+  const renderableContent = isRenderableTiptapContent(candidate.tiptapJson) ? candidate.tiptapJson : null
 
   const metadataRows = [
     ['Question ID', candidate.sourceQuestionId],
@@ -358,26 +365,31 @@ const CandidateDetailsDialog = ({
 
           <Stack spacing={2}>
             <Typography color='text.primary' sx={{ fontWeight: 700 }}>
-              Plain Text Body
+              Rendered Article Preview
             </Typography>
             <Box
               sx={{
-                maxBlockSize: 180,
+                maxBlockSize: '62vh',
                 overflow: 'auto',
                 borderRadius: 1,
                 border: theme => `1px solid ${theme.palette.divider}`,
-                p: 3,
-                bgcolor: 'background.default',
-                whiteSpace: 'pre-wrap'
+                p: { xs: 4, md: 6 },
+                bgcolor: 'background.paper'
               }}
             >
-              <Typography variant='body2' color='text.secondary'>
-                {candidate.plainTextBody || 'No body text generated.'}
-              </Typography>
+              {renderableContent ? (
+                <KnowledgeBaseViewer content={renderableContent} />
+              ) : (
+                <KbEmptyState
+                  title='Preview unavailable'
+                  description='The imported document could not be rendered as Tiptap content.'
+                  icon={<FileSearch />}
+                  minHeight={220}
+                />
+              )}
             </Box>
           </Stack>
-
-          <Box
+            <Box
             sx={{
               display: 'grid',
               gridTemplateColumns: { xs: '1fr', lg: 'repeat(2, minmax(0, 1fr))' },
@@ -385,7 +397,6 @@ const CandidateDetailsDialog = ({
             }}
           >
             <CodeBlock title='Original HTML Body' value={candidate.htmlBody || '<empty>'} />
-            <CodeBlock title='Tiptap JSON Preview' value={tiptapPreview || '{}'} />
           </Box>
         </Stack>
       </DialogContent>

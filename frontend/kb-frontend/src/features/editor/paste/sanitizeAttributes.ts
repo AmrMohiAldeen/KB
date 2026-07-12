@@ -326,6 +326,12 @@ function sanitizeSafeId(value: string | null): string | null {
   return /^[a-zA-Z0-9_-]{1,64}$/.test(cleaned) ? cleaned : null;
 }
 
+function sanitizeHeadingId(value: string | null): string | null {
+  const cleaned = value?.trim() ?? '';
+
+  return /^[A-Za-z][A-Za-z0-9_.:-]{0,127}$/.test(cleaned) ? cleaned : null;
+}
+
 function sanitizeColwidth(value: string | null): string | null {
   if (!value) return null;
 
@@ -406,6 +412,11 @@ export function isAllowedKbAttribute(
 function collectSafeAttributes(element: HTMLElement): Map<string, string> {
   const tagName = getTagName(element);
   const attributes = new Map<string, string>();
+
+  if (/^h[1-6]$/.test(tagName)) {
+    const id = sanitizeHeadingId(element.getAttribute('id'));
+    if (id) attributes.set('id', id);
+  }
 
   if (DIRECTION_ATTRIBUTE_TAGS.has(tagName)) {
     const direction = sanitizeDirectionAttribute(element.getAttribute('dir'));
@@ -511,6 +522,16 @@ function collectSafeAttributes(element: HTMLElement): Map<string, string> {
       20,
       800,
     );
+    const verticalAlign = (
+      element.getAttribute('data-cell-vertical-align') ?? element.style.verticalAlign
+    ).trim().toLowerCase();
+    const rawBorder = (element.getAttribute('data-cell-border') ?? element.style.border).trim();
+    const border =
+      rawBorder &&
+      rawBorder.length <= 200 &&
+      /^[a-zA-Z0-9#(),.%\s-]+$/.test(rawBorder)
+        ? rawBorder
+        : null;
 
     if (colspan && colspan !== '1') attributes.set('colspan', colspan);
     if (rowspan && rowspan !== '1') attributes.set('rowspan', rowspan);
@@ -520,6 +541,10 @@ function collectSafeAttributes(element: HTMLElement): Map<string, string> {
       attributes.set('data-cell-background-color', backgroundColor);
     }
     if (rowHeight) attributes.set('data-row-height', rowHeight);
+    if (/^(?:top|middle|bottom|baseline)$/.test(verticalAlign)) {
+      attributes.set('data-cell-vertical-align', verticalAlign);
+    }
+    if (border) attributes.set('data-cell-border', border);
   }
 
   if (tagName === 'col') {

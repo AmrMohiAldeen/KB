@@ -178,6 +178,8 @@ function candidateFromQuestion(row: CsvRecord, answers: HelpJuiceAnswerRow[]): H
     htmlBody,
     plainTextBody: converted.plainTextBody,
     tiptapJson: converted.tiptapJson,
+    migrationWarnings: converted.migrationWarnings,
+    tableOfContents: converted.tableOfContents,
     warnings,
     errors
   }
@@ -234,6 +236,9 @@ export function createHelpJuicePreparedImportPayload({
   questionsFileName,
   answersFileName
 }: CreatePayloadInput): HelpJuicePreparedImportPayload {
+  // TODO: Connect to the migration backend to save converted Tiptap JSON.
+  // TODO: Connect to the migration backend to store migration warnings.
+  // TODO: Connect to the migration backend to update migration job progress.
   const candidateWarnings = result.candidates.flatMap(candidate =>
     candidate.warnings.map(warning => `${candidate.sourceQuestionId}: ${warning}`)
   )

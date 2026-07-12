@@ -40,6 +40,8 @@ export type HelpJuiceImportCandidate = {
   htmlBody: string
   plainTextBody: string
   tiptapJson: unknown
+  migrationWarnings: MigrationWarning[]
+  tableOfContents: HelpjuiceTocItem[]
   warnings: string[]
   errors: string[]
 }
@@ -63,3 +65,5 @@ export type HelpJuiceImportBuildResult = {
 
 export const HELPJUICE_QUESTIONS_REQUIRED_COLUMNS = ['id', 'name'] as const
 export const HELPJUICE_ANSWERS_REQUIRED_COLUMNS = ['question_id', 'body'] as const
+import type { MigrationWarning } from './normalizeHelpjuiceHtml'
+import type { HelpjuiceTocItem } from './convertNormalizedHelpjuiceHtml'

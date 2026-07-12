@@ -38,6 +38,29 @@ const backgroundColorAttribute: Attribute = {
   },
 };
 
+const verticalAlignAttribute: Attribute = {
+  default: null,
+  parseHTML: (element) => {
+    const value = (element.getAttribute('data-cell-vertical-align') ?? element.style.verticalAlign).trim().toLowerCase();
+    return /^(?:top|middle|bottom|baseline)$/.test(value) ? value : null;
+  },
+  renderHTML: (attributes) => {
+    const value = typeof attributes.verticalAlign === 'string' ? attributes.verticalAlign.trim().toLowerCase() : '';
+    return /^(?:top|middle|bottom|baseline)$/.test(value)
+      ? { 'data-cell-vertical-align': value, style: `vertical-align: ${value};` }
+      : {};
+  },
+};
+
+const borderAttribute: Attribute = {
+  default: null,
+  parseHTML: (element) => element.getAttribute('data-cell-border') ?? element.style.border ?? null,
+  renderHTML: (attributes) => {
+    const value = typeof attributes.border === 'string' ? attributes.border.trim() : '';
+    return value ? { 'data-cell-border': value, style: `border: ${value};` } : {};
+  },
+};
+
 // Added the following attributes to cells:
 // rowHeight: in old browsers formatting row height on <tr> can lead to unexpected behavior 
 // backgroundColor
@@ -45,6 +68,8 @@ const backgroundColorAttribute: Attribute = {
 const cellAttributes = () => ({
   rowHeight: legacyRowHeightAttribute,
   backgroundColor: backgroundColorAttribute,
+  verticalAlign: verticalAlignAttribute,
+  border: borderAttribute,
   defaultMarks: cellDefaultMarksAttribute,
 });
 

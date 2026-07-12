@@ -3,23 +3,24 @@ import {
   EMPTY_TIPTAP_DOC,
   stripHtmlToPlainText
 } from '../../../../features/editor/import/convertHtmlToTiptap'
+import { normalizeHelpjuiceHtml } from './normalizeHelpjuiceHtml'
+import type { MigrationWarning } from './normalizeHelpjuiceHtml'
+import {
+  buildHelpjuiceToc,
+  prepareHelpjuiceSemanticHtml,
+  replaceHelpjuiceMediaPlaceholders,
+  type HelpjuiceTocItem
+} from './convertNormalizedHelpjuiceHtml'
 
-type HelpJuiceHtmlConversionResult = {
+export { normalizeHelpjuiceHtml, type MigrationWarning } from './normalizeHelpjuiceHtml'
+
+export type HelpJuiceHtmlConversionResult = {
   tiptapJson: unknown
   plainTextBody: string
+  migrationWarnings: MigrationWarning[]
+  tableOfContents: HelpjuiceTocItem[]
   warnings: string[]
   errors: string[]
-}
-
-function normalizeHelpJuiceHtml(html: string): string {
-  const normalized = html.replace(/^\uFEFF/, '').trim()
-
-  // TODO: normalize embedded HelpJuice media once the backend media import flow exists.
-  // TODO: rewrite internal HelpJuice links to KB article links after migrated article IDs are available.
-  // TODO: map custom HelpJuice formatting/classes to supported editor marks or nodes.
-  // TODO: review unsupported HelpJuice HTML blocks that the generic sanitizer currently unwraps or removes.
-
-  return normalized
 }
 
 function detectHelpJuiceHtmlWarnings(html: string): string[] {
@@ -41,13 +42,24 @@ function detectHelpJuiceHtmlWarnings(html: string): string[] {
 }
 
 export function convertHelpJuiceHtml(html: string): HelpJuiceHtmlConversionResult {
-  const normalizedHtml = normalizeHelpJuiceHtml(html)
-  const conversion = normalizedHtml ? convertHtmlToTiptapJson(normalizedHtml) : null
+  const normalized = normalizeHelpjuiceHtml(html)
+  const prepared = prepareHelpjuiceSemanticHtml(normalized.html)
+  const conversion = prepared.html ? convertHtmlToTiptapJson(prepared.html) : null
+  const tiptapJson = conversion
+    ? replaceHelpjuiceMediaPlaceholders(conversion.json, prepared.placeholders)
+    : EMPTY_TIPTAP_DOC
+  const migrationWarnings = [...normalized.warnings, ...prepared.warnings]
 
   return {
-    tiptapJson: conversion?.json ?? EMPTY_TIPTAP_DOC,
-    plainTextBody: stripHtmlToPlainText(normalizedHtml),
-    warnings: [...detectHelpJuiceHtmlWarnings(normalizedHtml), ...(conversion?.warnings ?? [])],
+    tiptapJson,
+    plainTextBody: stripHtmlToPlainText(prepared.html),
+    migrationWarnings,
+    tableOfContents: buildHelpjuiceToc(tiptapJson),
+    warnings: [
+      ...migrationWarnings.map(item => `${item.code}: ${item.message}`),
+      ...detectHelpJuiceHtmlWarnings(prepared.html),
+      ...(conversion?.warnings ?? [])
+    ],
     errors: conversion?.errors ?? []
   }
 }

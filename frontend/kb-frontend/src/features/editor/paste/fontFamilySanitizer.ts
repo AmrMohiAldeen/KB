@@ -54,9 +54,11 @@ const FONT_FAMILY_BY_NAME = new Map<string, string>([
   ['consolas', 'Consolas, monospace'],
   ['monaco', 'Monaco, monospace'],
 
-  // Common Word defaults mapped to supported editor fonts
-  ['aptos', 'Arial, Helvetica, sans-serif'],
-  ['calibri', 'Arial, Helvetica, sans-serif'],
+  // Source migration fonts that are safe to preserve as system font stacks.
+  ['tahoma', 'Tahoma, Arial, sans-serif'],
+  ['open sans', '"Open Sans", Arial, sans-serif'],
+  ['calibri', 'Calibri, Arial, sans-serif'],
+  ['aptos', 'Aptos, Arial, sans-serif'],
 ]);
 
 export function sanitizeFontFamily(value: string): string | null {

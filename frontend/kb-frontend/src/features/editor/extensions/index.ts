@@ -18,6 +18,7 @@ import TextAlign from '@tiptap/extension-text-align';
 import { TextDirectionExtension } from './TextDirection';
 import { Glossary } from './Glossary';
 import { FontSizeShortcuts } from './FontSizeShortcuts';
+import { HeadingIds } from './HeadingIds';
 
 import { Youtube } from '@tiptap/extension-youtube';
 import { imageExtensions } from '../blocks/image';
@@ -112,6 +113,7 @@ export const getEditorExtensions = (options: EditorExtensionOptions = {}) => {
       types: ['paragraph', 'heading'],
     }),
     TextDirectionExtension,
+    HeadingIds,
     Glossary,
     FontSizeShortcuts,
 
