@@ -16,7 +16,7 @@ describe('HelpJuice migration import utilities', () => {
     expect(parsed.rows[0].values.description).toBe('Line one\nLine two')
   })
 
-  it('creates one candidate per question and combines multiple matching answers', () => {
+  it('keeps each matching answer as a separate migration record', () => {
     const questions = parseHelpJuiceCsv(
       [
         'id,name,codename,is_published,views,joined_tag_names',
@@ -36,19 +36,12 @@ describe('HelpJuice migration import utilities', () => {
     )
 
     const result = buildHelpJuiceImport({ questions, answers })
-    const firstCandidate = result.candidates[0]
-    const secondCandidate = result.candidates[1]
+    const firstRecord = result.answerResults[0]
 
-    expect(result.candidates).toHaveLength(2)
-    expect(firstCandidate.sourceAnswerIds).toEqual(['a1', 'a2'])
-    expect(firstCandidate.sourceAuthorIds).toEqual(['u1', 'u2'])
-    expect(firstCandidate.sourceViews).toBe(1200)
-    expect(firstCandidate.sourceIsPublished).toBe(true)
-    expect(firstCandidate.sourceKeywordNames).toBe('alpha,beta')
-    expect(firstCandidate.htmlBody).toContain('data-helpjuice-answer-separator')
-    expect(firstCandidate.plainTextBody).toContain('Hello')
-    expect(firstCandidate.warnings).toContain('2 answers were combined into one article body.')
-    expect(secondCandidate.warnings).toContain('No matching answer body was found for this question.')
+    expect(firstRecord.answerId).toBe('a1')
+    expect(firstRecord.questionId).toBe('1')
+    expect(firstRecord.plainTextBody).toContain('Hello')
+    expect(result.answerResults.map(record => record.answerId)).toEqual(['a1', 'a2', 'orphan'])
     expect(result.validationIssues.some(issue => issue.message.includes('no matching question exists'))).toBe(true)
   })
 
@@ -58,9 +51,6 @@ describe('HelpJuice migration import utilities', () => {
     const result = buildHelpJuiceImport({ questions, answers })
 
     expect(result.validationIssues.some(issue => issue.severity === 'error' && issue.message.includes('"body"'))).toBe(
-      true
-    )
-    expect(result.validationIssues.some(issue => issue.severity === 'error' && issue.message.includes('missing required body'))).toBe(
       true
     )
   })
@@ -80,7 +70,7 @@ describe('HelpJuice migration import utilities', () => {
       questionsFileName: 'questions.csv',
       answersFileName: 'answers.csv'
     })
-    expect(payload.candidates).toHaveLength(1)
-    expect(payload.candidates[0].tiptapJson).toEqual(expect.objectContaining({ type: 'doc' }))
+    expect(payload.answerResults).toHaveLength(1)
+    expect(payload.answerResults[0].tiptapJson).toEqual(expect.objectContaining({ type: 'doc' }))
   })
 })

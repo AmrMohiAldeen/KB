@@ -1,6 +1,6 @@
 import type { JSONContent } from '@tiptap/core'
 
-import type { MigrationWarning } from './normalizeHelpjuiceHtml'
+import type { MigrationWarning, MigrationWarningCode } from './normalizeHelpjuiceHtml'
 
 type MediaPlaceholder = {
   token: string
@@ -24,7 +24,7 @@ const HELPJUICE_BOOKMARK_PATTERN = /^#_bmk[A-Za-z0-9_-]+$/
 const SAFE_EMBED_URL = /^(?:https?:\/\/|\/)/i
 const BASE64_MEDIA = /^data:/i
 
-function migrationWarning(code: string, message: string, element?: string): MigrationWarning {
+function migrationWarning(code: MigrationWarningCode, message: string, element?: string): MigrationWarning {
   return { code, severity: 'warning', message, ...(element ? { element } : {}) }
 }
 
@@ -261,6 +261,9 @@ function transformHeadings(root: HTMLElement, warnings: MigrationWarning[]): voi
     let id = base
     let suffix = 2
     while (used.has(id)) id = `${base}-${suffix++}`
+    if (id !== base) {
+      warnings.push(migrationWarning('DUPLICATE_HEADING_ID', `Duplicate heading id "${base}" was replaced with "${id}".`, 'heading'))
+    }
     used.add(id)
     heading.setAttribute('id', id)
     if (oldId && !rewrittenDestinations.has(oldId)) rewrittenDestinations.set(oldId, id)
@@ -270,6 +273,7 @@ function transformHeadings(root: HTMLElement, warnings: MigrationWarning[]): voi
     const href = anchor.getAttribute('href') ?? ''
     if (HELPJUICE_BOOKMARK_PATTERN.test(href)) {
       // TODO: Fix link so that you can link it to what the original Helpjuice bookmark was intended to link to.
+      warnings.push(migrationWarning('UNRESOLVED_BOOKMARK_LINK', 'The Helpjuice bookmark link was retained because its destination is unknown.', 'a'))
       return
     }
 
@@ -278,11 +282,12 @@ function transformHeadings(root: HTMLElement, warnings: MigrationWarning[]): voi
   })
 }
 
-function annotateLinks(root: HTMLElement): void {
+function annotateLinks(root: HTMLElement, warnings: MigrationWarning[]): void {
   Array.from(root.querySelectorAll<HTMLAnchorElement>('a[href]')).forEach(anchor => {
     const href = anchor.getAttribute('href')?.trim() ?? ''
     if (HELPJUICE_LINK_PATTERN.test(href)) {
       // TODO: Connect to the article migration mapping API and replace the Helpjuice question/article URL with the new article slug or ID.
+      warnings.push(migrationWarning('UNRESOLVED_INTERNAL_LINK', 'The Helpjuice internal link was retained until article mappings are available.', 'a'))
     }
 
     if (/^https?:\/\//i.test(href) && anchor.target.toLowerCase() === '_blank') {
@@ -324,6 +329,7 @@ function addImagePlaceholder(
 
   if (/^https?:\/\//i.test(src)) {
     // TODO: Connect to the media migration API to download the Helpjuice media, store it in application media storage, and replace the source URL with the returned media ID or storage URL.
+    warnings.push(migrationWarning('MEDIA_REQUIRES_MIGRATION', 'The external image source is retained temporarily until media migration is available.', 'img'))
   }
 
   const token = `HJ_MEDIA_${placeholders.length + 1}`
@@ -448,7 +454,7 @@ export function prepareHelpjuiceSemanticHtml(html: string): PreparedHelpjuiceHtm
   transformGlossary(root)
   flattenLayoutTables(root, warnings)
   transformHeadings(root, warnings)
-  annotateLinks(root)
+  annotateLinks(root, warnings)
   transformImages(root, placeholders, warnings)
   transformEmbeds(root, placeholders, warnings)
 

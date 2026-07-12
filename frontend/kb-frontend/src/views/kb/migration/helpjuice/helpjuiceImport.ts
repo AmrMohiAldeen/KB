@@ -1,10 +1,9 @@
-import { convertHelpJuiceHtml } from './conversion'
+import { convertAnswerMigrationRecord } from './answerMigration'
 import {
   HELPJUICE_ANSWERS_REQUIRED_COLUMNS,
   HELPJUICE_QUESTIONS_REQUIRED_COLUMNS,
   type CsvRecord,
   type HelpJuiceImportBuildResult,
-  type HelpJuiceImportCandidate,
   type HelpJuicePreparedImportPayload,
   type HelpJuiceValidationIssue,
   type ParsedCsvFile
@@ -28,9 +27,8 @@ type HelpJuiceAnswerRow = {
   sourceQuestionId: string
   sourceAuthorId?: string
   body: string
+  row: CsvRecord
 }
-
-const uniqueStrings = (values: string[]) => Array.from(new Set(values.filter(Boolean)))
 
 const field = (row: CsvRecord, key: string) => row.values[key] ?? ''
 
@@ -54,24 +52,6 @@ const issue = (
   rowNumber
 })
 
-function parseHelpJuiceBoolean(value: string): boolean | undefined {
-  if (!value.trim()) return undefined
-
-  if (/^true$/i.test(value.trim())) return true
-  if (/^false$/i.test(value.trim())) return false
-
-  return undefined
-}
-
-function parseHelpJuiceNumber(value: string): number | undefined {
-  if (!value.trim()) return undefined
-
-  const normalized = value.replace(/,/g, '').trim()
-  const parsed = Number(normalized)
-
-  return Number.isFinite(parsed) ? parsed : undefined
-}
-
 function toAnswerRows(answers: ParsedCsvFile): {
   answerRows: HelpJuiceAnswerRow[]
   validationIssues: HelpJuiceValidationIssue[]
@@ -92,97 +72,21 @@ function toAnswerRows(answers: ParsedCsvFile): {
 
     if (!body.trim()) {
       validationIssues.push(
-        issue('error', `answers.csv row ${row.rowNumber} is missing required body.`, 'answers', row.rowNumber)
+        issue('warning', `answers.csv row ${row.rowNumber} has an empty body and will produce an empty editor document.`, 'answers', row.rowNumber)
       )
     }
-
-    if (!sourceQuestionId || !body.trim()) return
 
     answerRows.push({
       rowNumber: row.rowNumber,
       sourceAnswerId,
       sourceQuestionId,
       sourceAuthorId: optionalField(row, 'user_id'),
-      body
+      body,
+      row
     })
   })
 
   return { answerRows, validationIssues }
-}
-
-function combineAnswerBodies(answers: HelpJuiceAnswerRow[]) {
-  return answers
-    .map((answer, index) => {
-      if (index === 0) return answer.body
-
-      return [
-        '<hr data-helpjuice-answer-separator="true" />',
-        `<p><strong>Additional HelpJuice answer ${index + 1}</strong></p>`,
-        answer.body
-      ].join('\n')
-    })
-    .join('\n')
-}
-
-function candidateFromQuestion(row: CsvRecord, answers: HelpJuiceAnswerRow[]): HelpJuiceImportCandidate {
-  const warnings: string[] = []
-  const errors: string[] = []
-  const sourceQuestionId = trimmedField(row, 'id')
-  const title = trimmedField(row, 'name')
-  const sourceIsPublishedRaw = trimmedField(row, 'is_published')
-  const sourceViewsRaw = trimmedField(row, 'views')
-  const sourceIsPublished = parseHelpJuiceBoolean(sourceIsPublishedRaw)
-  const sourceViews = parseHelpJuiceNumber(sourceViewsRaw)
-
-  if (!sourceQuestionId) errors.push(`questions.csv row ${row.rowNumber} is missing required id.`)
-  if (!title) errors.push(`questions.csv row ${row.rowNumber} is missing required name.`)
-
-  if (sourceIsPublishedRaw && sourceIsPublished === undefined) {
-    warnings.push(`questions.csv row ${row.rowNumber} has invalid is_published value "${sourceIsPublishedRaw}".`)
-  }
-
-  if (sourceViewsRaw && sourceViews === undefined) {
-    warnings.push(`questions.csv row ${row.rowNumber} has invalid views value "${sourceViewsRaw}".`)
-  }
-
-  if (answers.length === 0) {
-    warnings.push('No matching answer body was found for this question.')
-  }
-
-  if (answers.length > 1) {
-    warnings.push(`${answers.length} answers were combined into one article body.`)
-  }
-
-  const htmlBody = combineAnswerBodies(answers)
-  const converted = convertHelpJuiceHtml(htmlBody)
-
-  warnings.push(...converted.warnings)
-  errors.push(...converted.errors)
-
-  return {
-    sourceQuestionId: sourceQuestionId || `row-${row.rowNumber}`,
-    sourceAnswerIds: answers.map(answer => answer.sourceAnswerId),
-    sourceAuthorIds: uniqueStrings(answers.map(answer => answer.sourceAuthorId ?? '')),
-    title: title || `Untitled HelpJuice question ${row.rowNumber}`,
-    slug: optionalField(row, 'codename'),
-    sourceDescription: optionalField(row, 'description'),
-    sourceCategoryId: optionalField(row, 'category_id'),
-    sourceIsPublished,
-    sourceCreatedAt: optionalField(row, 'created_at'),
-    sourceUpdatedAt: optionalField(row, 'updated_at'),
-    sourceLanguageId: optionalField(row, 'language_id'),
-    sourceLanguageCode: optionalField(row, 'language_code'),
-    sourceKeywordNames: optionalField(row, 'joined_tag_names'),
-    sourceExpirationDate: optionalField(row, 'next_expiration_on'),
-    sourceViews,
-    htmlBody,
-    plainTextBody: converted.plainTextBody,
-    tiptapJson: converted.tiptapJson,
-    migrationWarnings: converted.migrationWarnings,
-    tableOfContents: converted.tableOfContents,
-    warnings,
-    errors
-  }
 }
 
 export function buildHelpJuiceImport(input: BuildHelpJuiceImportInput): HelpJuiceImportBuildResult {
@@ -219,14 +123,15 @@ export function buildHelpJuiceImport(input: BuildHelpJuiceImportInput): HelpJuic
     }
   })
 
-  const candidates = input.questions.rows.map(row => {
-    const questionAnswers = answersByQuestionId.get(trimmedField(row, 'id')) ?? []
-
-    return candidateFromQuestion(row, questionAnswers)
+  const questionsById = new Map(input.questions.rows.map(row => [trimmedField(row, 'id'), row]))
+  const answerResults = answerRows.map(answer => {
+    const converted = convertAnswerMigrationRecord(answer.row)
+    const question = questionsById.get(answer.sourceQuestionId)
+    return { ...converted, title: question ? trimmedField(question, 'name') || undefined : undefined }
   })
 
   return {
-    candidates,
+    answerResults,
     validationIssues
   }
 }
@@ -239,12 +144,12 @@ export function createHelpJuicePreparedImportPayload({
   // TODO: Connect to the migration backend to save converted Tiptap JSON.
   // TODO: Connect to the migration backend to store migration warnings.
   // TODO: Connect to the migration backend to update migration job progress.
-  const candidateWarnings = result.candidates.flatMap(candidate =>
-    candidate.warnings.map(warning => `${candidate.sourceQuestionId}: ${warning}`)
+  const candidateWarnings = result.answerResults.flatMap(record =>
+    record.warnings.map(warning => `${record.answerId}: ${warning.code}: ${warning.message}`)
   )
-  const candidateErrors = result.candidates.flatMap(candidate =>
-    candidate.errors.map(error => `${candidate.sourceQuestionId}: ${error}`)
-  )
+  const candidateErrors = result.answerResults
+    .filter(record => record.status === 'failed')
+    .flatMap(record => record.warnings.map(warning => `${record.answerId}: ${warning.code}: ${warning.message}`))
 
   return {
     source: 'helpjuice',
@@ -253,7 +158,7 @@ export function createHelpJuicePreparedImportPayload({
       questionsFileName,
       answersFileName
     },
-    candidates: result.candidates,
+    answerResults: result.answerResults,
     warnings: [
       ...result.validationIssues
         .filter(validationIssue => validationIssue.severity === 'warning')

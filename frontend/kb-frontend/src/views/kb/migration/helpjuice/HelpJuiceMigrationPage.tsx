@@ -14,10 +14,13 @@ import DialogActions from '@mui/material/DialogActions'
 import DialogContent from '@mui/material/DialogContent'
 import DialogTitle from '@mui/material/DialogTitle'
 import Divider from '@mui/material/Divider'
+import FormControl from '@mui/material/FormControl'
 import IconButton from '@mui/material/IconButton'
 import List from '@mui/material/List'
 import ListItem from '@mui/material/ListItem'
 import ListItemText from '@mui/material/ListItemText'
+import MenuItem from '@mui/material/MenuItem'
+import Select from '@mui/material/Select'
 import Stack from '@mui/material/Stack'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
@@ -46,12 +49,13 @@ import StatusChip from '../../shared/components/StatusChip'
 import { parseHelpJuiceCsv } from './csv'
 import { buildHelpJuiceImport, createHelpJuicePreparedImportPayload } from './helpjuiceImport'
 import type {
+  AnswerMigrationReviewRecord,
   HelpJuiceFileKind,
-  HelpJuiceImportCandidate,
   HelpJuicePreparedImportPayload,
   HelpJuiceValidationIssue,
   ParsedCsvFile
 } from './types'
+import { filterAnswerMigrationResults, formatMigrationWarningDetails, getAnswerMigrationStatusCounts } from './answerMigration'
 
 type CsvUploadState =
   | {
@@ -116,9 +120,9 @@ const formatOptionalValue = (value: string | number | boolean | undefined) => {
   return String(value)
 }
 
-const getCandidateIssueCounts = (candidates: readonly HelpJuiceImportCandidate[]): IssueCounts => ({
-  warnings: candidates.reduce((total, candidate) => total + candidate.warnings.length, 0),
-  errors: candidates.reduce((total, candidate) => total + candidate.errors.length, 0)
+const getCandidateIssueCounts = (records: readonly AnswerMigrationReviewRecord[]): IssueCounts => ({
+  warnings: records.reduce((total, record) => total + record.warnings.length, 0),
+  errors: records.filter(record => record.status === 'failed').length
 })
 
 const isRenderableTiptapContent = (value: unknown): value is Content => {
@@ -284,7 +288,7 @@ const CandidateDetailsDialog = ({
   candidate,
   onClose
 }: {
-  candidate: HelpJuiceImportCandidate | null
+  candidate: AnswerMigrationReviewRecord | null
   onClose: () => void
 }) => {
   if (!candidate) return null
@@ -292,18 +296,11 @@ const CandidateDetailsDialog = ({
   const renderableContent = isRenderableTiptapContent(candidate.tiptapJson) ? candidate.tiptapJson : null
 
   const metadataRows = [
-    ['Question ID', candidate.sourceQuestionId],
-    ['Answer IDs', candidate.sourceAnswerIds.join(', ') || '-'],
-    ['Author IDs', candidate.sourceAuthorIds.join(', ') || '-'],
-    ['Slug', candidate.slug],
-    ['Category ID', candidate.sourceCategoryId],
-    ['Published', candidate.sourceIsPublished],
-    ['Created', candidate.sourceCreatedAt],
-    ['Updated', candidate.sourceUpdatedAt],
-    ['Language', candidate.sourceLanguageCode ?? candidate.sourceLanguageId],
-    ['Views', candidate.sourceViews],
-    ['Expiration', candidate.sourceExpirationDate],
-    ['Keywords', candidate.sourceKeywordNames]
+    ['Answer ID', candidate.answerId],
+    ['Question ID', candidate.questionId],
+    ['Status', candidate.status],
+    ['Source HTML size', `${candidate.sourceHtmlLength.toLocaleString()} characters`],
+    ['Converted text size', `${candidate.outputTextLength.toLocaleString()} characters`]
   ] as const
 
   return (
@@ -325,18 +322,12 @@ const CandidateDetailsDialog = ({
       </DialogTitle>
       <DialogContent sx={{ px: 6, py: 5 }}>
         <Stack spacing={5}>
-          {(candidate.errors.length > 0 || candidate.warnings.length > 0) && (
+          {candidate.warnings.length > 0 && (
             <Stack spacing={3}>
-              {candidate.errors.length > 0 && (
-                <Alert severity='error'>
-                  <AlertTitle>Errors</AlertTitle>
-                  <IssueList messages={candidate.errors} />
-                </Alert>
-              )}
               {candidate.warnings.length > 0 && (
                 <Alert severity='warning'>
                   <AlertTitle>Warnings</AlertTitle>
-                  <IssueList messages={candidate.warnings} />
+                  <IssueList messages={formatMigrationWarningDetails(candidate.warnings)} />
                 </Alert>
               )}
             </Stack>
@@ -389,15 +380,6 @@ const CandidateDetailsDialog = ({
               )}
             </Box>
           </Stack>
-            <Box
-            sx={{
-              display: 'grid',
-              gridTemplateColumns: { xs: '1fr', lg: 'repeat(2, minmax(0, 1fr))' },
-              gap: 4
-            }}
-          >
-            <CodeBlock title='Original HTML Body' value={candidate.htmlBody || '<empty>'} />
-          </Box>
         </Stack>
       </DialogContent>
       <DialogActions sx={{ px: 6, pt: 0, pb: 6 }}>
@@ -440,10 +422,11 @@ const CodeBlock = ({ title, value }: { title: string; value: string }) => (
 const HelpJuiceMigrationPage = () => {
   const [questionsFile, setQuestionsFile] = useState<CsvUploadState>(EMPTY_UPLOAD_STATE)
   const [answersFile, setAnswersFile] = useState<CsvUploadState>(EMPTY_UPLOAD_STATE)
-  const [selectedCandidate, setSelectedCandidate] = useState<HelpJuiceImportCandidate | null>(null)
+  const [selectedCandidate, setSelectedCandidate] = useState<AnswerMigrationReviewRecord | null>(null)
   const [preparedPayload, setPreparedPayload] = useState<HelpJuicePreparedImportPayload | null>(null)
   const [previewPage, setPreviewPage] = useState(0)
   const [previewRowsPerPage, setPreviewRowsPerPage] = useState(10)
+  const [statusFilter, setStatusFilter] = useState<'all' | AnswerMigrationReviewRecord['status']>('all')
 
   const buildResult = useMemo(() => {
     if (questionsFile.status !== 'ready' || answersFile.status !== 'ready') return null
@@ -454,8 +437,10 @@ const HelpJuiceMigrationPage = () => {
     })
   }, [answersFile, questionsFile])
 
-  const candidates = buildResult?.candidates ?? []
+  const candidates = buildResult?.answerResults ?? []
   const candidateIssueCounts = getCandidateIssueCounts(candidates)
+  const statusCounts = getAnswerMigrationStatusCounts(candidates)
+  const filteredCandidates = filterAnswerMigrationResults(candidates, statusFilter)
   const blockingErrorCount =
     (buildResult?.validationIssues.filter(issue => issue.severity === 'error').length ?? 0) + candidateIssueCounts.errors
   const canPrepareImport =
@@ -464,25 +449,25 @@ const HelpJuiceMigrationPage = () => {
     answersFile.status === 'ready' &&
     candidates.length > 0 &&
     blockingErrorCount === 0
-  const maxPreviewPage = Math.max(Math.ceil(candidates.length / previewRowsPerPage) - 1, 0)
+  const maxPreviewPage = Math.max(Math.ceil(filteredCandidates.length / previewRowsPerPage) - 1, 0)
   const currentPreviewPage = Math.min(previewPage, maxPreviewPage)
-  const pagedCandidates = candidates.slice(
+  const pagedCandidates = filteredCandidates.slice(
     currentPreviewPage * previewRowsPerPage,
     currentPreviewPage * previewRowsPerPage + previewRowsPerPage
   )
 
-  const columns = useMemo<Array<KbDataTableColumn<HelpJuiceImportCandidate>>>(
+  const columns = useMemo<Array<KbDataTableColumn<AnswerMigrationReviewRecord>>>(
     () => [
       {
-        id: 'title',
-        label: 'Title',
+        id: 'answer',
+        label: 'Answer',
         render: candidate => (
           <Box sx={{ minInlineSize: 260 }}>
             <Typography color='text.primary' sx={{ fontWeight: 700, overflowWrap: 'anywhere' }}>
-              {candidate.title}
+              {candidate.title ?? 'Untitled answer'}
             </Typography>
             <Typography variant='body2' color='text.secondary' sx={{ overflowWrap: 'anywhere' }}>
-              {candidate.slug ? `/${candidate.slug}` : candidate.sourceQuestionId}
+              Answer {candidate.answerId}
             </Typography>
           </Box>
         )
@@ -493,26 +478,20 @@ const HelpJuiceMigrationPage = () => {
         render: candidate => (
           <Stack spacing={0.5}>
             <Typography variant='body2' color='text.primary'>
-              Q: {candidate.sourceQuestionId}
+              Question: {candidate.questionId}
             </Typography>
             <Typography variant='body2' color='text.secondary'>
-              A: {candidate.sourceAnswerIds.length ? candidate.sourceAnswerIds.join(', ') : '-'}
+              Answer: {candidate.answerId}
             </Typography>
           </Stack>
         )
       },
       {
         id: 'state',
-        label: 'State',
+        label: 'Status',
         render: candidate => (
           <Stack direction='row' spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
-            <StatusChip
-              label={
-                candidate.sourceIsPublished === undefined ? 'Not loaded' : candidate.sourceIsPublished ? 'Published' : 'Draft'
-              }
-              color={candidate.sourceIsPublished === true ? 'success' : candidate.sourceIsPublished === false ? 'secondary' : 'default'}
-            />
-            {candidate.sourceViews !== undefined && <Chip size='small' label={`${candidate.sourceViews} views`} variant='tonal' />}
+            <StatusChip label={candidate.status} color={candidate.status === 'failed' ? 'error' : candidate.status === 'warning' ? 'warning' : 'success'} />
           </Stack>
         )
       },
@@ -525,7 +504,7 @@ const HelpJuiceMigrationPage = () => {
               {candidate.plainTextBody || 'No body'}
             </Typography>
             <Typography variant='caption' color='text.secondary'>
-              {candidate.plainTextBody.length.toLocaleString()} plain-text chars
+              {candidate.outputTextLength.toLocaleString()} converted chars / {candidate.sourceHtmlLength.toLocaleString()} source chars
             </Typography>
           </Box>
         )
@@ -537,8 +516,8 @@ const HelpJuiceMigrationPage = () => {
           <Stack direction='row' spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
             <Chip
               size='small'
-              label={`${candidate.errors.length} errors`}
-              color={candidate.errors.length ? 'error' : 'default'}
+              label={`${candidate.status === 'failed' ? 1 : 0} failed`}
+              color={candidate.status === 'failed' ? 'error' : 'default'}
               variant='tonal'
             />
             <Chip
@@ -619,8 +598,12 @@ const HelpJuiceMigrationPage = () => {
       answersFileName: answersFile.fileName
     })
 
-    // TODO: connect to backend API.
-    // POST /api/kb/migrations/helpjuice/import should accept this prepared payload after backend validation exists.
+    // TODO: Connect to the Helpjuice migration upload API to upload questions.csv and answers.csv and create a migration job.
+    // TODO: Connect to the migration status API to retrieve processed, warning, failed and total record counts.
+    // TODO: Connect to the migration result API to retrieve record-level warnings and converted preview content.
+    // TODO: Connect to the migration confirmation API to persist converted Tiptap JSON, article metadata and article mappings.
+    // TODO: Connect to the media migration API to upload referenced Helpjuice media and replace temporary source URLs.
+    // TODO: Connect to the article mapping API to rewrite Helpjuice question IDs and old article URLs after destination articles have been created.
     setPreparedPayload(payload)
   }
 
@@ -629,7 +612,7 @@ const HelpJuiceMigrationPage = () => {
 
     const previewPayload = {
       ...preparedPayload,
-      candidates: preparedPayload.candidates.slice(0, 3)
+      answerResults: preparedPayload.answerResults.slice(0, 3)
     }
     const serialized = JSON.stringify(previewPayload, null, 2) ?? ''
 
@@ -642,7 +625,7 @@ const HelpJuiceMigrationPage = () => {
     <KbPageShell>
       <PageHeader
         title='HelpJuice Migration'
-        subtitle='Import HelpJuice questions and answers exports, validate matched article candidates, and prepare a backend-ready payload.'
+        subtitle='Import HelpJuice questions and answers exports, validate each answer record, and prepare a backend-ready payload.'
         actions={
           <Button
             variant='contained'
@@ -692,18 +675,18 @@ const HelpJuiceMigrationPage = () => {
       </KbSectionCard>
 
       <KbDataTable
-        ariaLabel='HelpJuice import candidates table'
+        ariaLabel='HelpJuice answer migration review table'
         rows={pagedCandidates}
         columns={columns}
-        getRowId={candidate => candidate.sourceQuestionId}
+        getRowId={candidate => candidate.answerId}
         emptyState={{
-          title: 'No import candidates yet',
-          description: 'Article candidates will appear after both HelpJuice CSV files have been parsed.'
+          title: 'No answer records yet',
+          description: 'Answer-level migration records will appear after both HelpJuice CSV files have been parsed.'
         }}
         pagination={{
           page: currentPreviewPage,
           rowsPerPage: previewRowsPerPage,
-          totalRows: candidates.length,
+          totalRows: filteredCandidates.length,
           onPageChange: setPreviewPage,
           onRowsPerPageChange: rowsPerPage => {
             setPreviewRowsPerPage(rowsPerPage)
@@ -724,23 +707,41 @@ const HelpJuiceMigrationPage = () => {
           >
             <Box>
               <Typography variant='h6' color='text.primary' sx={{ fontWeight: 700 }}>
-                Import Candidates
+                Answer Migration Review
               </Typography>
               <Typography variant='body2' color='text.secondary' sx={{ mt: 0.5 }}>
-                One candidate is created for each HelpJuice question row.
+                Each HelpJuice answer is converted and reviewed independently.
               </Typography>
             </Box>
             <Stack direction='row' spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
-              <Chip size='small' label={`${candidates.length} candidates`} icon={<FileSpreadsheet size={16} />} />
+              <FormControl size='small' sx={{ minInlineSize: 132 }}>
+                <Select
+                  value={statusFilter}
+                  onChange={event => {
+                    setStatusFilter(event.target.value as typeof statusFilter)
+                    setPreviewPage(0)
+                  }}
+                  inputProps={{ 'aria-label': 'Status filter' }}
+                >
+                  <MenuItem value='all'>All statuses</MenuItem>
+                  <MenuItem value='success'>Success</MenuItem>
+                  <MenuItem value='warning'>Warning</MenuItem>
+                  <MenuItem value='failed'>Failed</MenuItem>
+                </Select>
+              </FormControl>
+              <Chip size='small' label={`${statusCounts.total} total`} icon={<FileSpreadsheet size={16} />} />
+              <Chip size='small' label={`${statusCounts.processed} processed`} />
+              <Chip size='small' label={`${statusCounts.total ? Math.round((statusCounts.processed / statusCounts.total) * 100) : 0}% progress`} />
+              <Chip size='small' label={`${statusCounts.success} success`} color={statusCounts.success ? 'success' : 'default'} variant='tonal' />
               <Chip
                 size='small'
-                label={`${candidateIssueCounts.warnings} warnings`}
+                label={`${statusCounts.warning} warning`}
                 color={candidateIssueCounts.warnings ? 'warning' : 'default'}
                 variant='tonal'
               />
               <Chip
                 size='small'
-                label={`${candidateIssueCounts.errors} errors`}
+                label={`${statusCounts.failed} failed`}
                 color={candidateIssueCounts.errors ? 'error' : 'default'}
                 variant='tonal'
               />
@@ -759,7 +760,7 @@ const HelpJuiceMigrationPage = () => {
         cancelLabel='Review Candidates'
         notice={
           preparedPayload
-            ? `${preparedPayload.candidates.length} candidates prepared with ${preparedPayload.warnings.length} warnings.`
+            ? `${preparedPayload.answerResults.length} answer records prepared with ${preparedPayload.warnings.length} warnings.`
             : undefined
         }
         onClose={() => setPreparedPayload(null)}
@@ -767,7 +768,7 @@ const HelpJuiceMigrationPage = () => {
       >
         <Stack spacing={3}>
           <Alert severity='info' icon={<Code2 size={20} />}>
-            The preview includes the first three candidates; the full payload remains in memory for the future API handoff.
+            The preview includes the first three answer records; the full payload remains in memory for the future API handoff.
           </Alert>
           <CodeBlock title='Payload Preview' value={preparedPayloadPreview || '{}'} />
         </Stack>

@@ -1,5 +1,22 @@
+export type MigrationWarningCode =
+  | 'MALFORMED_HTML_REPAIRED'
+  | 'BASE64_MEDIA_FOUND'
+  | 'MEDIA_REQUIRES_MIGRATION'
+  | 'BROKEN_IMAGE'
+  | 'UNRESOLVED_INTERNAL_LINK'
+  | 'UNRESOLVED_BOOKMARK_LINK'
+  | 'DUPLICATE_HEADING_ID'
+  | 'H5_MAPPED_TO_H4'
+  | 'LAYOUT_TABLE_FLATTENED'
+  | 'UNSUPPORTED_EMBED'
+  | 'DECISION_TREE_STATIC_FALLBACK'
+  | 'TRANSLATION_PLACEHOLDER'
+  | 'EMPTY_ANSWER'
+  | 'TEXT_CONTENT_MISMATCH'
+  | 'TIPTAP_SCHEMA_VALIDATION_FAILED'
+
 export type MigrationWarning = {
-  code: string
+  code: MigrationWarningCode
   severity: 'info' | 'warning' | 'error'
   message: string
   element?: string
@@ -182,7 +199,7 @@ const FONT_ALIASES = new Map<string, string>([
 const EMPTY_BLOCK_SELECTOR = 'p, div, section, article, blockquote, h1, h2, h3, h4, h5, h6'
 const BASE64_URL_PATTERN = /^data:[^;,]+(?:;[^,]*)?;base64,/i
 
-function warning(code: string, severity: MigrationWarning['severity'], message: string, element?: string): MigrationWarning {
+function warning(code: MigrationWarningCode, severity: MigrationWarning['severity'], message: string, element?: string): MigrationWarning {
   return { code, severity, message, ...(element ? { element } : {}) }
 }
 

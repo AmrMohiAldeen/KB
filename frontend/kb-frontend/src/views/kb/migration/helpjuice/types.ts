@@ -1,3 +1,7 @@
+import type { JSONContent } from '@tiptap/core'
+
+import type { MigrationWarning } from './normalizeHelpjuiceHtml'
+
 export type HelpJuiceFileKind = 'questions' | 'answers'
 
 export type HelpJuiceValidationSeverity = 'warning' | 'error'
@@ -21,29 +25,19 @@ export type ParsedCsvFile = {
   issues: HelpJuiceValidationIssue[]
 }
 
-export type HelpJuiceImportCandidate = {
-  sourceQuestionId: string
-  sourceAnswerIds: string[]
-  sourceAuthorIds: string[]
-  title: string
-  slug?: string
-  sourceDescription?: string
-  sourceCategoryId?: string
-  sourceIsPublished?: boolean
-  sourceCreatedAt?: string
-  sourceUpdatedAt?: string
-  sourceLanguageId?: string
-  sourceLanguageCode?: string
-  sourceKeywordNames?: string
-  sourceExpirationDate?: string
-  sourceViews?: number
-  htmlBody: string
+export type AnswerMigrationResult = {
+  answerId: string
+  questionId: string
+  status: 'success' | 'warning' | 'failed'
+  tiptapJson?: JSONContent
+  warnings: MigrationWarning[]
+  sourceHtmlLength: number
+  outputTextLength: number
+}
+
+export type AnswerMigrationReviewRecord = AnswerMigrationResult & {
+  title?: string
   plainTextBody: string
-  tiptapJson: unknown
-  migrationWarnings: MigrationWarning[]
-  tableOfContents: HelpjuiceTocItem[]
-  warnings: string[]
-  errors: string[]
 }
 
 export type HelpJuicePreparedImportPayload = {
@@ -53,17 +47,15 @@ export type HelpJuicePreparedImportPayload = {
     questionsFileName: string
     answersFileName: string
   }
-  candidates: HelpJuiceImportCandidate[]
+  answerResults: AnswerMigrationReviewRecord[]
   warnings: string[]
   errors: string[]
 }
 
 export type HelpJuiceImportBuildResult = {
-  candidates: HelpJuiceImportCandidate[]
+  answerResults: AnswerMigrationReviewRecord[]
   validationIssues: HelpJuiceValidationIssue[]
 }
 
 export const HELPJUICE_QUESTIONS_REQUIRED_COLUMNS = ['id', 'name'] as const
 export const HELPJUICE_ANSWERS_REQUIRED_COLUMNS = ['question_id', 'body'] as const
-import type { MigrationWarning } from './normalizeHelpjuiceHtml'
-import type { HelpjuiceTocItem } from './convertNormalizedHelpjuiceHtml'
