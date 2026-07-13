@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Kb.Api\Kb.Api.csproj" />
+    <ProjectReference Include="..\Kb.Contracts\Kb.Contracts.csproj" />
     <ProjectReference Include="..\Kb.Domain\Kb.Domain.csproj" />
     <ProjectReference Include="..\Kb.Infrastructure\Kb.Infrastructure.csproj" />
   </ItemGroup>

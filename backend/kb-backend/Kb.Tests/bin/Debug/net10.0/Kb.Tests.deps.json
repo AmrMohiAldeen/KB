@@ -9,6 +9,7 @@
       "Kb.Tests/1.0.0": {
         "dependencies": {
           "Kb.Api": "1.0.0",
+          "Kb.Contracts": "1.0.0",
           "Kb.Domain": "1.0.0",
           "Kb.Infrastructure": "1.0.0",
           "Microsoft.NET.Test.Sdk": "17.14.1",
@@ -822,6 +823,7 @@
       },
       "Kb.Api/1.0.0": {
         "dependencies": {
+          "Kb.Contracts": "1.0.0",
           "Kb.Domain": "1.0.0",
           "Kb.Infrastructure": "1.0.0",
           "Microsoft.AspNetCore.OpenApi": "10.0.8",
@@ -829,6 +831,14 @@
         },
         "runtime": {
           "Kb.Api.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      },
+      "Kb.Contracts/1.0.0": {
+        "runtime": {
+          "Kb.Contracts.dll": {
             "assemblyVersion": "1.0.0.0",
             "fileVersion": "1.0.0.0"
           }
@@ -844,6 +854,7 @@
       },
       "Kb.Infrastructure/1.0.0": {
         "dependencies": {
+          "Kb.Contracts": "1.0.0",
           "Kb.Domain": "1.0.0",
           "Microsoft.EntityFrameworkCore": "10.0.9",
           "Microsoft.EntityFrameworkCore.SqlServer": "10.0.9"
@@ -1214,6 +1225,11 @@
       "hashPath": "xunit.extensibility.execution.2.9.3.nupkg.sha512"
     },
     "Kb.Api/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "Kb.Contracts/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""

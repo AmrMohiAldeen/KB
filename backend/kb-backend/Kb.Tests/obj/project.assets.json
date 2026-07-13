@@ -1189,6 +1189,7 @@
         "type": "project",
         "framework": ".NETCoreApp,Version=v10.0",
         "dependencies": {
+          "Kb.Contracts": "1.0.0",
           "Kb.Domain": "1.0.0",
           "Kb.Infrastructure": "1.0.0",
           "Microsoft.AspNetCore.OpenApi": "10.0.8",
@@ -1204,6 +1205,16 @@
           "Microsoft.AspNetCore.App"
         ]
       },
+      "Kb.Contracts/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v10.0",
+        "compile": {
+          "bin/placeholder/Kb.Contracts.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/Kb.Contracts.dll": {}
+        }
+      },
       "Kb.Domain/1.0.0": {
         "type": "project",
         "framework": ".NETCoreApp,Version=v10.0",
@@ -1218,6 +1229,7 @@
         "type": "project",
         "framework": ".NETCoreApp,Version=v10.0",
         "dependencies": {
+          "Kb.Contracts": "1.0.0",
           "Kb.Domain": "1.0.0",
           "Microsoft.EntityFrameworkCore": "10.0.9",
           "Microsoft.EntityFrameworkCore.SqlServer": "10.0.9"
@@ -3098,6 +3110,11 @@
       "path": "../Kb.Api/Kb.Api.csproj",
       "msbuildProject": "../Kb.Api/Kb.Api.csproj"
     },
+    "Kb.Contracts/1.0.0": {
+      "type": "project",
+      "path": "../Kb.Contracts/Kb.Contracts.csproj",
+      "msbuildProject": "../Kb.Contracts/Kb.Contracts.csproj"
+    },
     "Kb.Domain/1.0.0": {
       "type": "project",
       "path": "../Kb.Domain/Kb.Domain.csproj",
@@ -3112,6 +3129,7 @@
   "projectFileDependencyGroups": {
     "net10.0": [
       "Kb.Api >= 1.0.0",
+      "Kb.Contracts >= 1.0.0",
       "Kb.Domain >= 1.0.0",
       "Kb.Infrastructure >= 1.0.0",
       "Microsoft.NET.Test.Sdk >= 17.14.1",
@@ -3155,6 +3173,9 @@
           "projectReferences": {
             "C:\\gamalearn\\kb-frontend\\backend\\kb-backend\\Kb.Api\\Kb.Api.csproj": {
               "projectPath": "C:\\gamalearn\\kb-frontend\\backend\\kb-backend\\Kb.Api\\Kb.Api.csproj"
+            },
+            "c:\\gamalearn\\kb-frontend\\backend\\kb-backend\\Kb.Contracts\\Kb.Contracts.csproj": {
+              "projectPath": "c:\\gamalearn\\kb-frontend\\backend\\kb-backend\\Kb.Contracts\\Kb.Contracts.csproj"
             },
             "C:\\gamalearn\\kb-frontend\\backend\\kb-backend\\Kb.Domain\\Kb.Domain.csproj": {
               "projectPath": "C:\\gamalearn\\kb-frontend\\backend\\kb-backend\\Kb.Domain\\Kb.Domain.csproj"

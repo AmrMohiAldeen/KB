@@ -330,3 +330,5 @@ C:\gamalearn\kb-frontend\backend\kb-backend\Kb.Tests\obj\Debug\net10.0\refint\Kb
 C:\gamalearn\kb-frontend\backend\kb-backend\Kb.Tests\obj\Debug\net10.0\Kb.Tests.pdb
 C:\gamalearn\kb-frontend\backend\kb-backend\Kb.Tests\obj\Debug\net10.0\Kb.Tests.genruntimeconfig.cache
 C:\gamalearn\kb-frontend\backend\kb-backend\Kb.Tests\obj\Debug\net10.0\ref\Kb.Tests.dll
+C:\gamalearn\kb-frontend\backend\kb-backend\Kb.Tests\bin\Debug\net10.0\Kb.Contracts.dll
+C:\gamalearn\kb-frontend\backend\kb-backend\Kb.Tests\bin\Debug\net10.0\Kb.Contracts.pdb
