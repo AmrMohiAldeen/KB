@@ -3717,11 +3717,11 @@
           "framework": "net10.0",
           "targetAlias": "net10.0",
           "projectReferences": {
-            "c:\\gamalearn\\kb-frontend\\backend\\kb-backend\\Kb.Application\\Kb.Application.csproj": {
-              "projectPath": "c:\\gamalearn\\kb-frontend\\backend\\kb-backend\\Kb.Application\\Kb.Application.csproj"
+            "C:\\gamalearn\\kb-frontend\\backend\\kb-backend\\Kb.Application\\Kb.Application.csproj": {
+              "projectPath": "C:\\gamalearn\\kb-frontend\\backend\\kb-backend\\Kb.Application\\Kb.Application.csproj"
             },
-            "c:\\gamalearn\\kb-frontend\\backend\\kb-backend\\Kb.Contracts\\Kb.Contracts.csproj": {
-              "projectPath": "c:\\gamalearn\\kb-frontend\\backend\\kb-backend\\Kb.Contracts\\Kb.Contracts.csproj"
+            "C:\\gamalearn\\kb-frontend\\backend\\kb-backend\\Kb.Contracts\\Kb.Contracts.csproj": {
+              "projectPath": "C:\\gamalearn\\kb-frontend\\backend\\kb-backend\\Kb.Contracts\\Kb.Contracts.csproj"
             },
             "C:\\gamalearn\\kb-frontend\\backend\\kb-backend\\Kb.Domain\\Kb.Domain.csproj": {
               "projectPath": "C:\\gamalearn\\kb-frontend\\backend\\kb-backend\\Kb.Domain\\Kb.Domain.csproj"

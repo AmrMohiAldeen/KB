@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "c:\\gamalearn\\kb-frontend\\backend\\kb-backend\\Kb.Contracts\\Kb.Contracts.csproj": {}
+    "C:\\gamalearn\\kb-frontend\\backend\\kb-backend\\Kb.Contracts\\Kb.Contracts.csproj": {}
   },
   "projects": {
-    "c:\\gamalearn\\kb-frontend\\backend\\kb-backend\\Kb.Contracts\\Kb.Contracts.csproj": {
+    "C:\\gamalearn\\kb-frontend\\backend\\kb-backend\\Kb.Contracts\\Kb.Contracts.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "c:\\gamalearn\\kb-frontend\\backend\\kb-backend\\Kb.Contracts\\Kb.Contracts.csproj",
+        "projectUniqueName": "C:\\gamalearn\\kb-frontend\\backend\\kb-backend\\Kb.Contracts\\Kb.Contracts.csproj",
         "projectName": "Kb.Contracts",
-        "projectPath": "c:\\gamalearn\\kb-frontend\\backend\\kb-backend\\Kb.Contracts\\Kb.Contracts.csproj",
+        "projectPath": "C:\\gamalearn\\kb-frontend\\backend\\kb-backend\\Kb.Contracts\\Kb.Contracts.csproj",
         "packagesPath": "C:\\Users\\Pc\\.nuget\\packages\\",
-        "outputPath": "c:\\gamalearn\\kb-frontend\\backend\\kb-backend\\Kb.Contracts\\obj\\",
+        "outputPath": "C:\\gamalearn\\kb-frontend\\backend\\kb-backend\\Kb.Contracts\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"

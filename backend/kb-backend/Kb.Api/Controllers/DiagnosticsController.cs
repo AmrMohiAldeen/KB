@@ -1,12 +1,14 @@
 using System.Data;
 using System.Diagnostics;
 using Kb.Infrastructure.Data;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
 namespace Kb.Api.Controllers;
 
 [ApiController]
+[AllowAnonymous]
 [Route("api/[controller]")]
 [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
 public sealed class DiagnosticsController : ControllerBase

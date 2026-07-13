@@ -83,3 +83,16 @@ public static class ClaimNames
     // The integration boundary must translate the external SSO subject to USERS.UserID before setting this claim.
     public const string InternalUserId = "kb_user_id";
 }
+
+public static class CategoryAuditActions
+{
+    public const string Created = "CategoryCreated";
+    public const string Updated = "CategoryUpdated";
+    public const string Moved = "CategoryMoved";
+    public const string Deleted = "CategoryDeleted";
+}
+
+public static class AuditEntityTypes
+{
+    public const string Category = "Category";
+}

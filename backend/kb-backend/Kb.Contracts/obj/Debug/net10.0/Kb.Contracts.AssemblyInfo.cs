@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Kb.Contracts")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+440a4a7b4155af86fa6052c33b110af530be5eed")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+9f24d077c357289fe70875d3da8a59c77737014e")]
 [assembly: System.Reflection.AssemblyProductAttribute("Kb.Contracts")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Kb.Contracts")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

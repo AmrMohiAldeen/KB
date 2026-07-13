@@ -14,3 +14,6 @@ C:\gamalearn\kb-frontend\backend\kb-backend\Kb.Application\obj\Debug\net10.0\Kb.
 C:\gamalearn\kb-frontend\backend\kb-backend\Kb.Application\obj\Debug\net10.0\refint\Kb.Application.dll
 C:\gamalearn\kb-frontend\backend\kb-backend\Kb.Application\obj\Debug\net10.0\Kb.Application.pdb
 C:\gamalearn\kb-frontend\backend\kb-backend\Kb.Application\obj\Debug\net10.0\ref\Kb.Application.dll
+C:\Users\Pc\AppData\Local\Temp\kbapi-auth-validation\Kb.Application.deps.json
+C:\Users\Pc\AppData\Local\Temp\kbapi-auth-validation\Kb.Application.dll
+C:\Users\Pc\AppData\Local\Temp\kbapi-auth-validation\Kb.Application.pdb

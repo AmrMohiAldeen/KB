@@ -1,8 +1,10 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Kb.Api.Controllers
 {
     [ApiController]
+    [AllowAnonymous]
     [Route("api/health")]
     public sealed class HealthController : ControllerBase
     {

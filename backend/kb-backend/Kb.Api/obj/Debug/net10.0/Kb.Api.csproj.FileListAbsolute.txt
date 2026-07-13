@@ -334,3 +334,11 @@ C:\gamalearn\kb-frontend\backend\kb-backend\Kb.Api\bin\Debug\net10.0\Kb.Contract
 C:\gamalearn\kb-frontend\backend\kb-backend\Kb.Api\bin\Debug\net10.0\Kb.Contracts.pdb
 C:\gamalearn\kb-frontend\backend\kb-backend\Kb.Api\bin\Debug\net10.0\Kb.Application.dll
 C:\gamalearn\kb-frontend\backend\kb-backend\Kb.Api\bin\Debug\net10.0\Kb.Application.pdb
+C:\Users\Pc\AppData\Local\Temp\kbapi-auth-validation\appsettings.Development.json
+C:\Users\Pc\AppData\Local\Temp\kbapi-auth-validation\appsettings.json
+C:\Users\Pc\AppData\Local\Temp\kbapi-auth-validation\Kb.Api.staticwebassets.endpoints.json
+C:\Users\Pc\AppData\Local\Temp\kbapi-auth-validation\Kb.Api.exe
+C:\Users\Pc\AppData\Local\Temp\kbapi-auth-validation\Kb.Api.deps.json
+C:\Users\Pc\AppData\Local\Temp\kbapi-auth-validation\Kb.Api.runtimeconfig.json
+C:\Users\Pc\AppData\Local\Temp\kbapi-auth-validation\Kb.Api.dll
+C:\Users\Pc\AppData\Local\Temp\kbapi-auth-validation\Kb.Api.pdb

@@ -20,6 +20,8 @@ public static class DependencyInjection
             context.ProblemDetails.Extensions["traceId"] = System.Diagnostics.Activity.Current?.Id ?? context.HttpContext.TraceIdentifier);
         services.AddExceptionHandler<GlobalExceptionHandler>();
         services.AddHttpContextAccessor();
+        // TODO: Configure company authentication/SSO and protect business endpoints.
+        services.AddAuthentication();
         services.AddScoped<ICurrentUser, HttpCurrentUser>();
         services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
         services.AddSingleton<IAuthorizationPolicyProvider, PermissionAuthorizationPolicyProvider>();

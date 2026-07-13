@@ -42,3 +42,13 @@ public sealed record CategoryTreeNodeResponse(
     string? Path,
     int Depth,
     IReadOnlyList<CategoryTreeNodeResponse> Children);
+
+public sealed record CategoryDetailsResponse(
+    Guid Id,
+    Guid? ParentCategoryId,
+    string Name,
+    string Slug,
+    string? Description,
+    int SortOrder,
+    string? Path,
+    int Depth);

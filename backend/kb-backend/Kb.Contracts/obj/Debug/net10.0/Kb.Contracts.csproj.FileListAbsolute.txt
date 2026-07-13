@@ -14,3 +14,6 @@ C:\gamalearn\kb-frontend\backend\kb-backend\Kb.Contracts\bin\Debug\net10.0\Kb.Do
 C:\gamalearn\kb-frontend\backend\kb-backend\Kb.Contracts\bin\Debug\net10.0\Kb.Domain.pdb
 C:\gamalearn\kb-frontend\backend\kb-backend\Kb.Contracts\obj\Debug\net10.0\Kb.Contracts.csproj.AssemblyReference.cache
 C:\gamalearn\kb-frontend\backend\kb-backend\Kb.Contracts\obj\Debug\net10.0\Kb.Contr.C57A41C4.Up2Date
+C:\Users\Pc\AppData\Local\Temp\kbapi-auth-validation\Kb.Contracts.deps.json
+C:\Users\Pc\AppData\Local\Temp\kbapi-auth-validation\Kb.Contracts.dll
+C:\Users\Pc\AppData\Local\Temp\kbapi-auth-validation\Kb.Contracts.pdb
