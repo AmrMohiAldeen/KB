@@ -1240,9 +1240,28 @@
           "buildTransitive/net8.0/_._": {}
         }
       },
+      "Kb.Application/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v10.0",
+        "dependencies": {
+          "Kb.Domain": "1.0.0"
+        },
+        "compile": {
+          "bin/placeholder/Kb.Application.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/Kb.Application.dll": {}
+        },
+        "frameworkReferences": [
+          "Microsoft.AspNetCore.App"
+        ]
+      },
       "Kb.Contracts/1.0.0": {
         "type": "project",
         "framework": ".NETCoreApp,Version=v10.0",
+        "dependencies": {
+          "Kb.Domain": "1.0.0"
+        },
         "compile": {
           "bin/placeholder/Kb.Contracts.dll": {}
         },
@@ -3639,6 +3658,11 @@
         "useSharedDesignerContext.txt"
       ]
     },
+    "Kb.Application/1.0.0": {
+      "type": "project",
+      "path": "../Kb.Application/Kb.Application.csproj",
+      "msbuildProject": "../Kb.Application/Kb.Application.csproj"
+    },
     "Kb.Contracts/1.0.0": {
       "type": "project",
       "path": "../Kb.Contracts/Kb.Contracts.csproj",
@@ -3652,6 +3676,7 @@
   },
   "projectFileDependencyGroups": {
     "net10.0": [
+      "Kb.Application >= 1.0.0",
       "Kb.Contracts >= 1.0.0",
       "Kb.Domain >= 1.0.0",
       "Microsoft.EntityFrameworkCore >= 10.0.9",
@@ -3692,6 +3717,9 @@
           "framework": "net10.0",
           "targetAlias": "net10.0",
           "projectReferences": {
+            "c:\\gamalearn\\kb-frontend\\backend\\kb-backend\\Kb.Application\\Kb.Application.csproj": {
+              "projectPath": "c:\\gamalearn\\kb-frontend\\backend\\kb-backend\\Kb.Application\\Kb.Application.csproj"
+            },
             "c:\\gamalearn\\kb-frontend\\backend\\kb-backend\\Kb.Contracts\\Kb.Contracts.csproj": {
               "projectPath": "c:\\gamalearn\\kb-frontend\\backend\\kb-backend\\Kb.Contracts\\Kb.Contracts.csproj"
             },

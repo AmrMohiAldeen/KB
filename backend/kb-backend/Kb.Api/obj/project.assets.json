@@ -1135,9 +1135,28 @@
           "buildTransitive/net8.0/_._": {}
         }
       },
+      "Kb.Application/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v10.0",
+        "dependencies": {
+          "Kb.Domain": "1.0.0"
+        },
+        "compile": {
+          "bin/placeholder/Kb.Application.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/Kb.Application.dll": {}
+        },
+        "frameworkReferences": [
+          "Microsoft.AspNetCore.App"
+        ]
+      },
       "Kb.Contracts/1.0.0": {
         "type": "project",
         "framework": ".NETCoreApp,Version=v10.0",
+        "dependencies": {
+          "Kb.Domain": "1.0.0"
+        },
         "compile": {
           "bin/placeholder/Kb.Contracts.dll": {}
         },
@@ -1159,6 +1178,7 @@
         "type": "project",
         "framework": ".NETCoreApp,Version=v10.0",
         "dependencies": {
+          "Kb.Application": "1.0.0",
           "Kb.Contracts": "1.0.0",
           "Kb.Domain": "1.0.0",
           "Microsoft.EntityFrameworkCore": "10.0.9",
@@ -3561,6 +3581,11 @@
         "system.security.cryptography.protecteddata.nuspec",
         "useSharedDesignerContext.txt"
       ]
+    },
+    "Kb.Application/1.0.0": {
+      "type": "project",
+      "path": "../Kb.Application/Kb.Application.csproj",
+      "msbuildProject": "../Kb.Application/Kb.Application.csproj"
     },
     "Kb.Contracts/1.0.0": {
       "type": "project",

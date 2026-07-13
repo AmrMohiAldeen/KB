@@ -1,11 +1,30 @@
 {
   "version": 4,
   "targets": {
-    "net10.0": {}
+    "net10.0": {
+      "Kb.Domain/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v10.0",
+        "compile": {
+          "bin/placeholder/Kb.Domain.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/Kb.Domain.dll": {}
+        }
+      }
+    }
   },
-  "libraries": {},
+  "libraries": {
+    "Kb.Domain/1.0.0": {
+      "type": "project",
+      "path": "../Kb.Domain/Kb.Domain.csproj",
+      "msbuildProject": "../Kb.Domain/Kb.Domain.csproj"
+    }
+  },
   "projectFileDependencyGroups": {
-    "net10.0": []
+    "net10.0": [
+      "Kb.Domain >= 1.0.0"
+    ]
   },
   "packageFolders": {
     "C:\\Users\\Pc\\.nuget\\packages\\": {},
@@ -39,7 +58,11 @@
         "net10.0": {
           "framework": "net10.0",
           "targetAlias": "net10.0",
-          "projectReferences": {}
+          "projectReferences": {
+            "C:\\gamalearn\\kb-frontend\\backend\\kb-backend\\Kb.Domain\\Kb.Domain.csproj": {
+              "projectPath": "C:\\gamalearn\\kb-frontend\\backend\\kb-backend\\Kb.Domain\\Kb.Domain.csproj"
+            }
+          }
         }
       },
       "warningProperties": {

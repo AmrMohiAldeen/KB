@@ -1,11 +1,18 @@
 using Microsoft.AspNetCore.Mvc;
 
-namespace YourApp.Api.Controllers
+namespace Kb.Api.Controllers
 {
     [ApiController]
     [Route("api/health")]
     public sealed class HealthController : ControllerBase
     {
+        private readonly TimeProvider _timeProvider;
+
+        public HealthController(TimeProvider timeProvider)
+        {
+            _timeProvider = timeProvider;
+        }
+
         // GET /health
         [HttpGet]
         public IActionResult Get()
@@ -14,7 +21,7 @@ namespace YourApp.Api.Controllers
             {
                 status = "Healthy",
                 service = "KB API",
-                utc = DateTime.UtcNow
+                utc = _timeProvider.GetUtcNow()
             });
         }
 

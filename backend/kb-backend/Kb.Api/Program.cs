@@ -1,18 +1,13 @@
-using Kb.Infrastructure.Data;
-using Microsoft.EntityFrameworkCore;
+using Kb.Api;
+using Kb.Application;
+using Kb.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-
-builder.Services.AddControllers();
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-builder.Services.AddOpenApi();
-
-builder.Services.AddDbContext<KbDbContext>(options =>
-{
-    options.UseSqlServer(builder.Configuration.GetConnectionString("kbDatabase"));
-});
+builder.Services
+    .AddApplication()
+    .AddInfrastructure(builder.Configuration)
+    .AddApiServices(builder.Configuration);
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
@@ -26,6 +21,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+app.UseExceptionHandler();
 
 app.UseAuthorization();
 

@@ -11,37 +11,37 @@ public static class ContractLimits
 
 public static class ContentBlockTypes
 {
-    public const string Template = "Template";
-    public const string ReusableBlock = "ReusableBlock";
+    public const string Template = Kb.Domain.Constants.ContentBlockTypes.Template;
+    public const string ReusableBlock = Kb.Domain.Constants.ContentBlockTypes.ReusableBlock;
 }
 
 public static class WorkflowActions
 {
-    public const string SubmitForReview = "SubmitForReview";
-    public const string StartReview = "StartReview";
-    public const string RequestChanges = "RequestChanges";
-    public const string Resubmit = "Resubmit";
-    public const string Approve = "Approve";
-    public const string Reject = "Reject";
-    public const string Publish = "Publish";
+    public const string SubmitForReview = Kb.Domain.Constants.ReviewActions.SubmitForReview;
+    public const string StartReview = Kb.Domain.Constants.ReviewActions.StartReview;
+    public const string RequestChanges = Kb.Domain.Constants.ReviewActions.RequestChanges;
+    public const string Resubmit = Kb.Domain.Constants.ReviewActions.Resubmit;
+    public const string Approve = Kb.Domain.Constants.ReviewActions.Approve;
+    public const string Reject = Kb.Domain.Constants.ReviewActions.Reject;
+    public const string Publish = Kb.Domain.Constants.ReviewActions.Publish;
 }
 
 public static class WorkflowStatuses
 {
-    public const string Draft = "Draft";
-    public const string SubmittedForReview = "SubmittedForReview";
-    public const string InReview = "InReview";
-    public const string ChangesRequested = "ChangesRequested";
-    public const string Resubmitted = "Resubmitted";
-    public const string Approved = "Approved";
-    public const string Published = "Published";
+    public const string Draft = Kb.Domain.Constants.ArticleStatuses.Draft;
+    public const string SubmittedForReview = Kb.Domain.Constants.ArticleStatuses.SubmittedForReview;
+    public const string InReview = Kb.Domain.Constants.ArticleStatuses.InReview;
+    public const string ChangesRequested = Kb.Domain.Constants.ArticleStatuses.ChangesRequested;
+    public const string Resubmitted = Kb.Domain.Constants.ArticleStatuses.Resubmitted;
+    public const string Approved = Kb.Domain.Constants.ArticleStatuses.Approved;
+    public const string Published = Kb.Domain.Constants.ArticleStatuses.Published;
 }
 
 public static class ExportTypes
 {
-    public const string Pdf = "PDF";
-    public const string Html = "HTML";
-    public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { Pdf, Html };
+    public const string Pdf = Kb.Domain.Constants.ExportTypes.Pdf;
+    public const string Html = Kb.Domain.Constants.ExportTypes.Html;
+    public static readonly IReadOnlySet<string> All = Kb.Domain.Constants.ExportTypes.All;
 }
 
 public static class CommentAnchorTypes
@@ -53,29 +53,23 @@ public static class CommentAnchorTypes
 
 public static class PermissionCodes
 {
-    public const string ArticlesCreate = "articles.create";
-    public const string ArticlesEditOwnDraft = "articles.editOwnDraft";
-    public const string ArticlesEditAnyDraft = "articles.editAnyDraft";
-    public const string ArticlesSubmitForReview = "articles.submitForReview";
-    public const string ArticlesReview = "articles.review";
-    public const string ArticlesPublish = "articles.publish";
-    public const string ArticlesDelete = "articles.delete";
-    public const string CommentsCreate = "comments.create";
-    public const string SuggestionsCreate = "suggestions.create";
-    public const string CategoriesManage = "categories.manage";
-    public const string TemplatesManage = "templates.manage";
-    public const string VersionsView = "versions.view";
-    public const string VersionsRestore = "versions.restore";
-    public const string AuditLogsView = "auditLogs.view";
-    public const string LocksManage = "locks.manage";
-    public const string UsersManage = "users.manage";
-    public const string RolesManage = "roles.manage";
+    public const string ArticlesCreate = Kb.Domain.Constants.PermissionCodes.ArticlesCreate;
+    public const string ArticlesEditOwnDraft = Kb.Domain.Constants.PermissionCodes.ArticlesEditOwnDraft;
+    public const string ArticlesEditAnyDraft = Kb.Domain.Constants.PermissionCodes.ArticlesEditAnyDraft;
+    public const string ArticlesSubmitForReview = Kb.Domain.Constants.PermissionCodes.ArticlesSubmitForReview;
+    public const string ArticlesReview = Kb.Domain.Constants.PermissionCodes.ArticlesReview;
+    public const string ArticlesPublish = Kb.Domain.Constants.PermissionCodes.ArticlesPublish;
+    public const string ArticlesDelete = Kb.Domain.Constants.PermissionCodes.ArticlesDelete;
+    public const string CommentsCreate = Kb.Domain.Constants.PermissionCodes.CommentsCreate;
+    public const string SuggestionsCreate = Kb.Domain.Constants.PermissionCodes.SuggestionsCreate;
+    public const string CategoriesManage = Kb.Domain.Constants.PermissionCodes.CategoriesManage;
+    public const string TemplatesManage = Kb.Domain.Constants.PermissionCodes.TemplatesManage;
+    public const string VersionsView = Kb.Domain.Constants.PermissionCodes.VersionsView;
+    public const string VersionsRestore = Kb.Domain.Constants.PermissionCodes.VersionsRestore;
+    public const string AuditLogsView = Kb.Domain.Constants.PermissionCodes.AuditLogsView;
+    public const string LocksManage = Kb.Domain.Constants.PermissionCodes.LocksManage;
+    public const string UsersManage = Kb.Domain.Constants.PermissionCodes.UsersManage;
+    public const string RolesManage = Kb.Domain.Constants.PermissionCodes.RolesManage;
 
-    public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
-    {
-        ArticlesCreate, ArticlesEditOwnDraft, ArticlesEditAnyDraft, ArticlesSubmitForReview,
-        ArticlesReview, ArticlesPublish, ArticlesDelete, CommentsCreate, SuggestionsCreate,
-        CategoriesManage, TemplatesManage, VersionsView, VersionsRestore, AuditLogsView,
-        LocksManage, UsersManage, RolesManage
-    };
+    public static readonly IReadOnlySet<string> All = Kb.Domain.Constants.PermissionCodes.All;
 }

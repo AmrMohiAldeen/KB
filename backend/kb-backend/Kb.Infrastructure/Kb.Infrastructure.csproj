@@ -1,6 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <ProjectReference Include="..\Kb.Application\Kb.Application.csproj" />
     <ProjectReference Include="..\Kb.Contracts\Kb.Contracts.csproj" />
     <ProjectReference Include="..\Kb.Domain\Kb.Domain.csproj" />
   </ItemGroup>

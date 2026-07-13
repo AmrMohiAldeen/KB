@@ -13,16 +13,16 @@ public sealed class DiagnosticsController : ControllerBase
 {
     private readonly KbDbContext _dbContext; 
     private readonly IWebHostEnvironment _environment;
-    private readonly ILogger<DiagnosticsController> _logger;
+    private readonly TimeProvider _timeProvider;
 
     public DiagnosticsController(
         KbDbContext dbContext,
         IWebHostEnvironment environment,
-        ILogger<DiagnosticsController> logger)
+        TimeProvider timeProvider)
     {
         _dbContext = dbContext;
         _environment = environment;
-        _logger = logger;
+        _timeProvider = timeProvider;
     }
 
     /// <summary>
@@ -37,7 +37,7 @@ public sealed class DiagnosticsController : ControllerBase
             Status: "Healthy",
             Service: "Kb.Api",
             Environment: _environment.EnvironmentName,
-            UtcTimestamp: DateTimeOffset.UtcNow));
+            UtcTimestamp: _timeProvider.GetUtcNow()));
     }
 
     /// <summary>
@@ -61,100 +61,12 @@ public sealed class DiagnosticsController : ControllerBase
 
         var stopwatch = Stopwatch.StartNew();
 
-        try
-        {
-            var canConnect = await _dbContext.Database
-                .CanConnectAsync(cancellationToken);
+        var canConnect = await _dbContext.Database
+            .CanConnectAsync(cancellationToken);
 
-            if (!canConnect)
-            {
-                stopwatch.Stop();
-
-                return StatusCode(
-                    StatusCodes.Status503ServiceUnavailable,
-                    new DatabaseDiagnosticsResponse(
-                        Status: "Unhealthy",
-                        CanConnect: false,
-                        Provider: _dbContext.Database.ProviderName,
-                        DatabaseName: null,
-                        DataSource: null,
-                        ServerVersion: null,
-                        ServerEdition: null,
-                        ResponseTimeMilliseconds:
-                            stopwatch.ElapsedMilliseconds,
-                        Error: "The database connection could not be opened."));
-            }
-
-            var connection = _dbContext.Database.GetDbConnection();
-            var shouldCloseConnection =
-                connection.State != ConnectionState.Open;
-
-            try
-            {
-                if (shouldCloseConnection)
-                {
-                    await connection.OpenAsync(cancellationToken);
-                }
-
-                await using var command = connection.CreateCommand();
-
-                command.CommandText = """
-                    SELECT
-                        DB_NAME() AS DatabaseName,
-                        CAST(
-                            SERVERPROPERTY('ProductVersion')
-                            AS nvarchar(128)
-                        ) AS ServerVersion,
-                        CAST(
-                            SERVERPROPERTY('Edition')
-                            AS nvarchar(128)
-                        ) AS ServerEdition;
-                    """;
-
-                await using var reader =
-                    await command.ExecuteReaderAsync(cancellationToken);
-
-                if (!await reader.ReadAsync(cancellationToken))
-                {
-                    throw new InvalidOperationException(
-                        "The database diagnostic query returned no result.");
-                }
-
-                stopwatch.Stop();
-
-                return Ok(new DatabaseDiagnosticsResponse(
-                    Status: "Healthy",
-                    CanConnect: true,
-                    Provider: _dbContext.Database.ProviderName,
-                    DatabaseName: GetNullableString(reader, 0),
-                    DataSource: connection.DataSource,
-                    ServerVersion: GetNullableString(reader, 1),
-                    ServerEdition: GetNullableString(reader, 2),
-                    ResponseTimeMilliseconds:
-                        stopwatch.ElapsedMilliseconds,
-                    Error: null));
-            }
-            finally
-            {
-                if (shouldCloseConnection &&
-                    connection.State != ConnectionState.Closed)
-                {
-                    await connection.CloseAsync();
-                }
-            }
-        }
-        catch (OperationCanceledException)
-            when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception exception)
+        if (!canConnect)
         {
             stopwatch.Stop();
-
-            _logger.LogError(
-                exception,
-                "Database diagnostics check failed.");
 
             return StatusCode(
                 StatusCodes.Status503ServiceUnavailable,
@@ -168,7 +80,65 @@ public sealed class DiagnosticsController : ControllerBase
                     ServerEdition: null,
                     ResponseTimeMilliseconds:
                         stopwatch.ElapsedMilliseconds,
-                    Error: exception.Message));
+                    Error: "The database connection could not be opened."));
+        }
+
+        var connection = _dbContext.Database.GetDbConnection();
+        var shouldCloseConnection =
+            connection.State != ConnectionState.Open;
+
+        try
+        {
+            if (shouldCloseConnection)
+            {
+                await connection.OpenAsync(cancellationToken);
+            }
+
+            await using var command = connection.CreateCommand();
+
+            command.CommandText = """
+                    SELECT
+                        DB_NAME() AS DatabaseName,
+                        CAST(
+                            SERVERPROPERTY('ProductVersion')
+                            AS nvarchar(128)
+                        ) AS ServerVersion,
+                        CAST(
+                            SERVERPROPERTY('Edition')
+                            AS nvarchar(128)
+                        ) AS ServerEdition;
+                """;
+
+            await using var reader =
+                await command.ExecuteReaderAsync(cancellationToken);
+
+            if (!await reader.ReadAsync(cancellationToken))
+            {
+                throw new InvalidOperationException(
+                    "The database diagnostic query returned no result.");
+            }
+
+            stopwatch.Stop();
+
+            return Ok(new DatabaseDiagnosticsResponse(
+                Status: "Healthy",
+                CanConnect: true,
+                Provider: _dbContext.Database.ProviderName,
+                DatabaseName: GetNullableString(reader, 0),
+                DataSource: connection.DataSource,
+                ServerVersion: GetNullableString(reader, 1),
+                ServerEdition: GetNullableString(reader, 2),
+                ResponseTimeMilliseconds:
+                    stopwatch.ElapsedMilliseconds,
+                Error: null));
+        }
+        finally
+        {
+            if (shouldCloseConnection &&
+                connection.State != ConnectionState.Closed)
+            {
+                await connection.CloseAsync();
+            }
         }
     }
 
