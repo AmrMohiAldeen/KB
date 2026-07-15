@@ -8,28 +8,39 @@ export const articleFilterLabels: ArticleFilter[] = [
   'Everything',
   'Published',
   'Draft',
-  'To Review',
-  'Followed',
-  'Archived'
+  'SubmittedForReview',
+  'InReview',
+  'ChangesRequested',
+  'Resubmitted',
+  'Approved'
 ]
 
 export const articleStatuses: ArticleStatus[] = [
   'Draft',
-  'Submitted',
-  'In Review',
-  'Changes Requested',
+  'SubmittedForReview',
+  'InReview',
+  'ChangesRequested',
+  'Resubmitted',
   'Approved',
-  'Published',
-  'Archived'
+  'Published'
 ]
 
 export const articleStatusColor: Record<ArticleStatus, ChipProps['color']> = {
   Published: 'success',
   Draft: 'secondary',
-  Submitted: 'info',
-  'To Review': 'warning',
-  'In Review': 'warning',
-  'Changes Requested': 'warning',
-  Approved: 'success',
-  Archived: 'secondary'
+  SubmittedForReview: 'info',
+  InReview: 'warning',
+  ChangesRequested: 'warning',
+  Resubmitted: 'info',
+  Approved: 'success'
+}
+
+export const articleStatusLabel: Record<ArticleStatus, string> = {
+  Draft: 'Draft',
+  SubmittedForReview: 'Submitted for Review',
+  InReview: 'In Review',
+  ChangesRequested: 'Changes Requested',
+  Resubmitted: 'Resubmitted',
+  Approved: 'Approved',
+  Published: 'Published'
 }

@@ -1,11 +1,13 @@
 'use client'
 
+// MUI Imports
 import Card from '@mui/material/Card'
 import CardContent from '@mui/material/CardContent'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import { FileText } from 'lucide-react'
 
+// Component Imports
 import KbStatusChip from '../KbStatusChip'
 
 type KbWorkflowCardProps = {

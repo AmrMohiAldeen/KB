@@ -41,6 +41,7 @@ public sealed record CategoryTreeNodeResponse(
     int SortOrder,
     string? Path,
     int Depth,
+    int ArticleCount,
     IReadOnlyList<CategoryTreeNodeResponse> Children);
 
 public sealed record CategoryDetailsResponse(
@@ -51,4 +52,5 @@ public sealed record CategoryDetailsResponse(
     string? Description,
     int SortOrder,
     string? Path,
-    int Depth);
+    int Depth,
+    int ArticleCount);

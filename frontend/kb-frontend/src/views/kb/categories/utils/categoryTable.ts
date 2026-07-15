@@ -15,12 +15,17 @@ const flattenCategories = (categories: KbCategoryNode[], parentName = 'Top level
 
 const compareCategories = (sort: KbDataTableSort) => (a: FlatCategory, b: FlatCategory) => {
   const direction = sort.direction === 'asc' ? 1 : -1
-  const aValue = sort.columnId === 'updatedAt' ? a.updatedAt : String(a[sort.columnId as keyof FlatCategory] ?? '')
-  const bValue = sort.columnId === 'updatedAt' ? b.updatedAt : String(b[sort.columnId as keyof FlatCategory] ?? '')
+  const numericColumns = new Set(['articleCount', 'sortOrder', 'depth'])
 
-  if (sort.columnId === 'updatedAt') {
-    return (new Date(aValue).getTime() - new Date(bValue).getTime()) * direction
+  if (numericColumns.has(sort.columnId)) {
+    const aValue = Number(a[sort.columnId as keyof FlatCategory] ?? 0)
+    const bValue = Number(b[sort.columnId as keyof FlatCategory] ?? 0)
+
+    return (aValue - bValue) * direction
   }
+
+  const aValue = String(a[sort.columnId as keyof FlatCategory] ?? '')
+  const bValue = String(b[sort.columnId as keyof FlatCategory] ?? '')
 
   return String(aValue).localeCompare(String(bValue)) * direction
 }
@@ -39,7 +44,7 @@ export const getVisibleCategories = ({
   return flattenCategories(categories)
     .filter(category =>
       needle
-        ? `${category.name} ${category.subtitle} ${category.slug} ${category.parentName}`.toLowerCase().includes(needle)
+        ? `${category.name} ${category.description} ${category.slug} ${category.parentName}`.toLowerCase().includes(needle)
         : true
     )
     .sort(compareCategories(sort))

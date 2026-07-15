@@ -1,7 +1,9 @@
 'use client'
 
+// React Imports
 import { useState } from 'react'
 
+// MUI Imports
 import Button from '@mui/material/Button'
 import Divider from '@mui/material/Divider'
 import Drawer from '@mui/material/Drawer'
@@ -11,10 +13,14 @@ import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import { X } from 'lucide-react'
 
+// Component Imports
 import CustomTextField from '@core/components/mui/TextField'
+import KbFormGrid from '../forms/KbFormGrid'
+
+// Type Imports
 import type { KbUserRole } from '@/types/apps/userTypes'
 
-import KbFormGrid from '../forms/KbFormGrid'
+
 
 type KbUserDrawerProps = {
   open: boolean

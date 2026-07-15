@@ -8,7 +8,6 @@ using Microsoft.EntityFrameworkCore;
 namespace Kb.Api.Controllers;
 
 [ApiController]
-[AllowAnonymous]
 [Route("api/[controller]")]
 [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
 public sealed class DiagnosticsController : ControllerBase

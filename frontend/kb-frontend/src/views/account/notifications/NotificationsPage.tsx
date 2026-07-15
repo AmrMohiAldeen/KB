@@ -1,10 +1,12 @@
 'use client'
 
+// MUI Imports
 import Button from '@mui/material/Button'
 import Checkbox from '@mui/material/Checkbox'
 import FormControlLabel from '@mui/material/FormControlLabel'
 import Stack from '@mui/material/Stack'
 
+// Component Imports
 import KbFormSection from '@/views/shared/forms/KbFormSection'
 import { KbPageHeader, KbPageShell } from '@/views/shared'
 
@@ -18,6 +20,7 @@ const notificationOptions = [
 ]
 
 const AccountNotificationsPage = () => {
+  // Handlers 
   const handleSave = () => {
     // TODO: connect to backend notification preferences API.
     // PATCH /api/kb/me/notification-preferences should persist event/channel preferences for the current SSO user.

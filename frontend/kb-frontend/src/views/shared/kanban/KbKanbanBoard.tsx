@@ -1,7 +1,9 @@
 'use client'
 
+// React Imports
 import type { ReactNode } from 'react'
 
+// MUI Imports
 import Box from '@mui/material/Box'
 
 type KbKanbanBoardProps = {

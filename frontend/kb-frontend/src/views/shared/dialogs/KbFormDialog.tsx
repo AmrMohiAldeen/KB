@@ -1,7 +1,9 @@
 'use client'
 
+// React Imports
 import type { ReactNode } from 'react'
 
+// MUI Imports
 import Button from '@mui/material/Button'
 import Dialog from '@mui/material/Dialog'
 import DialogActions from '@mui/material/DialogActions'
@@ -20,6 +22,7 @@ type KbFormDialogProps = {
   submitLabel?: string
   cancelLabel?: string
   maxWidth?: 'xs' | 'sm' | 'md' | 'lg'
+  submitting?: boolean
   onClose: () => void
   onSubmit: () => void
 }
@@ -32,10 +35,13 @@ export const KbFormDialog = ({
   submitLabel = 'Save',
   cancelLabel = 'Cancel',
   maxWidth = 'sm',
+  submitting = false,
   onClose,
   onSubmit
 }: KbFormDialogProps) => (
-  <Dialog open={open} onClose={onClose} fullWidth maxWidth={maxWidth}>
+  <Dialog open={open} 
+          onClose={() => { if (!submitting) onClose()}} 
+          fullWidth maxWidth={maxWidth}>
     <DialogTitle sx={{ px: 6, pt: 6, pb: 0 }}>
       <Stack direction='row' spacing={3} sx={{ alignItems: 'flex-start', justifyContent: 'space-between' }}>
         <Stack spacing={1}>
@@ -48,17 +54,17 @@ export const KbFormDialog = ({
             </Typography>
           )}
         </Stack>
-        <IconButton size='small' onClick={onClose} aria-label='Close dialog'>
+        <IconButton size='small' onClick={onClose} disabled={submitting} aria-label='Close dialog'>
           <X size={18} />
         </IconButton>
       </Stack>
     </DialogTitle>
     <DialogContent sx={{ px: 6, py: 5 }}>{children}</DialogContent>
     <DialogActions sx={{ px: 6, pt: 0, pb: 6 }}>
-      <Button variant='tonal' color='secondary' onClick={onClose}>
+      <Button variant='tonal' color='secondary' onClick={onClose} disabled={submitting}>
         {cancelLabel}
       </Button>
-      <Button variant='contained' onClick={onSubmit}>
+      <Button variant='contained' onClick={onSubmit} loading={submitting} disabled={submitting}>
         {submitLabel}
       </Button>
     </DialogActions>

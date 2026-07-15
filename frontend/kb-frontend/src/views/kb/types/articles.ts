@@ -1,14 +1,9 @@
-export type ArticleStatus =
-  | 'Published'
-  | 'Draft'
-  | 'Submitted'
-  | 'To Review'
-  | 'In Review'
-  | 'Changes Requested'
-  | 'Approved'
-  | 'Archived'
+// Type Imports
+import type { ArticleStatus as ApiArticleStatus } from '@/types/apps/articleTypes'
 
-export type ArticleFilter = 'Everything' | ArticleStatus | 'Followed'
+export type ArticleStatus = ApiArticleStatus
+
+export type ArticleFilter = 'Everything' | ArticleStatus
 
 export type KbArticle = {
   id: string

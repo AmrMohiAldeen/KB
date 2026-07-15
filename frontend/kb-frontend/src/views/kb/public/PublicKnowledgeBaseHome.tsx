@@ -153,7 +153,7 @@ const PublicKnowledgeBaseHome = ({ lang }: { lang: string }) => {
                           <Box>
                             <Typography variant='h6'>{category.name}</Typography>
                             <Typography variant='body2' color='text.secondary'>
-                              {category.subtitle}
+                              {category.description}
                             </Typography>
                           </Box>
                         </Box>

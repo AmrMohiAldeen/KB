@@ -1,121 +1,128 @@
 'use client'
 
-// React Imports
-import { useState } from 'react'
-
-// MUI Imports
+import { useEffect, useState } from 'react'
 import MenuItem from '@mui/material/MenuItem'
 
-// Type Imports
 import type { KbCategoryNode } from '../../types/categories'
-
-// Component Imports
 import CustomTextField from '@core/components/mui/TextField'
 import KbFormDialog from '@/views/shared/dialogs/KbFormDialog'
 import KbFormGrid from '@/views/shared/forms/KbFormGrid'
+import KbValidationSummary from '@/views/shared/forms/KbValidationSummary'
+import {
+  getCategoryOptions,
+  getInitialCategoryForm,
+  type CategoryFormState
+} from '../utils/categoryForm'
 
-// Util Imports
-import { getCategoryOptions, getInitialCategoryForm, toSlug } from '../utils/categoryForm'
-
-const KbCategoryDialogForm = ({
-  category,
-  categories
-}: {
+type KbCategoryDialogProps = {
+  open: boolean
   category?: KbCategoryNode
   categories: KbCategoryNode[]
-}) => {
-  // States
-  const [form, setForm] = useState(() => getInitialCategoryForm(category))
-
-  // Vars
-  const categoryOptions = getCategoryOptions(categories, category)
-
-  // Handlers
-  const handleNameChange = (name: string) => {
-    setForm(current => ({
-      ...current,
-      name,
-      slug: current.slug ? current.slug : toSlug(name)
-    }))
-  }
-
-  // Render
-  return (
-    <KbFormGrid columns={1}>
-      <CustomTextField
-        label='Name'
-        value={form.name}
-        onChange={event => handleNameChange(event.target.value)}
-        placeholder='Category name'
-        fullWidth
-      />
-      <CustomTextField
-        label='Description'
-        value={form.subtitle}
-        onChange={event => setForm(current => ({ ...current, subtitle: event.target.value }))}
-        placeholder='Short category subtitle'
-        fullWidth
-        multiline
-        minRows={2}
-      />
-      <CustomTextField
-        label='Slug'
-        value={form.slug}
-        onChange={event => setForm(current => ({ ...current, slug: toSlug(event.target.value) }))}
-        placeholder='category-slug'
-        fullWidth
-      />
-      <CustomTextField
-        select
-        label='Parent Category'
-        value={form.parentId}
-        onChange={event => setForm(current => ({ ...current, parentId: event.target.value }))}
-        fullWidth
-      >
-        <MenuItem value=''>Top level</MenuItem>
-        {categoryOptions.map(option => (
-          <MenuItem key={option.id} value={option.id}>
-            {option.name}
-          </MenuItem>
-        ))}
-      </CustomTextField>
-    </KbFormGrid>
-  )
+  submitting?: boolean
+  errors?: string[]
+  onClose: () => void
+  onSubmit?: (form: CategoryFormState) => Promise<void>
 }
 
 export const KbCategoryDialog = ({
   open,
   category,
   categories,
-  onClose
-}: {
-  open: boolean
-  category?: KbCategoryNode
-  categories: KbCategoryNode[]
-  onClose: () => void
-}) => {
-  // Vars
-  const formKey = open ? category?.id ?? 'new-category' : 'closed'
+  submitting = false,
+  errors = [],
+  onClose,
+  onSubmit
+}: KbCategoryDialogProps) => {
+  const [form, setForm] = useState(() => getInitialCategoryForm(category))
+  const [clientErrors, setClientErrors] = useState<string[]>([])
+  const categoryOptions = getCategoryOptions(categories, category)
 
-  // Handlers
-  const handleSubmit = () => {
-    // TODO: connect to backend API.
-    // Create: POST /api/kb/categories with name, subtitle, slug, parentId.
-    // Update: PATCH /api/kb/categories/{categoryId} with rowVersion for concurrency.
-    onClose()
+  useEffect(() => {
+    if (!open) return
+
+    const timer = window.setTimeout(() => {
+      setForm(getInitialCategoryForm(category))
+      setClientErrors([])
+    }, 0)
+
+    return () => window.clearTimeout(timer)
+  }, [open, category])
+
+  const handleSubmit = async () => {
+    const validationErrors: string[] = []
+    const name = form.name.trim()
+    const description = form.description.trim()
+
+    if (!name) validationErrors.push('Name is required.')
+    if (name.length > 200) validationErrors.push('Name cannot exceed 200 characters.')
+    if (description.length > 1000) validationErrors.push('Description cannot exceed 1000 characters.')
+    if (!Number.isInteger(form.sortOrder) || form.sortOrder < 0)
+      validationErrors.push('Sort order must be a non-negative integer.')
+
+    setClientErrors(validationErrors)
+    if (validationErrors.length) return
+
+    if (onSubmit)
+      await onSubmit({ ...form, name, description })
   }
 
-  // Render
   return (
     <KbFormDialog
       open={open}
       title={category ? 'Edit Category' : 'New Category'}
       description='Categories structure navigation only and do not define permissions.'
-      submitLabel={category ? 'Update Category' : 'Create Category'}
+      submitLabel={onSubmit ? category ? 'Update Category' : 'Create Category' : 'Close'}
+      submitting={submitting}
       onClose={onClose}
-      onSubmit={handleSubmit}
+      onSubmit={() => {
+        if (onSubmit) void handleSubmit()
+        else onClose()
+      }}
     >
-      <KbCategoryDialogForm key={formKey} category={category} categories={categories} />
+      <KbFormGrid columns={1}>
+        <KbValidationSummary errors={[...clientErrors, ...errors]} />
+        <CustomTextField
+          label='Name'
+          value={form.name}
+          onChange={event => setForm(current => ({ ...current, name: event.target.value }))}
+          slotProps={{ htmlInput: { maxLength: 200 } }}
+          placeholder='Category name'
+          required
+          fullWidth
+        />
+        <CustomTextField
+          label='Description'
+          value={form.description}
+          onChange={event => setForm(current => ({ ...current, description: event.target.value }))}
+          slotProps={{ htmlInput: { maxLength: 1000 } }}
+          placeholder='Category description'
+          fullWidth
+          multiline
+          minRows={2}
+        />
+        <CustomTextField
+          select
+          label='Parent Category'
+          value={form.parentCategoryId}
+          onChange={event => setForm(current => ({ ...current, parentCategoryId: event.target.value }))}
+          fullWidth
+        >
+          <MenuItem value=''>Top level</MenuItem>
+          {categoryOptions.map(option => (
+            <MenuItem key={option.id} value={option.id}>
+              {option.name}
+            </MenuItem>
+          ))}
+        </CustomTextField>
+        <CustomTextField
+          label='Sort Order'
+          type='number'
+          value={form.sortOrder}
+          onChange={event => setForm(current => ({ ...current, sortOrder: Number(event.target.value) }))}
+          slotProps={{ htmlInput: { min: 0, step: 1 } }}
+          fullWidth
+        />
+      </KbFormGrid>
     </KbFormDialog>
   )
 }

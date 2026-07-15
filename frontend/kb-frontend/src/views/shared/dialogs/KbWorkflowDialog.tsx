@@ -1,7 +1,9 @@
 'use client'
 
+// React Imports
 import type { ReactNode } from 'react'
 
+// MUI Imports
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'

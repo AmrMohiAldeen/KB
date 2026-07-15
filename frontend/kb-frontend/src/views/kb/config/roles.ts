@@ -23,8 +23,10 @@ export const roleDefinitions: RoleDefinition[] = [
       'articles.review',
       'articles.publish',
       'articles.delete',
+      'articles.view',
       'comments.create',
       'suggestions.create',
+      'media.upload',
       'categories.manage',
       'templates.manage',
       'versions.view',
@@ -32,7 +34,8 @@ export const roleDefinitions: RoleDefinition[] = [
       'auditLogs.view',
       'locks.manage',
       'users.manage',
-      'roles.manage'
+      'roles.manage',
+      'workflow.override'
     ]
   },
   {
@@ -43,9 +46,12 @@ export const roleDefinitions: RoleDefinition[] = [
       'articles.create',
       'articles.editOwnDraft',
       'articles.submitForReview',
+      'articles.view',
       'comments.create',
       'suggestions.create',
-      'versions.view'
+      'media.upload',
+      'versions.view',
+      'auditLogs.view',
     ]
   },
   {
@@ -53,28 +59,27 @@ export const roleDefinitions: RoleDefinition[] = [
     label: 'Reviewer',
     summary: 'Review submissions and publish approved content.',
     permissions: [
-      'articles.create',
-      'articles.editOwnDraft',
-      'articles.submitForReview',
       'articles.review',
       'articles.publish',
+      'articles.view',
       'comments.create',
       'suggestions.create',
       'versions.view',
-      'versions.restore'
+      'auditLogs.view',
+      'locks.manage',
     ]
   },
   {
     role: 'contributor',
     label: 'Contributor',
     summary: 'Suggest and draft content with limited workflow access.',
-    permissions: ['articles.create', 'articles.editOwnDraft', 'articles.submitForReview', 'suggestions.create']
+    permissions: ['articles.view', 'comments.create', 'suggestions.create', 'versions.view']
   },
   {
     role: 'viewer',
     label: 'Viewer',
     summary: 'Read published and internal KB content.',
-    permissions: ['comments.create', 'suggestions.create', 'versions.view']
+    permissions: ['articles.view',]
   }
 ]
 
@@ -86,8 +91,10 @@ export const permissionDefinitions: PermissionDefinition[] = [
   { key: 'articles.review', label: 'Review articles', description: 'Approve, reject, or request changes.' },
   { key: 'articles.publish', label: 'Publish articles', description: 'Publish approved article versions.' },
   { key: 'articles.delete', label: 'Delete articles', description: 'Delete drafts or archive article records.' },
+  { key: 'articles.view', label: 'View articles', description: 'Read published KB content.' },
   { key: 'comments.create', label: 'Create comments', description: 'Comment on article and review discussions.' },
   { key: 'suggestions.create', label: 'Create suggestions', description: 'Submit article suggestions.' },
+  { key: 'media.upload', label: 'Upload media', description: 'Upload images and other media assets.' },
   { key: 'categories.manage', label: 'Manage categories', description: 'Create and edit navigation categories.' },
   { key: 'templates.manage', label: 'Manage templates', description: 'Create and update article templates.' },
   { key: 'versions.view', label: 'View versions', description: 'View article version history.' },
@@ -95,5 +102,6 @@ export const permissionDefinitions: PermissionDefinition[] = [
   { key: 'auditLogs.view', label: 'View audit logs', description: 'Read audit activity.' },
   { key: 'locks.manage', label: 'Manage locks', description: 'Lock and unlock article drafts.' },
   { key: 'users.manage', label: 'Manage users', description: 'Manage SSO user access.' },
-  { key: 'roles.manage', label: 'Manage roles', description: 'Manage global role permissions.' }
+  { key: 'roles.manage',label: 'Manage roles',description: 'Configure global role permissions.'},
+  { key: 'workflow.override', label: 'Override workflow', description: 'Override article review and publishing workflow states.'}
 ]

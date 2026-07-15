@@ -11,14 +11,14 @@ namespace Kb.Api.Controllers;
 [ApiController]
 
 
-// [Authorize]
+[Authorize]
 [Route("api/categories")]
-[AllowAnonymous]
 public sealed class CategoriesController(CategoryService categories) : ControllerBase
 {
     private const string ManagePolicy = PermissionPolicy.Prefix + PermissionCodes.CategoriesManage;
 
     [HttpGet("tree")]
+
     [ProducesResponseType<IReadOnlyList<CategoryTreeNodeResponse>>(StatusCodes.Status200OK)]
     public async Task<ActionResult<IReadOnlyList<CategoryTreeNodeResponse>>> GetTree(CancellationToken cancellationToken)
     {
@@ -27,6 +27,7 @@ public sealed class CategoriesController(CategoryService categories) : Controlle
     }
 
     [HttpGet("{id:guid}", Name = nameof(GetById))]
+
     [ProducesResponseType<CategoryDetailsResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<CategoryDetailsResponse>> GetById(Guid id, CancellationToken cancellationToken)
@@ -37,9 +38,9 @@ public sealed class CategoriesController(CategoryService categories) : Controlle
     }
 
     [HttpPost]
-    [AllowAnonymous]
 
-    // [Authorize(Policy = ManagePolicy)]
+
+    [Authorize(Policy = ManagePolicy)]
     [ProducesResponseType<CategoryDetailsResponse>(StatusCodes.Status201Created)]
     public async Task<ActionResult<CategoryDetailsResponse>> Create(CreateCategoryRequest request, CancellationToken cancellationToken)
     {
@@ -49,9 +50,9 @@ public sealed class CategoriesController(CategoryService categories) : Controlle
     }
 
     [HttpPut("{id:guid}")]
-    [AllowAnonymous]
 
-    // [Authorize(Policy = ManagePolicy)]
+
+    [Authorize(Policy = ManagePolicy)]
     [ProducesResponseType<CategoryDetailsResponse>(StatusCodes.Status200OK)]
     public async Task<ActionResult<CategoryDetailsResponse>> Update(Guid id, UpdateCategoryRequest request,
         CancellationToken cancellationToken)
@@ -62,9 +63,9 @@ public sealed class CategoriesController(CategoryService categories) : Controlle
     }
 
     [HttpPatch("{id:guid}/move")]
-    [AllowAnonymous]
 
-    // [Authorize(Policy = ManagePolicy)]
+
+    [Authorize(Policy = ManagePolicy)]
     [ProducesResponseType<CategoryDetailsResponse>(StatusCodes.Status200OK)]
     public async Task<ActionResult<CategoryDetailsResponse>> Move(Guid id, MoveCategoryRequest request,
         CancellationToken cancellationToken)
@@ -74,8 +75,8 @@ public sealed class CategoriesController(CategoryService categories) : Controlle
     }
 
     [HttpDelete("{id:guid}")]
-    [AllowAnonymous]
-    // [Authorize(Policy = ManagePolicy)]
+
+    [Authorize(Policy = ManagePolicy)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
     {
@@ -85,9 +86,9 @@ public sealed class CategoriesController(CategoryService categories) : Controlle
 
     private static CategoryDetailsResponse ToDetailsResponse(CategoryData category) => new(category.Id,
         category.ParentCategoryId, category.Name, category.Slug, category.Description, category.SortOrder,
-        category.Path, category.Depth);
+        category.Path, category.Depth, category.ArticleCount);
 
     private static CategoryTreeNodeResponse ToTreeResponse(CategoryTreeNode category) => new(category.Id,
         category.ParentCategoryId, category.Name, category.Slug, category.Description, category.SortOrder,
-        category.Path, category.Depth, category.Children.Select(ToTreeResponse).ToArray());
+        category.Path, category.Depth, category.ArticleCount, category.Children.Select(ToTreeResponse).ToArray());
 }

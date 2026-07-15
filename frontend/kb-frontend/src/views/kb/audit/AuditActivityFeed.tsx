@@ -138,7 +138,7 @@ const AuditActivityFeed = () => {
         }
         emptyState={{
           title: 'No activity loaded',
-          description: 'Audit events will appear here after the backend audit log API is connected.'
+          description: 'No audit logs match the current filters. Adjust your search or filters to view activity.'
         }}
         pagination={{ page: 0, rowsPerPage: 10, totalRows: visibleEvents.length }}
       />

@@ -3,37 +3,38 @@ import type { KbCategoryNode } from '../../types/categories'
 
 export type CategoryFormState = {
   name: string
-  subtitle: string
-  slug: string
-  parentId: string
+  description: string
+  parentCategoryId: string
+  sortOrder: number
 }
 
 export const emptyCategoryForm: CategoryFormState = {
   name: '',
-  subtitle: '',
-  slug: '',
-  parentId: ''
+  description: '',
+  parentCategoryId: '',
+  sortOrder: 0
 }
 
 export const getInitialCategoryForm = (category?: KbCategoryNode): CategoryFormState =>
   category
     ? {
         name: category.name,
-        subtitle: category.subtitle,
-        slug: category.slug,
-        parentId: category.parentId ?? ''
+        description: category.description,
+        parentCategoryId: category.parentId ?? '',
+        sortOrder: category.sortOrder
       }
     : emptyCategoryForm
 
 const flattenCategoryNodes = (categories: KbCategoryNode[]): KbCategoryNode[] =>
   categories.flatMap(category => [category, ...(category.children ? flattenCategoryNodes(category.children) : [])])
 
-export const getCategoryOptions = (categories: KbCategoryNode[], category?: KbCategoryNode) =>
-  flattenCategoryNodes(categories).filter(option => option.id !== category?.id)
+const collectDescendantIds = (category: KbCategoryNode | undefined): Set<string> =>
+  new Set(category ? flattenCategoryNodes(category.children).map(child => child.id) : [])
+export const getCategoryOptions = (categories: KbCategoryNode[], category?: KbCategoryNode) => {
+  const excludedIds = collectDescendantIds(category)
 
-export const toSlug = (value: string) =>
-  value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
+  if (category)
+    excludedIds.add(category.id)
+
+  return flattenCategoryNodes(categories).filter(option => !excludedIds.has(option.id))
+}

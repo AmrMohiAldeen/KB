@@ -1,5 +1,6 @@
 'use client'
 
+// MUI Imports
 import Box from '@mui/material/Box'
 import Checkbox from '@mui/material/Checkbox'
 import Stack from '@mui/material/Stack'
@@ -12,6 +13,7 @@ import TableRow from '@mui/material/TableRow'
 import Typography from '@mui/material/Typography'
 import { ShieldAlert } from 'lucide-react'
 
+// Component Imports
 import KbSectionCard from '../KbSectionCard'
 
 export type KbPermissionDefinition = {
@@ -51,7 +53,7 @@ export const KbPermissionMatrix = ({ roles, permissions }: KbPermissionMatrixPro
       >
         <ShieldAlert size={18} />
         <Typography variant='body2'>
-          Backend authorization is mandatory; hiding buttons in the UI is not sufficient.
+          Backend authorization is mandatory, changing permissions through the UI is not allowed.
         </Typography>
       </Box>
 
@@ -72,10 +74,7 @@ export const KbPermissionMatrix = ({ roles, permissions }: KbPermissionMatrixPro
               <TableRow key={permission.key} hover>
                 <TableCell sx={{ maxInlineSize: 360 }}>
                   <Typography color='text.primary' sx={{ fontWeight: 700 }}>
-                    {permission.key}
-                  </Typography>
-                  <Typography variant='body2' color='text.secondary'>
-                    {permission.description}
+                    {permission.label}
                   </Typography>
                 </TableCell>
                 {roles.map(role => (

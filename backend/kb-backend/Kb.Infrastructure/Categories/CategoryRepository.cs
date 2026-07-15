@@ -28,10 +28,33 @@ public sealed class CategoryRepository(KbDbContext dbContext) : ICategoryReposit
 
     public Task<CategoryData?> GetByIdAsync(Guid id, CancellationToken cancellationToken) =>
         dbContext.Categories.AsNoTracking().Where(category => category.CategoryId == id)
-            .Select(category => Map(category)).SingleOrDefaultAsync(cancellationToken);
+            .Select(category => new CategoryData(
+                category.CategoryId,
+                category.ParentCategoryIdFk,
+                category.Name,
+                category.Slug,
+                category.Description,
+                category.SortOrder,
+                category.Path,
+                category.Depth,
+                category.Articles.Count(article =>
+                    article.DeletedAt == null && article.Status != ArticleStatuses.Deleted)))
+            .SingleOrDefaultAsync(cancellationToken);
 
     public async Task<IReadOnlyList<CategoryData>> GetAllAsync(CancellationToken cancellationToken) =>
-        await dbContext.Categories.AsNoTracking().Select(category => Map(category)).ToListAsync(cancellationToken);
+        await dbContext.Categories.AsNoTracking()
+            .Select(category => new CategoryData(
+                category.CategoryId,
+                category.ParentCategoryIdFk,
+                category.Name,
+                category.Slug,
+                category.Description,
+                category.SortOrder,
+                category.Path,
+                category.Depth,
+                category.Articles.Count(article =>
+                    article.DeletedAt == null && article.Status != ArticleStatuses.Deleted)))
+            .ToListAsync(cancellationToken);
 
     public async Task<IReadOnlyList<CategoryData>> GetDescendantsAsync(string pathPrefix, Guid categoryId, CancellationToken cancellationToken) =>
         await dbContext.Categories.AsNoTracking()

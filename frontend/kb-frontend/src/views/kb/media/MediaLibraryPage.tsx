@@ -152,7 +152,7 @@ const MediaLibraryPage = () => {
         }
         emptyState={{
           title: 'No media loaded',
-          description: 'Uploaded files will appear here after the backend media API is connected.'
+          description: 'Start building your knowledge base by uploading your first image or file.'
         }}
         pagination={{ page: 0, rowsPerPage: 10, totalRows: visibleFiles.length }}
       />

@@ -150,7 +150,7 @@ const UsersManagementPage = () => {
         }
         emptyState={{
           title: 'No users loaded',
-          description: 'SSO-backed users will appear here after the backend users API is connected.'
+          description: 'No user with the selected role or search term was found. Start by adding a new user.'
         }}
         pagination={{ page: 0, rowsPerPage: 10, totalRows: visibleUsers.length }}
       />

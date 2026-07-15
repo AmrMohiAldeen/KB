@@ -5,8 +5,6 @@ import type { ArticleFilter, KbListRow } from '../../types/articles'
 export const rowMatchesFilter = (row: KbListRow, filter: ArticleFilter) => {
   if (filter === 'Everything') return true
   if (row.kind === 'category') return true
-  if (filter === 'Followed') return row.article.followed
-
   return row.article.status === filter
 }
 

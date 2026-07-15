@@ -6,10 +6,13 @@ export type KbPermissionAction =
   | 'articles.editAnyDraft'
   | 'articles.submitForReview'
   | 'articles.review'
+  | 'articles.requestChanges'
   | 'articles.publish'
   | 'articles.delete'
+  | 'articles.view'
   | 'comments.create'
   | 'suggestions.create'
+  | 'media.upload'
   | 'categories.manage'
   | 'templates.manage'
   | 'versions.view'
@@ -18,6 +21,7 @@ export type KbPermissionAction =
   | 'locks.manage'
   | 'users.manage'
   | 'roles.manage'
+  | 'workflow.override'
 
 export type RolePermissionType = {
   id: string

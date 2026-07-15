@@ -1,7 +1,9 @@
 'use client'
 
+// React Imports
 import type { ReactNode } from 'react'
 
+// MUI Imports
 import Button from '@mui/material/Button'
 import Dialog from '@mui/material/Dialog'
 import DialogActions from '@mui/material/DialogActions'
@@ -20,6 +22,7 @@ type KbConfirmDialogProps = {
   cancelLabel?: string
   confirmColor?: ButtonProps['color']
   icon?: ReactNode
+  submitting?: boolean
   onClose: () => void
   onConfirm: () => void
 }
@@ -32,10 +35,11 @@ export const KbConfirmDialog = ({
   cancelLabel = 'Cancel',
   confirmColor = 'primary',
   icon,
+  submitting = false,
   onClose,
   onConfirm
 }: KbConfirmDialogProps) => (
-  <Dialog open={open} onClose={onClose} fullWidth maxWidth='xs'>
+  <Dialog open={open} onClose={() => { if (!submitting) onClose() }} fullWidth maxWidth='xs'>
     <DialogContent sx={{ px: 6, pt: 7, pb: 3 }}>
       <Stack spacing={3} sx={{ alignItems: 'center', textAlign: 'center' }}>
         <Stack
@@ -62,10 +66,10 @@ export const KbConfirmDialog = ({
       </Stack>
     </DialogContent>
     <DialogActions sx={{ justifyContent: 'center', gap: 2, px: 6, pt: 0, pb: 6 }}>
-      <Button variant='tonal' color='secondary' onClick={onClose}>
+      <Button variant='tonal' color='secondary' onClick={onClose} disabled={submitting}>
         {cancelLabel}
       </Button>
-      <Button variant='contained' color={confirmColor} onClick={onConfirm}>
+      <Button variant='contained' color={confirmColor} onClick={onConfirm} loading={submitting} disabled={submitting}>
         {confirmLabel}
       </Button>
     </DialogActions>

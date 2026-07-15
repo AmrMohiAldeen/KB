@@ -1,9 +1,12 @@
 'use client'
 
+// React Imports
 import type { ReactNode } from 'react'
 
+// MUI Imports
 import Stack from '@mui/material/Stack'
 
+// Component Imports
 import KbSectionCard from '../KbSectionCard'
 
 type KbFormSectionProps = {

@@ -253,6 +253,6 @@ public sealed class CategoryService(
             }
         active.Remove(category.Id);
         return new(category.Id, category.ParentCategoryId, category.Name, category.Slug, category.Description,
-            category.SortOrder, category.Path, category.Depth, nodes);
+            category.SortOrder, category.Path, category.Depth, category.ArticleCount, nodes);
     }
 }

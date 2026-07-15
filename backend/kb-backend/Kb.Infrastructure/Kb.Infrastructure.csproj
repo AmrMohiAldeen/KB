@@ -3,10 +3,10 @@
   <ItemGroup>
     <ProjectReference Include="..\Kb.Application\Kb.Application.csproj" />
     <ProjectReference Include="..\Kb.Contracts\Kb.Contracts.csproj" />
-    <ProjectReference Include="..\Kb.Domain\Kb.Domain.csproj" />
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Azure.Storage.Blobs" Version="12.29.1" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.9" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.9">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

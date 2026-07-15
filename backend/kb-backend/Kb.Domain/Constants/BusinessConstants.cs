@@ -9,6 +9,8 @@ public static class ArticleStatuses
     public const string Resubmitted = "Resubmitted";
     public const string Approved = "Approved";
     public const string Published = "Published";
+
+    public const string Deleted = "Deleted";
 }
 
 public static class ReviewActions
@@ -77,6 +79,7 @@ public static class PermissionCodes
         LocksManage, UsersManage, RolesManage
     };
 }
+
 
 public static class ClaimNames
 {

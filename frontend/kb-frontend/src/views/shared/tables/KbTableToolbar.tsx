@@ -1,8 +1,9 @@
 'use client'
-
+// React Imports
 import { useState } from 'react'
 import type { ReactNode, MouseEvent } from 'react'
 
+// MUI Imports
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Checkbox from '@mui/material/Checkbox'
@@ -15,6 +16,7 @@ import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import { Columns3, Search } from 'lucide-react'
 
+// Component Imports
 import CustomTextField from '@core/components/mui/TextField'
 
 export type KbToolbarColumn = {

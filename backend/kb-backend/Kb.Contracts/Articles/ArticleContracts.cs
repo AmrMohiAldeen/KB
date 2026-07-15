@@ -1,5 +1,4 @@
 using System.ComponentModel.DataAnnotations;
-using System.Text.Json;
 using Kb.Contracts.Common;
 
 namespace Kb.Contracts.Articles;
@@ -10,10 +9,10 @@ public sealed class CreateArticleRequest
     public required string Title { get; init; }
 
     [NonEmptyGuid]
-    public Guid? CategoryId { get; init; }
+    public Guid CategoryId { get; init; }
 
-    [NonEmptyGuid]
-    public Guid? TemplateId { get; init; }
+    [NonWhiteSpace, StringLength(350)]
+    public string? Slug { get; init; }
 }
 
 public sealed class UpdateArticleMetadataRequest
@@ -22,44 +21,38 @@ public sealed class UpdateArticleMetadataRequest
     public required string Title { get; init; }
 
     [NonEmptyGuid]
-    public Guid? CategoryId { get; init; }
+    public Guid CategoryId { get; init; }
+
+    [NonWhiteSpace, StringLength(350)]
+    public string? Slug { get; init; }
+
+    [Required, Base64RowVersion]
+    public required string RowVersion { get; init; }
 }
 
-public sealed record ArticleSummaryResponse(
-    Guid ArticleId,
-    string Title,
-    string Slug,
-    CategorySummaryResponse? Category,
-    UserSummaryResponse Author,
-    string Status,
-    DateTime CreatedAt,
-    DateTime UpdatedAt);
+public sealed record ArticleSummaryResponse(Guid ArticleId, string Title, string Slug,
+    CategorySummaryResponse? Category, UserSummaryResponse Author, string Status, DateTime CreatedAt, DateTime UpdatedAt);
 
-public sealed record ArticleDetailsResponse(
-    Guid ArticleId,
-    string Title,
-    string Slug,
-    CategorySummaryResponse? Category,
-    UserSummaryResponse Author,
-    string Status,
-    Guid? CurrentDraftId,
-    Guid? LastPublishedVersionId,
-    JsonElement Content,
-    DateTime CreatedAt,
-    DateTime UpdatedAt,
-    ArticlePermissionsResponse Permissions);
+public sealed record ArticleListItemResponse(Guid ArticleId, string Title, string Slug, string Status,
+    CategorySummaryResponse? Category, UserSummaryResponse Owner, Guid? CurrentDraftId,
+    Guid? CurrentPublishedVersionId, DateTime CreatedAt, DateTime UpdatedAt, DateTime? PublishedAt,
+    bool IsCurrentDraftLocked, UserSummaryResponse? LockedBy);
 
-public sealed record ArticlePermissionsResponse(
-    bool CanEdit,
-    bool CanSubmitForReview,
-    bool CanReview,
-    bool CanRequestChanges,
-    bool CanApprove,
-    bool CanPublish,
-    bool CanDelete,
-    bool CanViewVersionHistory,
-    bool CanRestoreVersion,
-    bool CanLock,
-    bool CanUnlock,
-    bool CanComment,
-    bool CanSuggest);
+public sealed record ArticleDetailsResponse(Guid ArticleId, string Title, string Slug, string Status,
+    CategorySummaryResponse? Category, UserSummaryResponse Owner, ArticleDraftMetadataResponse? CurrentDraft,
+    ArticlePublishedVersionMetadataResponse? CurrentPublishedVersion, DateTime CreatedAt, DateTime UpdatedAt,
+    DateTime? SubmittedAt, DateTime? ApprovedAt, DateTime? PublishedAt);
+
+public sealed record ArticleDraftMetadataResponse(Guid DraftId, string ContentJsonPath, string? RenderedHtmlPath,
+    string? PlainTextPath, string? ContentHash, long ContentSizeBytes, string RowVersion, string Status,
+    bool IsLocked, UserSummaryResponse? LockedBy, DateTime? LockedAt, UserSummaryResponse CreatedBy,
+    UserSummaryResponse? UpdatedBy, DateTime CreatedAt, DateTime UpdatedAt);
+
+public sealed record ArticlePublishedVersionMetadataResponse(Guid VersionId, int VersionNumber,
+    string ContentJsonPath, string? RenderedHtmlPath, string? PlainTextPath, string? ContentHash,
+    long ContentSizeBytes, UserSummaryResponse CreatedBy, DateTime CreatedAt, UserSummaryResponse? PublishedBy,
+    DateTime? PublishedAt);
+
+public sealed record ArticlePermissionsResponse(bool CanEdit, bool CanSubmitForReview, bool CanReview,
+    bool CanRequestChanges, bool CanApprove, bool CanPublish, bool CanDelete, bool CanViewVersionHistory,
+    bool CanRestoreVersion, bool CanLock, bool CanUnlock, bool CanComment, bool CanSuggest);
