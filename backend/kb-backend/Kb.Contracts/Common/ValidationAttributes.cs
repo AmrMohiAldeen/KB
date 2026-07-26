@@ -44,3 +44,16 @@ public sealed class TiptapDocumentAttribute : ValidationAttribute
     public override string FormatErrorMessage(string name) =>
         $"{name} must be a Tiptap JSON object with a 'doc' root no larger than {ContractLimits.MaxTiptapJsonBytes} bytes.";
 }
+
+[AttributeUsage(AttributeTargets.Property | AttributeTargets.Parameter)]
+public sealed class TiptapDocumentRootAttribute : ValidationAttribute
+{
+    public override bool IsValid(object? value) =>
+        value is JsonElement { ValueKind: JsonValueKind.Object } content &&
+        content.TryGetProperty("type", out var type) &&
+        type.ValueKind == JsonValueKind.String &&
+        type.GetString() == "doc";
+
+    public override string FormatErrorMessage(string name) =>
+        $"{name} must be a Tiptap JSON object with a 'doc' root.";
+}

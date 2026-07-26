@@ -92,7 +92,7 @@ export default function KnowledgeBaseEditor({
 
       <div className="max-h-[72vh] overflow-y-auto">
         <div className="prose prose-base max-w-none">
-          <ImageBubbleMenu editor={editor} />
+          {editable && <ImageBubbleMenu editor={editor} />}
           <EditorContent editor={editor} className="kb-editor-content" />
         </div>
       </div>

@@ -13,6 +13,8 @@ public sealed record ArticleDraftResponse(
     string RowVersion,
     string Status,
     DraftLockStatusResponse Lock,
+    bool CanEdit,
+    bool IsLockOwner,
     UserSummaryResponse CreatedBy,
     UserSummaryResponse? UpdatedBy,
     DateTime CreatedAt,
@@ -20,9 +22,19 @@ public sealed record ArticleDraftResponse(
 
 public sealed class SaveArticleDraftRequest
 {
-    [TiptapDocument]
+    [TiptapDocumentRoot]
     public JsonElement Content { get; init; }
 
+    public string? RenderedHtml { get; init; }
+
+    public string? PlainText { get; init; }
+
+    [Required, Base64RowVersion]
+    public required string RowVersion { get; init; }
+}
+
+public sealed class DraftConcurrencyRequest
+{
     [Required, Base64RowVersion]
     public required string RowVersion { get; init; }
 }
@@ -38,3 +50,10 @@ public sealed record DraftLockStatusResponse(
     bool IsLocked,
     UserSummaryResponse? LockedBy,
     DateTime? LockedAt);
+
+public sealed record DraftLockMutationResponse(
+    string RowVersion,
+    DraftLockStatusResponse Lock,
+    bool CanEdit,
+    bool IsLockOwner,
+    DateTime UpdatedAt);

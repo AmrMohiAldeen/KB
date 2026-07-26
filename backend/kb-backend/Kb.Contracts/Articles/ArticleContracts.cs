@@ -43,15 +43,14 @@ public sealed record ArticleDetailsResponse(Guid ArticleId, string Title, string
     ArticlePublishedVersionMetadataResponse? CurrentPublishedVersion, DateTime CreatedAt, DateTime UpdatedAt,
     DateTime? SubmittedAt, DateTime? ApprovedAt, DateTime? PublishedAt);
 
-public sealed record ArticleDraftMetadataResponse(Guid DraftId, string ContentJsonPath, string? RenderedHtmlPath,
-    string? PlainTextPath, string? ContentHash, long ContentSizeBytes, string RowVersion, string Status,
+public sealed record ArticleDraftMetadataResponse(Guid DraftId, string? ContentHash, long ContentSizeBytes,
+    string RowVersion, string Status,
     bool IsLocked, UserSummaryResponse? LockedBy, DateTime? LockedAt, UserSummaryResponse CreatedBy,
     UserSummaryResponse? UpdatedBy, DateTime CreatedAt, DateTime UpdatedAt);
 
 public sealed record ArticlePublishedVersionMetadataResponse(Guid VersionId, int VersionNumber,
-    string ContentJsonPath, string? RenderedHtmlPath, string? PlainTextPath, string? ContentHash,
-    long ContentSizeBytes, UserSummaryResponse CreatedBy, DateTime CreatedAt, UserSummaryResponse? PublishedBy,
-    DateTime? PublishedAt);
+    string? ContentHash, long ContentSizeBytes, UserSummaryResponse CreatedBy, DateTime CreatedAt,
+    UserSummaryResponse? PublishedBy, DateTime? PublishedAt);
 
 public sealed record ArticlePermissionsResponse(bool CanEdit, bool CanSubmitForReview, bool CanReview,
     bool CanRequestChanges, bool CanApprove, bool CanPublish, bool CanDelete, bool CanViewVersionHistory,

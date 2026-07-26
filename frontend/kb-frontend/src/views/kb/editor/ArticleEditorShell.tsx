@@ -1,291 +1,201 @@
 'use client'
 
-// React Imports
-import { useCallback, useMemo, useState } from 'react'
-
-// Next Imports
+import { useEffect, useMemo } from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
-
-// MUI Imports
+import { useRouter } from 'next/navigation'
+import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
-import Breadcrumbs from '@mui/material/Breadcrumbs'
 import Button from '@mui/material/Button'
 import Card from '@mui/material/Card'
 import CardContent from '@mui/material/CardContent'
 import Chip from '@mui/material/Chip'
-import Divider from '@mui/material/Divider'
-import InputAdornment from '@mui/material/InputAdornment'
-import MenuItem from '@mui/material/MenuItem'
+import CircularProgress from '@mui/material/CircularProgress'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
-
-// Third-party Imports
-import { BookOpen, CheckCircle2, Link2, Save } from 'lucide-react'
-
-// Type Imports
+import { RefreshCw, Save } from 'lucide-react'
 import type { KnowledgeBaseEditorProps } from '@/features/editor/core/KnowledgeBaseEditor'
-import type { KbUserRole } from '@/types/apps/userTypes'
-import type { EditorArticleDraft } from '../types/editor'
-
-// Component Imports
-import CustomTextField from '@core/components/mui/TextField'
+import {
+  useArticleDraftEditor,
+  type ArticleDraftEditorApi
+} from '@/features/editor/drafts/useArticleDraftEditor'
+import { getLocalizedUrl } from '@/utils/i18n'
 import { KbPageShell } from '@/views/shared'
-import CategoryTree from '../shared/components/CategoryTree'
+import KbValidationSummary from '@/views/shared/forms/KbValidationSummary'
 import PageHeader from '../shared/components/PageHeader'
 import StatusChip from '../shared/components/StatusChip'
-
-// Config Imports
-import { articleStatusColor } from '../config/articles'
-import { roleLabels } from '../config/roles'
-
-// Data Imports
-import { emptyCategories } from '../data/categories'
-
-// Util Imports
-import { logDevError } from '@/features/editor/lib/utils/logDevError'
 
 const EditorCanvas = dynamic<KnowledgeBaseEditorProps>(() => import('@/features/editor/core/KnowledgeBaseEditor'), {
   ssr: false
 })
 
-type SaveStatus = 'idle' | 'saving' | 'saved' | 'failed'
+type ArticleEditorShellProps = {
+  lang: string
+  articleId: string
+  /** Supplied by the company SSO/session integration, following the existing API-client convention. */
+  accessToken: string
+  api?: ArticleDraftEditorApi
+}
 
-const ArticleEditorShell = ({ lang }: { lang: string }) => {
-  // Vars
-  // TODO: connect to backend API.
-  // GET /api/kb/articles/{articleId}/draft should return article metadata, draft lock state, rowVersion, and Tiptap JSON.
-  const draft = null as EditorArticleDraft | null
-  const currentUserRole = null as KbUserRole | null
-  const categories = emptyCategories
+const saveLabel = {
+  saved: 'Saved',
+  dirty: 'Unsaved changes',
+  saving: 'Saving',
+  failed: 'Save failed',
+  conflict: 'Conflict detected'
+} as const
 
-  // States
-  const [title, setTitle] = useState(draft?.title ?? '')
-  const [slug, setSlug] = useState(draft?.slug ?? '')
-  const [categoryId, setCategoryId] = useState(draft?.categoryId ?? '')
-  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
+const ArticleEditorShell = ({ lang, articleId, accessToken, api }: ArticleEditorShellProps) => {
+  const router = useRouter()
+  const editor = useArticleDraftEditor({ articleId, accessToken, api })
+  const articlesUrl = getLocalizedUrl('/articles', lang)
 
-  // Hooks
-  const primaryActionLabel = useMemo(
-    () => (currentUserRole === 'admin' || currentUserRole === 'reviewer' ? 'Publish' : 'Submit for Review'),
-    [currentUserRole]
-  )
+  const pageState = useMemo(() => {
+    if (editor.phase === 'loading') return 'Loading'
+    if (editor.phase === 'acquiring') return 'Acquiring lock'
+    if (editor.phase === 'locked') return 'Locked by another user'
+    if (editor.phase === 'readonly') return 'Read-only'
+    if (editor.phase === 'error') return 'Read-only'
+    return saveLabel[editor.saveState.status]
+  }, [editor.phase, editor.saveState.status])
 
-  // Handlers
-  const handleContentChange = useCallback(async () => {
-    setSaveStatus('saving')
+  useEffect(() => {
+    if (!editor.draft?.isLockOwner) return
 
-    try {
-      // TODO: connect to backend API.
-      // PATCH /api/kb/article-drafts/{draftId}/autosave with title, slug, categoryId, Tiptap JSON, and rowVersion.
-      setSaveStatus('saved')
-    } catch (error) {
-      setSaveStatus('failed')
-      throw error
+    const interceptNavigation = (event: MouseEvent) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+      const target = event.target
+      const anchor = target instanceof Element ? target.closest('a[href]') : null
+
+      if (!(anchor instanceof HTMLAnchorElement) || anchor.target === '_blank' || anchor.hasAttribute('download')) return
+
+      const destination = new URL(anchor.href, window.location.href)
+      if (destination.origin !== window.location.origin || destination.href === window.location.href) return
+
+      event.preventDefault()
+      void editor.leave(() => router.push(`${destination.pathname}${destination.search}${destination.hash}`))
     }
-  }, [])
 
-  const handleAutosaveError = useCallback((error: unknown) => {
-    setSaveStatus('failed')
-    logDevError('Article editor autosave failed', error)
-  }, [])
+    document.addEventListener('click', interceptNavigation, true)
+    return () => document.removeEventListener('click', interceptNavigation, true)
+  }, [editor, router])
 
-  const handleSaveDraft = () => {
-    // TODO: connect to backend API.
-    // PATCH /api/kb/article-drafts/{draftId} for explicit draft save.
-    setSaveStatus('saved')
-  }
+  const lockOwner = editor.draft?.lock.lockedBy
+  const lockedAt = editor.draft?.lock.lockedAt
+  const lockTime = lockedAt
+    ? new Intl.DateTimeFormat(lang, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(lockedAt))
+    : null
+  const showRetry = editor.saveState.status === 'failed'
+  const showReload = editor.phase === 'error' || editor.saveState.status === 'conflict'
+  const saveButtonDisabled = !editor.editable || editor.saveState.status === 'saving' ||
+    editor.saveState.status === 'conflict' || (!editor.saveState.dirty && !showRetry)
 
-  const handleWorkflowAction = () => {
-    // TODO: connect to backend API.
-    // Authors submit drafts to /api/kb/reviews; reviewers/admins publish through /api/kb/articles/{articleId}/publish.
-  }
-
-  // Render
   return (
     <KbPageShell maxWidth='100%'>
       <PageHeader
         title='Article Editor'
-        subtitle={currentUserRole ? `Editing as ${roleLabels[currentUserRole]}` : 'Draft metadata will load from the backend.'}
+        subtitle={articleId ? `Draft content for article ${articleId}` : 'No article selected'}
         actions={
           <>
-            {draft ? (
-              <StatusChip label={draft.status} color={articleStatusColor[draft.status]} />
-            ) : (
-              <StatusChip label='Not loaded' />
-            )}
-            <Button variant='outlined' startIcon={<Save size={18} />} onClick={handleSaveDraft}>
-              Save Draft
+            <StatusChip label={pageState} color={editor.saveState.status === 'conflict' || editor.saveState.status === 'failed' ? 'error' : undefined} />
+            <Button
+              variant='outlined'
+              startIcon={<Save size={18} />}
+              disabled={saveButtonDisabled}
+              onClick={() => void editor.retrySave()}
+            >
+              {showRetry ? 'Retry save' : 'Save now'}
             </Button>
-            <Button variant='contained' startIcon={<CheckCircle2 size={18} />} onClick={handleWorkflowAction}>
-              {primaryActionLabel}
+            {showReload && (
+              <Button variant='outlined' startIcon={<RefreshCw size={18} />} onClick={editor.reload}>
+                Reload server draft
+              </Button>
+            )}
+            <Button variant='contained' onClick={() => void editor.leave(() => router.push(articlesUrl))}>
+              Back to Articles
             </Button>
           </>
         }
       />
 
-      <Box
-        sx={{
-          display: 'grid',
-          gridTemplateColumns: { xs: '1fr', xl: '280px minmax(0, 1fr)' },
-          gap: 6,
-          alignItems: 'start'
-        }}
-      >
+      <KbValidationSummary title='Draft editor' errors={editor.messages} />
+
+      {editor.phase === 'loading' && (
+        <Card variant='outlined'>
+          <CardContent>
+            <Stack direction='row' spacing={2} sx={{ alignItems: 'center' }}>
+              <CircularProgress size={22} />
+              <Typography>Loading the current draft…</Typography>
+            </Stack>
+          </CardContent>
+        </Card>
+      )}
+
+      {editor.draft && (
         <Stack spacing={4}>
           <Card variant='outlined' sx={{ borderRadius: 2, boxShadow: 'none' }}>
-            <CardContent sx={{ p: 5, '&:last-child': { pb: 5 } }}>
-              <Stack spacing={4}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                  <BookOpen size={18} color='var(--mui-palette-primary-main)' />
-                  <Typography variant='h6'>Category</Typography>
-                </Box>
-                <CustomTextField
-                  select
-                  label='Primary Category'
-                  value={categoryId}
-                  onChange={event => setCategoryId(event.target.value)}
-                  fullWidth
-                  disabled={!categories.length}
-                >
-                  {categories.map(category => (
-                    <MenuItem key={category.id} value={category.id}>
-                      {category.name}
-                    </MenuItem>
-                  ))}
-                  {categories.flatMap(category =>
-                    category.children
-                      ? category.children.map(child => (
-                          <MenuItem key={child.id} value={child.id}>
-                            {category.name} / {child.name}
-                          </MenuItem>
-                        ))
-                      : []
+            <CardContent sx={{ p: 4, '&:last-child': { pb: 4 } }}>
+              <Stack
+                direction={{ xs: 'column', md: 'row' }}
+                spacing={3}
+                sx={{ alignItems: { md: 'center' }, justifyContent: 'space-between' }}
+              >
+                <Stack spacing={1}>
+                  <Stack direction='row' spacing={2} useFlexGap sx={{ flexWrap: 'wrap' }}>
+                    <StatusChip label={editor.draft.status} />
+                    <Chip size='small' variant='tonal' label={pageState} />
+                  </Stack>
+                  {editor.phase === 'acquiring' && (
+                    <Typography variant='body2' color='text.secondary'>Acquiring the edit lock. The editor is disabled until this succeeds.</Typography>
                   )}
-                </CustomTextField>
-                <Divider />
-                <CategoryTree categories={categories} compact />
+                  {lockOwner && (
+                    <Typography variant='body2' color='text.secondary'>
+                      Locked by {lockOwner.fullName}{lockTime ? ` at ${lockTime}` : ''}
+                    </Typography>
+                  )}
+                </Stack>
+                <Typography variant='body2' color={editor.saveState.dirty ? 'warning.main' : 'text.secondary'}>
+                  {saveLabel[editor.saveState.status]}
+                </Typography>
               </Stack>
             </CardContent>
           </Card>
 
-          <Card variant='outlined' sx={{ borderRadius: 2, boxShadow: 'none' }}>
-            <CardContent sx={{ p: 5, '&:last-child': { pb: 5 } }}>
-              <Stack spacing={3}>
-                <Typography variant='h6'>Article Details</Typography>
-                <Box>
-                  <Typography variant='body2' color='text.secondary'>
-                    Status
-                  </Typography>
-                  {draft ? (
-                    <StatusChip label={draft.status} color={articleStatusColor[draft.status]} />
-                  ) : (
-                    <StatusChip label='Not loaded' />
-                  )}
+          {editor.phase === 'locked' && (
+            <Alert severity='warning'>
+              {lockOwner ? `${lockOwner.fullName} owns this lock${lockTime ? ` since ${lockTime}` : ''}.` : 'Another user owns this lock.'} The content is read-only.
+            </Alert>
+          )}
+          {editor.phase === 'readonly' && <Alert severity='info'>This draft is open read-only.</Alert>}
+          {editor.saveState.status === 'failed' && (
+            <Alert severity='error'>The save failed. Your unsaved content is still in this editor. Retry when the service is available.</Alert>
+          )}
+          {editor.saveState.status === 'conflict' && (
+            <Alert severity='error'>
+              Conflict detected. Autosave has stopped and no overwrite or merge was attempted. Reload the server draft when you are ready to discard local changes.
+            </Alert>
+          )}
+
+          <Card variant='outlined' sx={{ overflow: 'hidden', borderRadius: 2, boxShadow: 'none' }}>
+            <CardContent sx={{ p: 0, '&:last-child': { pb: 0 } }}>
+              <Box sx={{ p: 3, borderBlockEnd: theme => `1px solid ${theme.palette.divider}` }}>
+                <Link href={articlesUrl}>Articles</Link>
+              </Box>
+              <Box sx={{ display: 'flex', justifyContent: 'center', p: { xs: 3, md: 5 }, bgcolor: 'background.default' }}>
+                <Box sx={{ inlineSize: '100%', maxInlineSize: 1120 }}>
+                  <EditorCanvas
+                    key={editor.editorKey}
+                    content={editor.draft.content}
+                    editable={editor.editable}
+                    changeDebounceMs={0}
+                    onChange={editor.onEditorChange}
+                  />
                 </Box>
-                <Box>
-                  <Typography variant='body2' color='text.secondary'>
-                    Version
-                  </Typography>
-                  <Typography color='text.primary'>{draft?.versionLabel ?? '-'}</Typography>
-                </Box>
-                <Box>
-                  <Typography variant='body2' color='text.secondary'>
-                    Autosave
-                  </Typography>
-                  <Typography color={saveStatus === 'failed' ? 'error.main' : 'text.primary'}>
-                    {saveStatus === 'idle' && 'Ready'}
-                    {saveStatus === 'saving' && 'Saving'}
-                    {saveStatus === 'saved' && 'Saved'}
-                    {saveStatus === 'failed' && 'Failed'}
-                  </Typography>
-                </Box>
-              </Stack>
+              </Box>
             </CardContent>
           </Card>
         </Stack>
-
-        <Card variant='outlined' sx={{ overflow: 'hidden', borderRadius: 2, boxShadow: 'none' }}>
-          <CardContent sx={{ p: 0, '&:last-child': { pb: 0 } }}>
-            <Box sx={{ p: { xs: 4, md: 5 }, borderBlockEnd: theme => `1px solid ${theme.palette.divider}` }}>
-              <Stack spacing={4}>
-                <Box
-                  sx={{
-                    display: 'flex',
-                    flexDirection: { xs: 'column', md: 'row' },
-                    alignItems: { md: 'center' },
-                    justifyContent: 'space-between',
-                    gap: 3
-                  }}
-                >
-                  <Breadcrumbs aria-label='Editor breadcrumbs'>
-                    <Link href={`/${lang}/articles`}>Articles</Link>
-                    <Typography color='text.secondary'>{draft?.categoryPath ?? 'Draft'}</Typography>
-                  </Breadcrumbs>
-                  <Stack direction='row' spacing={2} useFlexGap sx={{ flexWrap: 'wrap' }}>
-                    {draft ? (
-                      <StatusChip label={draft.status} color={articleStatusColor[draft.status]} />
-                    ) : (
-                      <StatusChip label='Not loaded' />
-                    )}
-                    <Chip size='small' label={draft ? 'Draft loaded' : 'Waiting for draft'} color='warning' variant='tonal' />
-                  </Stack>
-                </Box>
-
-                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 1fr) 280px' }, gap: 4 }}>
-                  <CustomTextField
-                    label='Article Title'
-                    value={title}
-                    onChange={event => setTitle(event.target.value)}
-                    placeholder='Article title'
-                    fullWidth
-                    sx={{
-                      '& .MuiInputBase-input': {
-                        fontSize: { xs: 24, md: 30 },
-                        lineHeight: 1.25,
-                        fontWeight: 700,
-                        color: 'text.primary'
-                      }
-                    }}
-                  />
-                  <CustomTextField
-                    label='Slug'
-                    value={slug}
-                    onChange={event => setSlug(event.target.value)}
-                    placeholder='article-slug'
-                    slotProps={{
-                      input: {
-                        startAdornment: (
-                          <InputAdornment position='start'>
-                            <Link2 size={16} />
-                          </InputAdornment>
-                        )
-                      }
-                    }}
-                  />
-                </Box>
-              </Stack>
-            </Box>
-
-            <Box
-              sx={{
-                display: 'flex',
-                justifyContent: 'center',
-                p: { xs: 3, md: 5 },
-                bgcolor: 'background.default'
-              }}
-            >
-              <Box sx={{ inlineSize: '100%', maxInlineSize: 1120 }}>
-                <EditorCanvas
-                  content={draft?.content}
-                  onChange={handleContentChange}
-                  onChangeError={handleAutosaveError}
-                />
-              </Box>
-            </Box>
-          </CardContent>
-        </Card>
-      </Box>
+      )}
     </KbPageShell>
   )
 }

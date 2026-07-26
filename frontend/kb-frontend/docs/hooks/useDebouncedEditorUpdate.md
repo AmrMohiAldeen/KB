@@ -16,7 +16,7 @@ onUpdate: ({ editor }) => {
 };
 ```
 
-`EditorWorkspace` passes the actual `onChange` autosave handler and `onChangeError` error handler into `KnowledgeBaseEditor`.
+`ArticleEditorShell` passes changes to `useArticleDraftEditor`, which owns draft loading, locking, autosave, retries, and release.
 
 ## API
 
@@ -34,10 +34,10 @@ useDebouncedEditorUpdate(
 - Waits for the debounce delay before serializing content.
 - Resets the timer when more edits happen before the delay finishes.
 - Serializes content with `editor.getJSON()`.
-- Calls the latest `onChange` handler with the serialized `JSONContent`.
+- Calls the latest `onChange` handler with `JSONContent`, rendered HTML, and plain text when available.
 - Flushes pending changes when the component unmounts.
 - Skips flushing if the editor is already destroyed.
-- Uses `1000ms` when `delayMs` is invalid or non-positive.
+- Uses `1000ms` when `delayMs` is invalid; `0` flushes immediately for the draft coordinator.
 
 ## Editor Integration
 
@@ -55,11 +55,11 @@ The default debounce delay is:
 const DEFAULT_CHANGE_DEBOUNCE_MS = 1000;
 ```
 
-The editor itself is rendered client-side only through `EditorWorkspace` using `next/dynamic` with `ssr: false`.
+The editor itself is rendered client-side only through `ArticleEditorShell` using `next/dynamic` with `ssr: false`.
 
 ## Autosave Status Integration
 
-`EditorWorkspace` uses the debounced `onChange` flow to update save status:
+`ArticleDraftAutosaveCoordinator` uses the debounced `onChange` flow to update save status:
 
 - `saving` when autosave starts.
 - `saved` when autosave succeeds.
@@ -75,13 +75,13 @@ The hook catches:
 
 If `onError` is provided, it is called. Otherwise, the error is logged with `logDevError`.
 
-`EditorWorkspace` uses `onChangeError` to mark autosave as failed and log the error.
+The caller can use `onChangeError` to surface serialization errors; network save errors are handled by the draft coordinator.
 
 ## Storage Impact
 
 None directly.
 
-The hook only emits Tiptap `JSONContent`. Backend autosave, draft persistence, conflict handling, and save status UI are handled by the caller.
+The hook emits Tiptap JSON plus rendered HTML and plain text. Backend autosave, draft persistence, conflict handling, and save status UI are handled by `useArticleDraftEditor`.
 
 ## Tests
 

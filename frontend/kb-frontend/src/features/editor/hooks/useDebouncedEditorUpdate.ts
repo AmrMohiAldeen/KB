@@ -7,6 +7,8 @@ import { logDevError } from "../lib/utils/logDevError";
 
 export type EditorChangeHandler = (
   content: JSONContent,
+  renderedHtml?: string,
+  plainText?: string,
 ) => void | Promise<void>;
 
 export type EditorUpdateErrorHandler = (error: unknown) => void;
@@ -21,7 +23,7 @@ export function useDebouncedEditorUpdate(
   const pendingEditorRef = useRef<Editor | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const safeDelayMs = Number.isFinite(delayMs) && delayMs > 0 ? delayMs : 1000;
+  const safeDelayMs = Number.isFinite(delayMs) && delayMs >= 0 ? delayMs : 1000;
 
   useEffect(() => {
     onChangeRef.current = onChange;
@@ -63,7 +65,11 @@ export function useDebouncedEditorUpdate(
     }
 
     try {
-      void Promise.resolve(onChangeRef.current(content)).catch(handleError);
+      const canRender = typeof editor.getHTML === "function" && typeof editor.getText === "function";
+      const result = canRender
+        ? onChangeRef.current(content, editor.getHTML(), editor.getText())
+        : onChangeRef.current(content);
+      void Promise.resolve(result).catch(handleError);
     } catch (error) {
       handleError(error);
     }
@@ -81,6 +87,11 @@ export function useDebouncedEditorUpdate(
 
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
+      }
+
+      if (safeDelayMs === 0) {
+        flush();
+        return;
       }
 
       timeoutRef.current = setTimeout(flush, safeDelayMs);

@@ -37,9 +37,6 @@ export type ArticleListItemResponse = {
 
 export type ArticleDraftMetadataResponse = {
   draftId: string
-  contentJsonPath: string
-  renderedHtmlPath: string | null
-  plainTextPath: string | null
   contentHash: string | null
   contentSizeBytes: number
   rowVersion: string
@@ -56,9 +53,6 @@ export type ArticleDraftMetadataResponse = {
 export type ArticlePublishedVersionMetadataResponse = {
   versionId: string
   versionNumber: number
-  contentJsonPath: string
-  renderedHtmlPath: string | null
-  plainTextPath: string | null
   contentHash: string | null
   contentSizeBytes: number
   createdBy: UserSummaryResponse

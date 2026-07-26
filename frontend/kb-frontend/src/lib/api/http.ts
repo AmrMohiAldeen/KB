@@ -46,12 +46,19 @@ const getApiBaseUrl = () => {
   return value
 }
 
+export const normalizeAccessToken = (accessToken: string): string =>
+  accessToken.trim().replace(/^Bearer\s+/i, '')
+
+export const hasAccessToken = (accessToken: string): boolean => Boolean(normalizeAccessToken(accessToken))
+
 export async function apiRequest<T>(
   path: string,
   accessToken: string,
   init: RequestInit = {}
 ): Promise<T> {
-  if (!accessToken)
+  const token = normalizeAccessToken(accessToken)
+
+  if (!token)
     throw new ApiError(401, {
       status: 401,
       title: 'Unauthorized',
@@ -61,7 +68,7 @@ export async function apiRequest<T>(
   const headers = new Headers(init.headers)
 
   headers.set('Accept', 'application/json')
-  headers.set('Authorization', `Bearer ${accessToken}`)
+  headers.set('Authorization', `Bearer ${token}`)
 
   if (init.body)
     headers.set('Content-Type', 'application/json')

@@ -499,7 +499,6 @@ C:.
 |       |       toolbarOptions.ts
 |       |       
 |       +---core
-|       |       EditorWorkspace.tsx
 |       |       KnowledgeBaseEditor.tsx
 |       |       KnowledgeBaseViewer.tsx
 |       |       

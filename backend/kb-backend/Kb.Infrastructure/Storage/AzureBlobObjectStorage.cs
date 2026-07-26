@@ -48,10 +48,8 @@ public sealed class AzureBlobObjectStorage(
 
         /*
          * UploadAsync with BlobUploadOptions replaces an existing blob at
-         * the same path. This is useful for current-draft autosaves.
-         *
-         * Media and immutable article versions should always use unique
-         * object names so they are not accidentally replaced.
+         * the same path. Draft content and immutable article versions must
+         * therefore use server-generated unique object names.
          */
         await blobClient.UploadAsync(
             content,

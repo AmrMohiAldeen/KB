@@ -143,4 +143,20 @@ describe("useDebouncedEditorUpdate", () => {
     expect(firstOnChange).not.toHaveBeenCalled();
     expect(latestOnChange).toHaveBeenCalledWith(content);
   });
+
+  it("can emit JSON and rendered forms immediately for an external autosave coordinator", () => {
+    const content: JSONContent = { type: "doc", content: [] };
+    const onChange = vi.fn();
+    const editor = {
+      getJSON: vi.fn(() => content),
+      getHTML: vi.fn(() => "<p></p>"),
+      getText: vi.fn(() => ""),
+      isDestroyed: false,
+    } as unknown as Editor;
+    const scheduleChange = renderHarness(onChange, 0);
+
+    act(() => scheduleChange(editor));
+
+    expect(onChange).toHaveBeenCalledWith(content, "<p></p>", "");
+  });
 });
