@@ -22,6 +22,25 @@ public static class ReviewActions
     public const string Approve = "Approve";
     public const string Reject = "Reject";
     public const string Publish = "Publish";
+    public const string Override = "Override";
+}
+
+public static class ArticleSnapshotReasons
+{
+    public const string SubmittedForReview = "SubmittedForReview";
+    public const string ResubmittedForReview = "ResubmittedForReview";
+    public const string Approved = "Approved";
+    public const string Published = "Published";
+
+    public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
+    {
+        SubmittedForReview, ResubmittedForReview, Approved, Published
+    };
+}
+
+public static class SearchIndexJobTypes
+{
+    public const string Upsert = "Upsert";
 }
 
 public static class ContentBlockTypes
@@ -48,6 +67,40 @@ public static class MediaStatuses
 {
     public const string Temporary = "Temporary";
     public const string Active = "Active";
+    public const string Archived = "Archived";
+    public const string Deleted = "Deleted";
+
+    public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        Temporary, Active, Archived, Deleted
+    };
+}
+
+public static class MediaReferenceTypes
+{
+    public const string Draft = "Draft";
+    public const string Version = "Version";
+    public const string ReusableBlock = "ReusableBlock";
+    public const string Comment = "Comment";
+    public const string Attachment = "Attachment";
+
+    public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        Draft, Version, ReusableBlock, Comment, Attachment
+    };
+}
+
+public static class MediaAuditActions
+{
+    public const string Uploaded = "MediaUploaded";
+    public const string Archived = "MediaArchived";
+    public const string Restored = "MediaRestored";
+    public const string Deleted = "MediaDeleted";
+}
+
+public static class MediaAuditEntityTypes
+{
+    public const string Media = "Media";
 }
 
 // These codes are shared with the current role seed/frontend matrix. Add a code only when it exists there.
@@ -61,6 +114,7 @@ public static class PermissionCodes
     public const string ArticlesPublish = "articles.publish";
     public const string ArticlesDelete = "articles.delete";
     public const string CommentsCreate = "comments.create";
+    public const string CommentsModerate = "comments.moderate";
     public const string SuggestionsCreate = "suggestions.create";
     public const string CategoriesManage = "categories.manage";
     public const string TemplatesManage = "templates.manage";
@@ -74,9 +128,27 @@ public static class PermissionCodes
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
         ArticlesCreate, ArticlesEditOwnDraft, ArticlesEditAnyDraft, ArticlesSubmitForReview,
-        ArticlesReview, ArticlesPublish, ArticlesDelete, CommentsCreate, SuggestionsCreate,
+        ArticlesReview, ArticlesPublish, ArticlesDelete, CommentsCreate, CommentsModerate, SuggestionsCreate,
         CategoriesManage, TemplatesManage, VersionsView, VersionsRestore, AuditLogsView,
         LocksManage, UsersManage, RolesManage
+    };
+}
+
+public static class CommentThreadStatuses
+{
+    public const string Open = "Open";
+    public const string Resolved = "Resolved";
+}
+
+public static class CommentAnchorStatuses
+{
+    public const string Attached = "Attached";
+    public const string NeedsReanchoring = "NeedsReanchoring";
+    public const string Orphaned = "Orphaned";
+
+    public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
+    {
+        Attached, NeedsReanchoring, Orphaned
     };
 }
 

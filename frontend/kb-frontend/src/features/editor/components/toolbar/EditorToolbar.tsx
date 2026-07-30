@@ -54,9 +54,15 @@ import { YoutubeControl } from "./YoutubeControl";
 import {ImageControl} from "./ImageControl";
 import { List, ListOrdered, ListChecks, PilcrowLeft, PilcrowRight } from 'lucide-react';
 import { TableOfContentsControl } from "./TableOfContentsControl";
+import type { MediaLibraryApi } from "@/lib/api/mediaApi";
+import type { EditorMediaUploadController } from "../../media/mediaTypes";
+import { MediaControls } from "./MediaControls";
 
 export interface EditorToolbarProps {
   editor: Editor;
+  mediaUploadController?: EditorMediaUploadController;
+  mediaLibraryApi?: MediaLibraryApi;
+  mediaAccessToken?: string;
 }
 
 function isToolbarEditorReady(editor: Editor | null | undefined): editor is Editor {
@@ -211,7 +217,12 @@ const EMPTY_TOOLBAR_STATE: ToolbarState = {
   fontSize: null,
 };
 
-export default function EditorToolbar({ editor }: EditorToolbarProps) {
+export default function EditorToolbar({
+  editor,
+  mediaUploadController,
+  mediaLibraryApi,
+  mediaAccessToken,
+}: EditorToolbarProps) {
   const toolbarState = useEditorState({
     editor,
     selector: ({ editor: currentEditor }) => {
@@ -1131,7 +1142,15 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
 
         <YoutubeControl editor={editor} />
 
-        <ImageControl editor={editor}/> 
+        <ImageControl editor={editor}/>
+        {mediaUploadController && mediaLibraryApi && mediaAccessToken && (
+          <MediaControls
+            editor={editor}
+            controller={mediaUploadController}
+            api={mediaLibraryApi}
+            accessToken={mediaAccessToken}
+          />
+        )}
         <div className="ml-auto text-xs text-muted-foreground">
           {toolbarState.wordCount} words
         </div>

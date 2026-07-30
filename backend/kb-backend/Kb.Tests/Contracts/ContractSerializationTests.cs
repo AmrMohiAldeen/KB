@@ -46,15 +46,16 @@ public sealed class ContractSerializationTests
     }
 
     [Fact]
-    public void Content_details_expose_content_without_storage_paths()
+    public void Version_details_expose_readable_content_without_raw_json_or_storage_paths()
     {
-        using var contentDocument = JsonDocument.Parse("""{"type":"doc","content":[]}""");
         var response = new ArticleVersionDetailsResponse(
-            Guid.NewGuid(), Guid.NewGuid(), 1, contentDocument.RootElement.Clone(), null, 25,
+            Guid.NewGuid(), Guid.NewGuid(), 1, "Readable article", "<p>Readable article</p>",
+            null, 25, Guid.NewGuid(), 2, "Published", true,
             new UserSummaryResponse(Guid.NewGuid(), "Author"), DateTime.UtcNow, null, null);
 
         var json = JsonSerializer.Serialize(response, JsonOptions);
-        Assert.Contains("\"content\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"plainText\":\"Readable article\"", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"content\":{", json, StringComparison.Ordinal);
         Assert.DoesNotContain("storagePath", json, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -95,7 +96,7 @@ public sealed class ContractSerializationTests
     [Fact]
     public void Unsupported_contract_fields_are_absent()
     {
-        var forbiddenFragments = new[] { "Suggestion", "DraftNumber", "SnapshotType", "SourceDraft", "AltText", "Caption" };
+        var forbiddenFragments = new[] { "Suggestion", "SnapshotType", "AltText", "Caption" };
         var names = ContractTypes()
             .SelectMany(type => new[] { type.Name }.Concat(type.GetProperties().Select(property => property.Name)))
             .ToArray();

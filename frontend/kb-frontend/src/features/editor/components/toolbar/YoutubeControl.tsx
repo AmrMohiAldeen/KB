@@ -294,6 +294,15 @@ function YoutubeDialog({
 export function YoutubeControl({ editor }: { editor: Editor }) {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
 
+  useEffect(() => {
+    const element = editor.view.dom;
+    const openDialog = () => {
+      if (editor.isEditable) setIsDialogOpen(true);
+    };
+    element.addEventListener("kb:youtube-action", openDialog);
+    return () => element.removeEventListener("kb:youtube-action", openDialog);
+  }, [editor]);
+
   return (
     <>
       <ToolbarButton

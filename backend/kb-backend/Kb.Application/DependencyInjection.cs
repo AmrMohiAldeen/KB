@@ -1,6 +1,10 @@
 using Kb.Application.Categories;
 using Kb.Application.Articles;
+using Kb.Application.Audit;
 using Kb.Application.Drafts;
+using Kb.Application.Media;
+using Kb.Application.Lifecycle;
+using Kb.Application.Comments;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Kb.Application;
@@ -12,6 +16,10 @@ public static class DependencyInjection
         services.AddScoped<CategoryService>();
         services.AddScoped<ArticleService>();
         services.AddScoped<ArticleDraftService>();
+        services.AddScoped<AuditLogService>();
+        services.AddScoped<MediaService>();
+        services.AddScoped<ArticleLifecycleService>();
+        services.AddScoped<ArticleCommentService>();
         return services;
     }
 }

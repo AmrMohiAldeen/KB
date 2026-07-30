@@ -11,6 +11,12 @@ public partial class ArticleVersion
 
     public int VersionNumber { get; set; }
 
+    public Guid? SourceDraftIdFk { get; set; }
+
+    public int? SourceDraftNumber { get; set; }
+
+    public string SnapshotReason { get; set; } = null!;
+
     public string ContentJsonStoragePath { get; set; } = null!;
 
     public string? RenderedHtmlStoragePath { get; set; }
@@ -40,4 +46,6 @@ public partial class ArticleVersion
     public virtual User? PublishedByFkNavigation { get; set; }
 
     public virtual ICollection<SearchIndexJob> SearchIndexJobs { get; set; } = new List<SearchIndexJob>();
+
+    public virtual ArticleDraft? SourceDraftIdFkNavigation { get; set; }
 }

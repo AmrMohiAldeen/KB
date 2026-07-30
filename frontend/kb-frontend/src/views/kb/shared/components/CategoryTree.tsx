@@ -1,20 +1,14 @@
 'use client'
 
-// MUI Imports
 import Box from '@mui/material/Box'
 import List from '@mui/material/List'
 import ListItemButton from '@mui/material/ListItemButton'
 import ListItemIcon from '@mui/material/ListItemIcon'
 import ListItemText from '@mui/material/ListItemText'
 import Typography from '@mui/material/Typography'
-
-// Third-party Imports
 import { ChevronRight, Folder } from 'lucide-react'
 
-// Type Imports
 import type { KbCategoryNode } from '../../types/categories'
-
-// Component Imports
 import EmptyState from './EmptyState'
 
 type CategoryNodeProps = {

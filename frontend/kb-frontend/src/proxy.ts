@@ -14,7 +14,7 @@ import { getLocalizedUrl, isUrlMissingLocale } from '@/utils/i18n'
 import { ensurePrefix } from '@/utils/string'
 
 // Constants
-const HOME_PAGE_URL = '/articles'
+const HOME_PAGE_URL = '/dashboard'
 
 const getLocale = (request: NextRequest): string => {
   const urlLocale = i18n.locales.find(locale =>

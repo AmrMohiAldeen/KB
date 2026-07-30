@@ -71,7 +71,7 @@ const Logo = () => {
   }, [isHovered, layout])
 
   return (
-    <Link href={getLocalizedUrl('/articles', locale as Locale)} className='flex items-center'>
+    <Link href={getLocalizedUrl('/dashboard', locale as Locale)} className='flex items-center'>
       <i className='tabler-book-2 text-2xl text-primary' />
       <LogoText
         ref={logoTextRef}

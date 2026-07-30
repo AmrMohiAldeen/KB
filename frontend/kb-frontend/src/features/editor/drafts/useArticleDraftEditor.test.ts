@@ -196,4 +196,30 @@ describe('useArticleDraftEditor', () => {
     expect(api.release).toHaveBeenCalledWith(expect.any(String), 'v3', 'token')
     expect(navigate).toHaveBeenCalledTimes(1)
   })
+
+  it('warns and keeps the lock when navigation is cancelled during a media upload', async () => {
+    const api = createApi({
+      get: vi.fn().mockResolvedValue(draft({
+        rowVersion: 'v2',
+        isLockOwner: true,
+        lock: {
+          isLocked: true,
+          lockedBy: { userId: 'current-user', fullName: 'Current User' },
+          lockedAt: '2026-07-15T10:00:00Z'
+        }
+      }))
+    })
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const state = await render(api, false, { pendingMediaUploads: 2 })
+    const navigate = vi.fn()
+
+    await act(async () => {
+      await expect(state.latest.leave(navigate)).resolves.toBe(false)
+    })
+
+    expect(confirm).toHaveBeenCalledWith('2 media uploads are still pending. Leave the editor anyway?')
+    expect(api.release).not.toHaveBeenCalled()
+    expect(navigate).not.toHaveBeenCalled()
+    confirm.mockRestore()
+  })
 })

@@ -1,0 +1,12 @@
+C:\gamalearn\kb-frontend\backend\kb-backend\Kb.Domain\bin\Release\net10.0\Kb.Domain.deps.json
+C:\gamalearn\kb-frontend\backend\kb-backend\Kb.Domain\bin\Release\net10.0\Kb.Domain.dll
+C:\gamalearn\kb-frontend\backend\kb-backend\Kb.Domain\bin\Release\net10.0\Kb.Domain.pdb
+C:\gamalearn\kb-frontend\backend\kb-backend\Kb.Domain\obj\Release\net10.0\Kb.Domain.GeneratedMSBuildEditorConfig.editorconfig
+C:\gamalearn\kb-frontend\backend\kb-backend\Kb.Domain\obj\Release\net10.0\Kb.Domain.AssemblyInfoInputs.cache
+C:\gamalearn\kb-frontend\backend\kb-backend\Kb.Domain\obj\Release\net10.0\Kb.Domain.AssemblyInfo.cs
+C:\gamalearn\kb-frontend\backend\kb-backend\Kb.Domain\obj\Release\net10.0\Kb.Domain.csproj.CoreCompileInputs.cache
+C:\gamalearn\kb-frontend\backend\kb-backend\Kb.Domain\obj\Release\net10.0\Kb.Domain.sourcelink.json
+C:\gamalearn\kb-frontend\backend\kb-backend\Kb.Domain\obj\Release\net10.0\Kb.Domain.dll
+C:\gamalearn\kb-frontend\backend\kb-backend\Kb.Domain\obj\Release\net10.0\refint\Kb.Domain.dll
+C:\gamalearn\kb-frontend\backend\kb-backend\Kb.Domain\obj\Release\net10.0\Kb.Domain.pdb
+C:\gamalearn\kb-frontend\backend\kb-backend\Kb.Domain\obj\Release\net10.0\ref\Kb.Domain.dll

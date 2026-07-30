@@ -91,14 +91,11 @@ const HorizontalMenu = ({ dictionary }: { dictionary: Awaited<ReturnType<typeof 
         }}
       >
         <SubMenu label={navigation.content} icon={<i className='tabler-article' />}>
-          <MenuItem href={href('/articles')} icon={<i className='tabler-article' />}>
-            {navigation.articles}
+          <MenuItem href={href('/dashboard')} icon={<i className='tabler-layout-dashboard' />}>
+            {navigation.dashboard}
           </MenuItem>
           <MenuItem href={href('/editor')} icon={<i className='tabler-pencil' />}>
             {navigation.editor}
-          </MenuItem>
-          <MenuItem href={href('/categories')} icon={<i className='tabler-folder' />}>
-            {navigation.categories}
           </MenuItem>
           <MenuItem href={href('/templates')} icon={<i className='tabler-template' />}>
             {navigation.templates}

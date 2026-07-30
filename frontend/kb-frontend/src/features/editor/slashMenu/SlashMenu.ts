@@ -10,6 +10,14 @@ import {
 } from './catalog';
 import { runSlashCommandInsert } from './commands';
 import { readInheritedTextDirection } from '../extensions/TextDirection';
+import { MEDIA_ACTION_EVENT } from '../components/toolbar/MediaControls';
+
+const MEDIA_SLASH_ACTIONS: Partial<Record<SlashCommandKind, string>> = {
+  'upload-image': 'image',
+  'upload-video': 'video',
+  'upload-attachment': 'attachment',
+  'media-library': 'library',
+};
 
 export type SlashCommandMatch = {
   from: number;
@@ -85,6 +93,21 @@ function insertSlashCommand(
   if (!editor.isEditable) return false;
 
   const direction = readInheritedTextDirection(editor.state);
+  const mediaAction = MEDIA_SLASH_ACTIONS[kind];
+
+  if (mediaAction || kind === 'youtube') {
+    const deleted = editor.chain().focus().deleteRange({
+      from: match.from,
+      to: match.to,
+    }).run();
+    if (!deleted) return false;
+
+    editor.view.dom.dispatchEvent(new CustomEvent(
+      kind === 'youtube' ? 'kb:youtube-action' : MEDIA_ACTION_EVENT,
+      { detail: mediaAction ? { kind: mediaAction } : undefined },
+    ));
+    return true;
+  }
 
   // Remove the typed slash command text first.
   const chain = editor.chain().focus().deleteRange({

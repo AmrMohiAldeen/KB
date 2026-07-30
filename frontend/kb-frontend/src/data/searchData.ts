@@ -9,10 +9,10 @@ export type SearchData = Action & {
 // Expected response: searchable KB navigation actions plus recent articles/templates the current SSO user may access; Typesense remains an index, not source of truth.
 const data: SearchData[] = [
   {
-    id: 'articles',
-    name: 'Articles',
-    url: '/articles',
-    icon: 'tabler-article',
+    id: 'dashboard',
+    name: 'Dashboard',
+    url: '/dashboard',
+    icon: 'tabler-layout-dashboard',
     section: 'Content'
   },
   {
@@ -28,13 +28,6 @@ const data: SearchData[] = [
     url: '/review',
     icon: 'tabler-checkup-list',
     section: 'Workflow'
-  },
-  {
-    id: 'categories',
-    name: 'Categories',
-    url: '/categories',
-    icon: 'tabler-folder',
-    section: 'Content'
   },
   {
     id: 'templates',

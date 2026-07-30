@@ -7,11 +7,18 @@ export default async function Page({
   searchParams
 }: {
   params: Promise<{ lang: string }>
-  searchParams: Promise<{ articleId?: string }>
+  searchParams: Promise<{ articleId?: string; restoredFromVersion?: string }>
 }) {
   const { lang } = await params
-  const { articleId = '' } = await searchParams
+  const { articleId = '', restoredFromVersion } = await searchParams
   const accessToken = await getServerAccessToken()
 
-  return <ArticleEditorShell lang={lang} articleId={articleId} accessToken={accessToken} />
+  return (
+    <ArticleEditorShell
+      lang={lang}
+      articleId={articleId}
+      accessToken={accessToken}
+      restoredFromVersion={restoredFromVersion}
+    />
+  )
 }

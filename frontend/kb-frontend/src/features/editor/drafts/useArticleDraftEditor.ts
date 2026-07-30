@@ -88,13 +88,15 @@ export type UseArticleDraftEditorOptions = {
   accessToken: string
   debounceMs?: number
   api?: ArticleDraftEditorApi
+  pendingMediaUploads?: number
 }
 
 export function useArticleDraftEditor({
   articleId,
   accessToken,
   debounceMs = 1200,
-  api = defaultApi
+  api = defaultApi,
+  pendingMediaUploads = 0
 }: UseArticleDraftEditorOptions) {
   const [phase, setPhase] = useState<DraftEditorPhase>('loading')
   const [draft, setDraft] = useState<ArticleDraftResponse | null>(null)
@@ -259,6 +261,11 @@ export function useArticleDraftEditor({
   }, [])
 
   const leave = useCallback(async (navigate: () => void): Promise<boolean> => {
+    if (pendingMediaUploads > 0 &&
+      !window.confirm(`${pendingMediaUploads} media upload${pendingMediaUploads === 1 ? ' is' : 's are'} still pending. Leave the editor anyway?`)) {
+      return false
+    }
+
     const coordinator = coordinatorRef.current
     let saved = true
 
@@ -287,17 +294,55 @@ export function useArticleDraftEditor({
 
     navigate()
     return true
-  }, [accessToken, api, articleId, authenticated, draft, phase])
+  }, [accessToken, api, articleId, authenticated, draft, pendingMediaUploads, phase])
+
+  const prepareForWorkflow = useCallback(async (): Promise<boolean> => {
+    if (pendingMediaUploads > 0) {
+      setMessages([`Wait for ${pendingMediaUploads} pending media upload${pendingMediaUploads === 1 ? '' : 's'} before changing lifecycle state.`])
+      return false
+    }
+
+    const coordinator = coordinatorRef.current
+    if (coordinator?.snapshot.dirty && !await coordinator.flush()) {
+      setMessages(['The latest draft changes could not be saved. Resolve the save error before changing lifecycle state.'])
+      return false
+    }
+    if (coordinator?.snapshot.status === 'conflict') {
+      setMessages(['The draft changed on the server. Reload it before changing lifecycle state.'])
+      return false
+    }
+
+    const currentDraft = draft
+    const ownsLock = currentDraft?.isLockOwner || phase === 'editing'
+    if (!ownsLock) return !currentDraft?.lock.isLocked
+    if (!currentDraft || !authenticated || releaseStartedRef.current) return false
+
+    releaseStartedRef.current = true
+    try {
+      const rowVersion = coordinator?.snapshot.rowVersion || currentDraft.rowVersion
+      const released = await api.release(articleId, rowVersion, accessToken)
+      coordinatorRef.current?.destroy()
+      coordinatorRef.current = null
+      setDraft(value => value ? mergeLock(value, released) : value)
+      setSaveState({ ...initialSaveState, rowVersion: released.rowVersion })
+      setPhase('readonly')
+      return true
+    } catch (error) {
+      releaseStartedRef.current = false
+      setMessages(describeArticleDraftApiError(error))
+      return false
+    }
+  }, [accessToken, api, articleId, authenticated, draft, pendingMediaUploads, phase])
 
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {
-      if (!coordinatorRef.current?.snapshot.dirty) return
+      if (!coordinatorRef.current?.snapshot.dirty && pendingMediaUploads === 0) return
       event.preventDefault()
       event.returnValue = ''
     }
     const pageHide = () => {
       const coordinator = coordinatorRef.current
-      if (!authenticated || !draft?.isLockOwner || coordinator?.snapshot.dirty || coordinator?.snapshot.status === 'saving' ||
+      if (!authenticated || !draft?.isLockOwner || pendingMediaUploads > 0 || coordinator?.snapshot.dirty || coordinator?.snapshot.status === 'saving' ||
         releaseStartedRef.current) return
 
       releaseStartedRef.current = true
@@ -311,7 +356,7 @@ export function useArticleDraftEditor({
       window.removeEventListener('beforeunload', beforeUnload)
       window.removeEventListener('pagehide', pageHide)
     }
-  }, [accessToken, api, articleId, authenticated, draft])
+  }, [accessToken, api, articleId, authenticated, draft, pendingMediaUploads])
 
   return {
     phase,
@@ -323,6 +368,7 @@ export function useArticleDraftEditor({
     onEditorChange,
     retrySave,
     reload,
-    leave
+    leave,
+    prepareForWorkflow
   }
 }

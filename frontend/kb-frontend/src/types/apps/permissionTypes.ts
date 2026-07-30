@@ -11,6 +11,7 @@ export type KbPermissionAction =
   | 'articles.delete'
   | 'articles.view'
   | 'comments.create'
+  | 'comments.moderate'
   | 'suggestions.create'
   | 'media.upload'
   | 'categories.manage'

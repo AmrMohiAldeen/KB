@@ -59,6 +59,13 @@ public sealed class ArticleService(
             ?? throw new NotFoundException("The article was not found.");
     }
 
+    public async Task<ArticleData> GetBySlugAsync(string slug, CancellationToken cancellationToken)
+    {
+        var normalized = NormalizeSlug(slug);
+        return await repository.GetBySlugAsync(normalized, cancellationToken)
+            ?? throw new NotFoundException("The article was not found.");
+    }
+
     public async Task<ArticleData> CreateAsync(CreateArticleCommand command, CancellationToken cancellationToken)
     {
         await RequirePermissionAsync(PermissionCodes.ArticlesCreate, cancellationToken);
@@ -101,6 +108,9 @@ public sealed class ArticleService(
                 ?? throw new NotFoundException("The article was not found.");
             if (existing.IsDeleted)
                 throw new NotFoundException("The article was not found.");
+            if (existing.Status is not ArticleStatuses.Draft and not ArticleStatuses.ChangesRequested)
+                throw new ConflictException(
+                    $"Article metadata cannot be edited while the draft is in the {existing.Status} state.");
             await RequireEditPermissionAsync(existing.OwnerId, actorId, token);
             if (!await repository.CategoryExistsAsync(command.CategoryId, token))
                 throw new NotFoundException("The category was not found.");

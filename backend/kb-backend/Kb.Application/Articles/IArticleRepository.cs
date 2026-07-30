@@ -5,6 +5,7 @@ public interface IArticleRepository
     Task<T> ExecuteSerializableAsync<T>(Func<CancellationToken, Task<T>> operation, CancellationToken cancellationToken);
     Task<PagedArticleData> GetPagedAsync(ArticleListQuery query, CancellationToken cancellationToken);
     Task<ArticleData?> GetByIdAsync(Guid id, CancellationToken cancellationToken);
+    Task<ArticleData?> GetBySlugAsync(string slug, CancellationToken cancellationToken);
     Task<ArticleMutationData?> GetForMutationAsync(Guid id, CancellationToken cancellationToken);
     Task<bool> CategoryExistsAsync(Guid id, CancellationToken cancellationToken);
     Task<bool> ActiveUserExistsAsync(Guid id, CancellationToken cancellationToken);

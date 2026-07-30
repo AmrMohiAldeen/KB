@@ -7,10 +7,34 @@ export const DEFAULT_ALLOWED_FILE_MIME_TYPES = [
   'image/jpeg',
   'image/png',
   'image/webp',
+  'image/bmp',
+  'image/tiff',
   'application/pdf',
+  'video/mp4',
+  'video/quicktime',
+  'video/webm',
+  'video/x-msvideo',
+  'video/mpeg',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.oasis.opendocument.text',
+  'application/vnd.oasis.opendocument.spreadsheet',
+  'application/vnd.oasis.opendocument.presentation',
+  'application/msword',
+  'application/vnd.ms-excel',
+  'application/vnd.ms-powerpoint',
+  'application/rtf',
+  'text/rtf',
+  'text/plain',
+  'text/markdown',
+  'text/csv',
+  'application/json',
+  'application/xml',
+  'text/xml',
 ] as const;
 
-export type EditorFileUploadSource = 'drop' | 'paste';
+export type EditorFileUploadSource = 'drop' | 'paste' | 'toolbar';
 
 export type EditorFileUploadContext = {
   editor: Editor;
@@ -65,9 +89,12 @@ export function createFileHandlerExtension(
     adapter: options.adapter,
     onUploadError: options.onUploadError,
   };
-  const allowedMimeTypes = [
-    ...(options.allowedMimeTypes ?? DEFAULT_ALLOWED_FILE_MIME_TYPES),
-  ];
+  // Leave the official handler unfiltered by default so extension-based
+  // validation can also handle files whose OS/browser supplies an empty or
+  // generic MIME type. Explicit caller allowlists are still honored.
+  const allowedMimeTypes = options.allowedMimeTypes
+    ? [...options.allowedMimeTypes]
+    : undefined;
 
   return [
     FileHandler.configure({

@@ -31,6 +31,9 @@ export const getArticles = (query: ArticleListQuery, accessToken: string, signal
 export const getArticleById = (id: string, accessToken: string, signal?: AbortSignal) =>
   apiRequest<ArticleDetailsResponse>(`/api/articles/${encodeURIComponent(id)}`, accessToken, { signal })
 
+export const getArticleBySlug = (slug: string, accessToken: string, signal?: AbortSignal) =>
+  apiRequest<ArticleDetailsResponse>(`/api/articles/by-slug/${encodeURIComponent(slug)}`, accessToken, { signal })
+
 export const createArticle = (request: CreateArticleRequest, accessToken: string) =>
   apiRequest<ArticleDetailsResponse>('/api/articles', accessToken, {
     method: 'POST',

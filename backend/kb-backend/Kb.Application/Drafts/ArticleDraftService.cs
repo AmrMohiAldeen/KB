@@ -5,6 +5,7 @@ using Kb.Application.Abstractions;
 using Kb.Application.Abstractions.Storage;
 using Kb.Application.Exceptions;
 using Kb.Domain.Constants;
+using Kb.Application.Comments;
 using Microsoft.Extensions.Options;
 
 namespace Kb.Application.Drafts;
@@ -18,6 +19,7 @@ public sealed class ArticleDraftService
     private readonly IPermissionChecker permissionChecker;
     private readonly TimeProvider timeProvider;
     private readonly DraftContentOptions options;
+    private readonly ArticleCommentService? commentService;
 
     public ArticleDraftService(
         IArticleDraftRepository repository,
@@ -25,7 +27,8 @@ public sealed class ArticleDraftService
         ICurrentUser currentUser,
         IPermissionChecker permissionChecker,
         TimeProvider timeProvider,
-        IOptions<DraftContentOptions> options)
+        IOptions<DraftContentOptions> options,
+        ArticleCommentService? commentService = null)
     {
         this.repository = repository;
         this.storage = storage;
@@ -33,6 +36,7 @@ public sealed class ArticleDraftService
         this.permissionChecker = permissionChecker;
         this.timeProvider = timeProvider;
         this.options = options.Value;
+        this.commentService = commentService;
 
         if (string.IsNullOrWhiteSpace(this.options.ContainerName))
             throw new InvalidOperationException("The article content storage container is not configured.");
@@ -45,7 +49,8 @@ public sealed class ArticleDraftService
         EnsureAuthenticated();
         var draft = await GetCurrentAsync(articleId, cancellationToken);
         var actorId = currentUser.UserId;
-        var canEdit = await CanEditAsync(draft.ArticleOwnerId, actorId, cancellationToken);
+        var canEdit = IsEditableStatus(draft.Status) &&
+                      await CanEditAsync(draft.ArticleOwnerId, actorId, cancellationToken);
         var isLockOwner = draft.IsLocked && draft.LockedBy?.Id == actorId;
         var content = string.IsNullOrWhiteSpace(draft.ContentJsonPath)
             ? EmptyDocument.Clone()
@@ -59,6 +64,7 @@ public sealed class ArticleDraftService
         EnsureExpectedRowVersion(expectedRowVersion);
         var draft = await GetCurrentAsync(articleId, cancellationToken);
         var actorId = currentUser.UserId;
+        EnsureEditable(draft);
         await RequireEditAsync(draft.ArticleOwnerId, actorId, cancellationToken);
         var now = timeProvider.GetUtcNow().UtcDateTime;
         var changed = await repository.AcquireLockAsync(articleId, draft.DraftId, actorId,
@@ -81,7 +87,8 @@ public sealed class ArticleDraftService
         var changed = await repository.ReleaseLockAsync(articleId, draft.DraftId, actorId,
             expectedRowVersion, now, Audit(actorId, ArticleAuditActions.DraftLockReleased,
                 new { articleId, draftId = draft.DraftId }, now), cancellationToken);
-        var canEdit = await CanEditAsync(changed.ArticleOwnerId, actorId, cancellationToken);
+        var canEdit = IsEditableStatus(changed.Status) &&
+                      await CanEditAsync(changed.ArticleOwnerId, actorId, cancellationToken);
         return new(changed, canEdit, false);
     }
 
@@ -101,7 +108,8 @@ public sealed class ArticleDraftService
         var changed = await repository.ForceReleaseLockAsync(articleId, draft.DraftId, actorId,
             expectedRowVersion, now, Audit(actorId, ArticleAuditActions.DraftLockForceReleased,
                 new { articleId, draftId = draft.DraftId, previousOwnerId }, now), cancellationToken);
-        var canEdit = await CanEditAsync(changed.ArticleOwnerId, actorId, cancellationToken);
+        var canEdit = IsEditableStatus(changed.Status) &&
+                      await CanEditAsync(changed.ArticleOwnerId, actorId, cancellationToken);
         return new(changed, canEdit, false);
     }
 
@@ -110,10 +118,12 @@ public sealed class ArticleDraftService
     {
         EnsureExpectedRowVersion(command.RowVersion);
         var jsonBytes = SerializeAndValidateContent(command.Content);
+        var mediaIds = ExtractMediaIds(command.Content);
         var htmlBytes = EncodeOptionalContent(command.RenderedHtml, "Rendered HTML");
         var textBytes = EncodeOptionalContent(command.PlainText, "Plain text");
         var draft = await GetCurrentAsync(articleId, cancellationToken);
         var actorId = currentUser.UserId;
+        EnsureEditable(draft);
         await RequireEditAsync(draft.ArticleOwnerId, actorId, cancellationToken);
         EnsureCurrentVersion(draft, command.RowVersion);
         if (!draft.IsLocked || draft.LockedBy?.Id != actorId)
@@ -149,7 +159,7 @@ public sealed class ArticleDraftService
         {
             var now = timeProvider.GetUtcNow().UtcDateTime;
             changed = await repository.SaveContentAsync(articleId, draft.DraftId, actorId, command.RowVersion,
-                staged, now, Audit(actorId, ArticleAuditActions.DraftContentSaved,
+                staged, mediaIds, now, Audit(actorId, ArticleAuditActions.DraftContentSaved,
                     new { articleId, draftId = draft.DraftId, staged.ContentHash, staged.ContentSizeBytes }, now),
                 cancellationToken);
         }
@@ -164,6 +174,8 @@ public sealed class ArticleDraftService
             .Select(path => path!)
             .Distinct(StringComparer.Ordinal);
         await DeleteBestEffortAsync(previousPaths);
+        if (commentService is not null)
+            await commentService.RemapAnchorsAsync(articleId, draft.DraftId, command.Content, cancellationToken);
         return changed;
     }
 
@@ -206,6 +218,55 @@ public sealed class ArticleDraftService
         var bytes = JsonSerializer.SerializeToUtf8Bytes(content);
         EnsureWithinLimit(bytes.LongLength, "Tiptap JSON");
         return bytes;
+    }
+
+    private static IReadOnlyCollection<Guid> ExtractMediaIds(JsonElement content)
+    {
+        var mediaIds = new HashSet<Guid>();
+        Visit(content);
+        if (mediaIds.Count > 500)
+            throw new BusinessRuleException("A draft cannot reference more than 500 media files.");
+        return mediaIds;
+
+        void Visit(JsonElement value)
+        {
+            if (value.ValueKind == JsonValueKind.Object)
+            {
+                var isMediaNode = value.TryGetProperty("type", out var type) &&
+                                  type.ValueKind == JsonValueKind.String &&
+                                  type.GetString() is "image" or "inlineImage" or "video" or "attachment";
+                if (isMediaNode && value.TryGetProperty("attrs", out var attrs) &&
+                    attrs.ValueKind == JsonValueKind.Object)
+                {
+                    if (attrs.TryGetProperty("src", out var source) &&
+                        source.ValueKind == JsonValueKind.String &&
+                        (source.GetString()?.TrimStart().StartsWith("data:",
+                             StringComparison.OrdinalIgnoreCase) == true ||
+                         source.GetString()?.TrimStart().StartsWith("blob:",
+                             StringComparison.OrdinalIgnoreCase) == true))
+                        throw new BusinessRuleException(
+                            "Temporary or Base64 media URLs cannot be saved.");
+
+                    if (attrs.TryGetProperty("mediaId", out var mediaId) &&
+                        mediaId.ValueKind is not JsonValueKind.Null and not JsonValueKind.Undefined)
+                    {
+                        if (mediaId.ValueKind != JsonValueKind.String ||
+                            !Guid.TryParse(mediaId.GetString(), out var parsed) ||
+                            parsed == Guid.Empty)
+                            throw new BusinessRuleException("Media nodes must contain a valid mediaId.");
+                        mediaIds.Add(parsed);
+                    }
+                }
+
+                foreach (var property in value.EnumerateObject())
+                    Visit(property.Value);
+                return;
+            }
+
+            if (value.ValueKind == JsonValueKind.Array)
+                foreach (var item in value.EnumerateArray())
+                    Visit(item);
+        }
     }
 
     private byte[]? EncodeOptionalContent(string? content, string name)
@@ -309,6 +370,15 @@ public sealed class ArticleDraftService
     {
         if (expectedRowVersion.Length == 0)
             throw new BusinessRuleException("Row version is required.");
+    }
+
+    private static bool IsEditableStatus(string status) =>
+        status is ArticleStatuses.Draft or ArticleStatuses.ChangesRequested;
+
+    private static void EnsureEditable(CurrentDraftData draft)
+    {
+        if (!IsEditableStatus(draft.Status))
+            throw new ConflictException($"A draft in the {draft.Status} state cannot be edited.");
     }
 
     private static DraftAuditData Audit(Guid actorId, string action, object metadata, DateTime createdAt) =>

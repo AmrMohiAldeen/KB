@@ -26,19 +26,14 @@ const defaultSuggestions: DefaultSuggestionsType[] = [
     sectionLabel: 'Content',
     items: [
       {
-        label: 'Articles',
-        href: '/articles',
-        icon: 'tabler-article'
+        label: 'Dashboard',
+        href: '/dashboard',
+        icon: 'tabler-layout-dashboard'
       },
       {
         label: 'Article Editor',
         href: '/editor',
         icon: 'tabler-pencil'
-      },
-      {
-        label: 'Categories',
-        href: '/categories',
-        icon: 'tabler-folder'
       },
       {
         label: 'Templates',

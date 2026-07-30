@@ -9,6 +9,8 @@ public partial class ArticleDraft
 
     public Guid ArticleIdFk { get; set; }
 
+    public int DraftNumber { get; set; }
+
     public string ContentJsonStoragePath { get; set; } = null!;
 
     public string? RenderedHtmlStoragePath { get; set; }
@@ -41,6 +43,10 @@ public partial class ArticleDraft
 
     public virtual ICollection<ArticleReviewEvent> ArticleReviewEvents { get; set; } = new List<ArticleReviewEvent>();
 
+    public virtual ICollection<ArticleComment> CurrentArticleComments { get; set; } = new List<ArticleComment>();
+
+    public virtual ICollection<ArticleComment> OriginArticleComments { get; set; } = new List<ArticleComment>();
+
     public virtual ICollection<Article> Articles { get; set; } = new List<Article>();
 
     public virtual User CreatedByFkNavigation { get; set; } = null!;
@@ -48,4 +54,6 @@ public partial class ArticleDraft
     public virtual User? LockedByFkNavigation { get; set; }
 
     public virtual User? UpdatedByFkNavigation { get; set; }
+
+    public virtual ICollection<ArticleVersion> SourceArticleVersions { get; set; } = new List<ArticleVersion>();
 }

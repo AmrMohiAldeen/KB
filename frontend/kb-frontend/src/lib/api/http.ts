@@ -31,13 +31,14 @@ const defaultProblem = (status: number): ProblemDetails => {
     403: { title: 'Forbidden', detail: 'You do not have permission to perform this action.' },
     404: { title: 'Not found', detail: 'The requested resource was not found.' },
     409: { title: 'Conflict', detail: 'The resource changed or conflicts with an existing resource.' },
-    500: { title: 'Server error', detail: 'The server could not complete the request. Try again later.' }
+    500: { title: 'Server error', detail: 'The server could not complete the request. Try again later.' },
+    503: { title: 'Service unavailable', detail: 'A required service is temporarily unavailable. Try again later.' }
   }
 
   return { status, ...(messages[status] ?? { title: 'Request failed', detail: `Request failed with status ${status}.` }) }
 }
 
-const getApiBaseUrl = () => {
+export const getApiBaseUrl = () => {
   const value = process.env.NEXT_PUBLIC_KB_API_BASE_URL?.replace(/\/+$/, '')
 
   if (!value)
@@ -70,7 +71,7 @@ export async function apiRequest<T>(
   headers.set('Accept', 'application/json')
   headers.set('Authorization', `Bearer ${token}`)
 
-  if (init.body)
+  if (init.body && !(init.body instanceof FormData))
     headers.set('Content-Type', 'application/json')
 
   let response: Response
@@ -109,6 +110,58 @@ export async function apiRequest<T>(
     throw new ApiError(response.status, (body as ProblemDetails | undefined) ?? defaultProblem(response.status))
 
   return body as T
+}
+
+export async function apiBlobRequest(
+  path: string,
+  accessToken: string,
+  signal?: AbortSignal
+): Promise<Blob> {
+  const token = normalizeAccessToken(accessToken)
+
+  if (!token)
+    throw new ApiError(401, {
+      status: 401,
+      title: 'Unauthorized',
+      detail: 'Authentication is required.'
+    })
+
+  let response: Response
+
+  try {
+    response = await fetch(`${getApiBaseUrl()}${path}`, {
+      headers: {
+        Accept: '*/*',
+        Authorization: `Bearer ${token}`
+      },
+      signal
+    })
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error
+
+    throw new ApiError(0, {
+      status: 0,
+      title: 'Network error',
+      detail: 'The knowledge base API could not be reached. Check your connection and API configuration.'
+    })
+  }
+
+  if (!response.ok) {
+    const contentType = response.headers.get('content-type') ?? ''
+    let problem: ProblemDetails | undefined
+
+    if (contentType.includes('/json') || contentType.includes('+json')) {
+      try {
+        problem = await response.json() as ProblemDetails
+      } catch {
+        problem = undefined
+      }
+    }
+
+    throw new ApiError(response.status, problem ?? defaultProblem(response.status))
+  }
+
+  return response.blob()
 }
 
 export const describeApiError = (error: unknown): string[] => {

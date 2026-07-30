@@ -14,6 +14,7 @@ public interface IArticleDraftRepository
         byte[] expectedRowVersion, DateTime changedAt, DraftAuditData audit, CancellationToken cancellationToken);
 
     Task<CurrentDraftData> SaveContentAsync(Guid articleId, Guid draftId, Guid actorId,
-        byte[] expectedRowVersion, StagedDraftContent content, DateTime changedAt, DraftAuditData audit,
+        byte[] expectedRowVersion, StagedDraftContent content, IReadOnlyCollection<Guid> mediaIds,
+        DateTime changedAt, DraftAuditData audit,
         CancellationToken cancellationToken);
 }

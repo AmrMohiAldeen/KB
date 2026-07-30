@@ -80,5 +80,11 @@ export function runSlashCommandInsert(
           return true;
         })
         .run();
+    case 'upload-image':
+    case 'upload-video':
+    case 'upload-attachment':
+    case 'media-library':
+    case 'youtube':
+      return false;
   }
 }

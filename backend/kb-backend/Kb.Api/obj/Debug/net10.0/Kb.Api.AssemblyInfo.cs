@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Kb.Api")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+8ff2247745817d357b221468e1df91863879ec6a")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+902b67186b6e7d1782b11fdadd0b632fd605bb85")]
 [assembly: System.Reflection.AssemblyProductAttribute("Kb.Api")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Kb.Api")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

@@ -8,6 +8,8 @@ using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Kb.Api.OpenApi;
+using Kb.Application.Media;
+using Microsoft.AspNetCore.Http.Features;
 
 namespace Kb.Api;
 
@@ -33,6 +35,12 @@ public static class DependencyInjection
            });
         });
         services.AddControllers();
+        services.Configure<FormOptions>(options =>
+        {
+            var maximumFileSize = configuration.GetValue<long?>("Media:MaxFileSizeBytes")
+                ?? MediaOptions.DefaultMaxFileSizeBytes;
+            options.MultipartBodyLengthLimit = checked(maximumFileSize + 1024 * 1024);
+        });
         services.AddOpenApi(options =>
         {
             options.AddDocumentTransformer<BearerSecuritySchemeTransformer>();

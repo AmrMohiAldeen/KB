@@ -54,4 +54,5 @@ public sealed record ArticlePublishedVersionMetadataResponse(Guid VersionId, int
 
 public sealed record ArticlePermissionsResponse(bool CanEdit, bool CanSubmitForReview, bool CanReview,
     bool CanRequestChanges, bool CanApprove, bool CanPublish, bool CanDelete, bool CanViewVersionHistory,
-    bool CanRestoreVersion, bool CanLock, bool CanUnlock, bool CanComment, bool CanSuggest);
+    bool CanRestoreVersion, bool CanLock, bool CanUnlock, bool CanComment, bool CanSuggest,
+    bool CanOverrideWorkflow, IReadOnlyList<string> WorkflowOverrideTargets);

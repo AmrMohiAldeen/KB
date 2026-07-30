@@ -3,9 +3,9 @@ import type { ShortcutsType } from '@components/layout/shared/ShortcutsDropdown'
 
 export const kbShortcuts: ShortcutsType[] = [
   {
-    url: '/articles',
-    icon: 'tabler-article',
-    title: 'Articles',
+    url: '/dashboard',
+    icon: 'tabler-layout-dashboard',
+    title: 'Dashboard',
     subtitle: 'Manage content'
   },
   {

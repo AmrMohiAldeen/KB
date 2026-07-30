@@ -70,7 +70,15 @@ public sealed class ArticleRepository(KbDbContext dbContext) : IArticleRepositor
     }
 
     public Task<ArticleData?> GetByIdAsync(Guid id, CancellationToken cancellationToken) =>
-        ActiveArticles().Where(article => article.ArticleId == id).Select(article => new ArticleData(
+        ProjectDetails(ActiveArticles().Where(article => article.ArticleId == id))
+            .SingleOrDefaultAsync(cancellationToken);
+
+    public Task<ArticleData?> GetBySlugAsync(string slug, CancellationToken cancellationToken) =>
+        ProjectDetails(ActiveArticles().Where(article => article.Slug == slug))
+            .SingleOrDefaultAsync(cancellationToken);
+
+    private static IQueryable<ArticleData> ProjectDetails(IQueryable<Article> articles) =>
+        articles.Select(article => new ArticleData(
             article.ArticleId,
             article.Title,
             article.Slug,
@@ -124,14 +132,16 @@ public sealed class ArticleRepository(KbDbContext dbContext) : IArticleRepositor
             article.ArticleReviewEvents.Where(review => review.ToStatus == ArticleStatuses.Approved)
                 .Select(review => (DateTime?)review.CreatedAt).Max(),
             article.LastPublishedVersionIdFkNavigation == null
-                ? null : article.LastPublishedVersionIdFkNavigation.PublishedAt))
-            .SingleOrDefaultAsync(cancellationToken);
+                ? null : article.LastPublishedVersionIdFkNavigation.PublishedAt));
 
     public Task<ArticleMutationData?> GetForMutationAsync(Guid id, CancellationToken cancellationToken) =>
         dbContext.Articles.AsNoTracking().Where(article => article.ArticleId == id)
             .Select(article => new ArticleMutationData(article.ArticleId, article.AuthorIdFk, article.Title,
                 article.Slug, article.CurrentDraftIdFk,
                 article.CurrentDraftIdFkNavigation == null ? null : article.CurrentDraftIdFkNavigation.RowVersion,
+                article.CurrentDraftIdFkNavigation == null
+                    ? article.Status
+                    : article.CurrentDraftIdFkNavigation.Status,
                 article.DeletedAt != null || article.Status == ArticleStatuses.Deleted))
             .SingleOrDefaultAsync(cancellationToken);
 
@@ -164,7 +174,8 @@ public sealed class ArticleRepository(KbDbContext dbContext) : IArticleRepositor
             {
                 dbContext.ArticleDrafts.Add(new ArticleDraft
                 {
-                    DraftId = draftId, ArticleIdFk = entity.ArticleId, ContentJsonStoragePath = string.Empty,
+                    DraftId = draftId, ArticleIdFk = entity.ArticleId, DraftNumber = 1,
+                    ContentJsonStoragePath = string.Empty,
                     ContentSizeBytes = 0, IsLocked = false, CreatedByFk = article.OwnerId,
                     CreatedAt = article.CreatedAt, UpdatedAt = article.CreatedAt, Status = ArticleStatuses.Draft
                 });
@@ -176,9 +187,9 @@ public sealed class ArticleRepository(KbDbContext dbContext) : IArticleRepositor
                 var rowVersion = Guid.NewGuid().ToByteArray();
                 await dbContext.Database.ExecuteSqlInterpolatedAsync($"""
                     INSERT INTO ARTICLE_DRAFTS
-                        (DraftID, ArticleID_FK, ContentJsonStoragePath, ContentSizeBytes, RowVersion, IsLocked,
+                        (DraftID, ArticleID_FK, DraftNumber, ContentJsonStoragePath, ContentSizeBytes, RowVersion, IsLocked,
                          CreatedBy_FK, CreatedAt, UpdatedAt, Status)
-                    VALUES ({draftId}, {entity.ArticleId}, {string.Empty}, {0L}, {rowVersion}, {false},
+                    VALUES ({draftId}, {entity.ArticleId}, {1}, {string.Empty}, {0L}, {rowVersion}, {false},
                             {article.OwnerId}, {article.CreatedAt}, {article.CreatedAt}, {ArticleStatuses.Draft})
                     """, cancellationToken);
             }

@@ -28,6 +28,10 @@ import {
 
 export type SetKnowledgeBaseImageOptions = {
   src: string;
+  mediaId?: string;
+  mimeType?: string;
+  fileName?: string;
+  fileSize?: number;
   alt?: string;
   title?: string;
   width?: number | null;
@@ -88,6 +92,12 @@ function parseImageOffset(element: HTMLElement): number | null {
 function parseImageAttributes(element: HTMLElement): SetKnowledgeBaseImageOptions {
   return {
     src: element.getAttribute('src') ?? '',
+    mediaId: element.dataset.mediaId ?? undefined,
+    mimeType: element.dataset.mimeType ?? undefined,
+    fileName: element.dataset.fileName ?? undefined,
+    fileSize: element.dataset.fileSize
+      ? Number(element.dataset.fileSize)
+      : undefined,
     alt: element.getAttribute('alt') ?? undefined,
     title: element.getAttribute('title') ?? undefined,
     width: normalizeImageWidth(
@@ -148,6 +158,10 @@ function copyImageAttributes(
 ): SetKnowledgeBaseImageOptions {
   return {
     src: String(node.attrs.src ?? ''),
+    mediaId: node.attrs.mediaId ?? undefined,
+    mimeType: node.attrs.mimeType ?? undefined,
+    fileName: node.attrs.fileName ?? undefined,
+    fileSize: node.attrs.fileSize == null ? undefined : Number(node.attrs.fileSize),
     alt: node.attrs.alt ?? undefined,
     title: node.attrs.title ?? undefined,
     width: normalizeImageWidth(node.attrs.width),
@@ -285,6 +299,26 @@ function createImageNodeExtension({
       return {
         src: {
           default: null,
+        },
+        mediaId: {
+          default: null,
+          renderHTML: attributes =>
+            attributes.mediaId ? { 'data-media-id': attributes.mediaId } : {},
+        },
+        mimeType: {
+          default: null,
+          renderHTML: attributes =>
+            attributes.mimeType ? { 'data-mime-type': attributes.mimeType } : {},
+        },
+        fileName: {
+          default: null,
+          renderHTML: attributes =>
+            attributes.fileName ? { 'data-file-name': attributes.fileName } : {},
+        },
+        fileSize: {
+          default: null,
+          renderHTML: attributes =>
+            attributes.fileSize != null ? { 'data-file-size': attributes.fileSize } : {},
         },
         alt: {
           default: null,

@@ -111,14 +111,15 @@ public sealed class ArticleDraftRepository(KbDbContext dbContext) : IArticleDraf
             }, null, _ => new ConflictException("The draft is not currently locked."), cancellationToken);
 
     public Task<CurrentDraftData> SaveContentAsync(Guid articleId, Guid draftId, Guid actorId,
-        byte[] expectedRowVersion, StagedDraftContent content, DateTime changedAt, DraftAuditData audit,
+        byte[] expectedRowVersion, StagedDraftContent content, IReadOnlyCollection<Guid> mediaIds,
+        DateTime changedAt, DraftAuditData audit,
         CancellationToken cancellationToken) =>
         ExecuteMutationAsync(articleId, draftId, expectedRowVersion, audit,
             async token =>
             {
                 var query = MutableDraft(articleId, draftId, expectedRowVersion)
                     .Where(draft => draft.IsLocked && draft.LockedByFk == actorId);
-                return dbContext.Database.IsSqlServer()
+                var changed = dbContext.Database.IsSqlServer()
                     ? await query.ExecuteUpdateAsync(setters => setters
                         .SetProperty(draft => draft.ContentJsonStoragePath, content.ContentJsonPath)
                         .SetProperty(draft => draft.RenderedHtmlStoragePath, content.RenderedHtmlPath)
@@ -136,9 +137,52 @@ public sealed class ArticleDraftRepository(KbDbContext dbContext) : IArticleDraf
                         .SetProperty(draft => draft.UpdatedByFk, actorId)
                         .SetProperty(draft => draft.UpdatedAt, changedAt)
                         .SetProperty(draft => draft.RowVersion, Guid.NewGuid().ToByteArray()), token);
+                if (changed == 1)
+                    await SynchronizeDraftMediaReferencesAsync(articleId, draftId, mediaIds, token);
+                return changed;
             }, null,
             _ => new ConflictException("Only the current draft lock owner can save draft content."),
             cancellationToken);
+
+    private async Task SynchronizeDraftMediaReferencesAsync(
+        Guid articleId,
+        Guid draftId,
+        IReadOnlyCollection<Guid> mediaIds,
+        CancellationToken cancellationToken)
+    {
+        var desired = mediaIds.ToHashSet();
+        if (desired.Count > 0)
+        {
+            var activeIds = await dbContext.MediaFiles.AsNoTracking()
+                .Where(media => desired.Contains(media.MediaId) && media.Status == MediaStatuses.Active)
+                .Select(media => media.MediaId)
+                .ToListAsync(cancellationToken);
+            var missing = desired.Except(activeIds).FirstOrDefault();
+            if (missing != Guid.Empty)
+                throw new ConflictException($"Media file {missing} was not found or is not active.");
+        }
+
+        var existing = await dbContext.MediaReferences
+            .Where(reference =>
+                reference.ReferenceEntityType == MediaReferenceTypes.Draft &&
+                reference.ReferenceEntityId == draftId)
+            .ToListAsync(cancellationToken);
+        dbContext.MediaReferences.RemoveRange(existing.Where(reference =>
+            !desired.Contains(reference.MediaIdFk)));
+
+        var existingIds = existing.Select(reference => reference.MediaIdFk).ToHashSet();
+        foreach (var mediaId in desired.Where(id => !existingIds.Contains(id)))
+        {
+            dbContext.MediaReferences.Add(new MediaReference
+            {
+                ReferenceId = dbContext.Database.IsSqlServer() ? Guid.Empty : Guid.NewGuid(),
+                MediaIdFk = mediaId,
+                ArticleIdFk = articleId,
+                ReferenceEntityType = MediaReferenceTypes.Draft,
+                ReferenceEntityId = draftId
+            });
+        }
+    }
 
     private async Task<CurrentDraftData> ExecuteMutationAsync(
         Guid articleId,

@@ -27,7 +27,7 @@ public sealed record PublishedVersionData(Guid Id, int Number, string ContentJso
     DateTime CreatedAt, UserReference? PublishedBy, DateTime? PublishedAt);
 
 public sealed record ArticleMutationData(Guid Id, Guid OwnerId, string Title, string Slug, Guid? CurrentDraftId,
-    byte[]? CurrentDraftRowVersion, bool IsDeleted);
+    byte[]? CurrentDraftRowVersion, string Status, bool IsDeleted);
 public sealed record CreateArticleCommand(string Title, Guid CategoryId, string? Slug);
 public sealed record UpdateArticleCommand(string Title, Guid CategoryId, string? Slug, byte[] RowVersion);
 public sealed record NewArticleData(string Title, string Slug, Guid CategoryId, Guid OwnerId, DateTime CreatedAt);

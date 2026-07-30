@@ -22,6 +22,11 @@ import { HeadingIds } from './HeadingIds';
 
 import { Youtube } from '@tiptap/extension-youtube';
 import { imageExtensions } from '../blocks/image';
+import { mediaNodeExtensions } from '../media/MediaNodes';
+import {
+  MediaContentResolver,
+  type MediaContentLoader,
+} from '../media/MediaContentResolver';
 
 import { TableOfContentsBlock } from '../blocks/tableOfContents';
 import { contentBlockExtensions } from '../blocks';
@@ -48,11 +53,17 @@ import {
   resolveEditorExtensionFeatureFlags,
   type EditorExtensionFeatureFlags,
 } from './editorFeatureFlags';
+import {
+  CommentAnchors,
+  type CommentAnchorsOptions,
+} from './CommentAnchors';
 
 export type EditorExtensionOptions = {
   featureFlags?: Partial<EditorExtensionFeatureFlags>;
   fileHandler?: EditorFileHandlerOptions;
   pasteSanitizer?: PasteSanitizerOptions;
+  mediaContentLoader?: MediaContentLoader;
+  commentAnchors?: Partial<CommentAnchorsOptions>;
 };
 
 export const getEditorExtensions = (options: EditorExtensionOptions = {}) => {
@@ -120,6 +131,10 @@ export const getEditorExtensions = (options: EditorExtensionOptions = {}) => {
     // media
     Youtube,
     ...imageExtensions,
+    ...mediaNodeExtensions,
+    MediaContentResolver.configure({
+      loadContent: options.mediaContentLoader,
+    }),
 
     // block/content components
     TableOfContentsBlock,
@@ -146,6 +161,7 @@ export const getEditorExtensions = (options: EditorExtensionOptions = {}) => {
     ReadOnlySelectionHighlight.configure({
       className: PRESERVED_SELECTION_CLASS,
     }),
+    CommentAnchors.configure(options.commentAnchors),
 
     CharacterCount.configure({
       limit: null,

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using Kb.Domain.Constants;
 using Kb.Infrastructure.Data.Entities;
 using Microsoft.EntityFrameworkCore;
 
@@ -45,6 +46,22 @@ public partial class KbDbContext : DbContext
     public virtual DbSet<User> Users { get; set; }
 
     public virtual DbSet<UserRole> UserRoles { get; set; }
+
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        EnsureAuditLogsAreAppendOnly();
+        EnsureArticleVersionsAreAppendOnly();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
+    public override Task<int> SaveChangesAsync(
+        bool acceptAllChangesOnSuccess,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureAuditLogsAreAppendOnly();
+        EnsureArticleVersionsAreAppendOnly();
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -115,7 +132,7 @@ public partial class KbDbContext : DbContext
             entity.Property(e => e.AuditLogId)
                 .HasDefaultValueSql("(newsequentialid())", "DF_ARTICLE_AUDIT_LOG_AuditLogID")
                 .HasColumnName("AuditLogID");
-            entity.Property(e => e.ActionType).HasMaxLength(100);
+            entity.Property(e => e.ActionType).HasMaxLength(100).IsRequired();
             entity.Property(e => e.ActorIdFk).HasColumnName("ActorID_FK");
             entity.Property(e => e.ArticleIdFk).HasColumnName("ArticleID_FK");
             entity.Property(e => e.CreatedAt)
@@ -144,22 +161,41 @@ public partial class KbDbContext : DbContext
 
             entity.HasIndex(e => e.ParentCommentIdFk, "IX_ARTICLE_COMMENTS_ParentCommentID_FK").HasFilter("([ParentCommentID_FK] IS NOT NULL)");
 
+            entity.HasIndex(e => e.CurrentDraftIdFk, "IX_ARTICLE_COMMENTS_CurrentDraftID_FK")
+                .HasFilter("([CurrentDraftID_FK] IS NOT NULL)");
+
+            entity.HasIndex(e => e.OriginDraftIdFk, "IX_ARTICLE_COMMENTS_OriginDraftID_FK")
+                .HasFilter("([OriginDraftID_FK] IS NOT NULL)");
+
             entity.Property(e => e.CommentId)
                 .HasDefaultValueSql("(newsequentialid())", "DF_ARTICLE_COMMENTS_CommentID")
                 .HasColumnName("CommentID");
             entity.Property(e => e.AnchorType).HasMaxLength(50);
+            entity.Property(e => e.AnchorDataJson).HasColumnName("AnchorDataJSON");
+            entity.Property(e => e.AnchorStatus)
+                .HasMaxLength(50)
+                .HasDefaultValue(CommentAnchorStatuses.Attached, "DF_ARTICLE_COMMENTS_AnchorStatus");
             entity.Property(e => e.ArticleIdFk).HasColumnName("ArticleID_FK");
             entity.Property(e => e.CreatedAt)
                 .HasPrecision(3)
                 .HasDefaultValueSql("(sysutcdatetime())", "DF_ARTICLE_COMMENTS_CreatedAt");
             entity.Property(e => e.CreatedByFk).HasColumnName("CreatedBy_FK");
+            entity.Property(e => e.CurrentDraftIdFk).HasColumnName("CurrentDraftID_FK");
             entity.Property(e => e.DeletedAt).HasPrecision(3);
+            entity.Property(e => e.OriginDraftIdFk).HasColumnName("OriginDraftID_FK");
             entity.Property(e => e.ParentCommentIdFk).HasColumnName("ParentCommentID_FK");
             entity.Property(e => e.ResolvedAt).HasPrecision(3);
             entity.Property(e => e.ResolvedByFk).HasColumnName("ResolvedBy_FK");
             entity.Property(e => e.Status)
                 .HasMaxLength(50)
                 .HasDefaultValue("Open", "DF_ARTICLE_COMMENTS_Status");
+            entity.Property(e => e.UpdatedAt)
+                .HasPrecision(3)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_ARTICLE_COMMENTS_UpdatedAt");
+            var commentRowVersion = entity.Property(e => e.RowVersion)
+                .IsConcurrencyToken();
+            if (Database.IsSqlServer())
+                commentRowVersion.IsRowVersion();
 
             entity.HasOne(d => d.ArticleIdFkNavigation).WithMany(p => p.ArticleComments)
                 .HasForeignKey(d => d.ArticleIdFk)
@@ -171,9 +207,19 @@ public partial class KbDbContext : DbContext
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_ARTICLE_COMMENTS_CreatedBy_USERS");
 
+            entity.HasOne(d => d.CurrentDraftIdFkNavigation).WithMany(p => p.CurrentArticleComments)
+                .HasForeignKey(d => d.CurrentDraftIdFk)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("FK_ARTICLE_COMMENTS_CurrentDraft_ARTICLE_DRAFTS");
+
             entity.HasOne(d => d.ParentCommentIdFkNavigation).WithMany(p => p.InverseParentCommentIdFkNavigation)
                 .HasForeignKey(d => d.ParentCommentIdFk)
                 .HasConstraintName("FK_ARTICLE_COMMENTS_Parent_ARTICLE_COMMENTS");
+
+            entity.HasOne(d => d.OriginDraftIdFkNavigation).WithMany(p => p.OriginArticleComments)
+                .HasForeignKey(d => d.OriginDraftIdFk)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("FK_ARTICLE_COMMENTS_OriginDraft_ARTICLE_DRAFTS");
 
             entity.HasOne(d => d.ResolvedByFkNavigation).WithMany(p => p.ArticleCommentResolvedByFkNavigations)
                 .HasForeignKey(d => d.ResolvedByFk)
@@ -188,6 +234,8 @@ public partial class KbDbContext : DbContext
 
             entity.HasIndex(e => new { e.ArticleIdFk, e.UpdatedAt }, "IX_ARTICLE_DRAFTS_ArticleID_FK").IsDescending(false, true);
 
+            entity.HasIndex(e => new { e.ArticleIdFk, e.DraftNumber }, "UX_ARTICLE_DRAFTS_Article_DraftNumber").IsUnique();
+
             entity.HasIndex(e => e.LockedByFk, "IX_ARTICLE_DRAFTS_LockedBy_FK").HasFilter("([LockedBy_FK] IS NOT NULL)");
 
             entity.HasIndex(e => e.Status, "IX_ARTICLE_DRAFTS_Status");
@@ -196,6 +244,8 @@ public partial class KbDbContext : DbContext
                 .HasDefaultValueSql("(newsequentialid())", "DF_ARTICLE_DRAFTS_DraftID")
                 .HasColumnName("DraftID");
             entity.Property(e => e.ArticleIdFk).HasColumnName("ArticleID_FK");
+            entity.Property(e => e.DraftNumber)
+                .HasDefaultValue(1, "DF_ARTICLE_DRAFTS_DraftNumber");
             entity.Property(e => e.ContentHash)
                 .HasMaxLength(64)
                 .IsUnicode(false)
@@ -302,6 +352,10 @@ public partial class KbDbContext : DbContext
             entity.Property(e => e.PublishedAt).HasPrecision(3);
             entity.Property(e => e.PublishedByFk).HasColumnName("PublishedBy_FK");
             entity.Property(e => e.RenderedHtmlStoragePath).HasMaxLength(1024);
+            entity.Property(e => e.SnapshotReason)
+                .HasMaxLength(50)
+                .HasDefaultValue(ArticleSnapshotReasons.Published, "DF_ARTICLE_VERSIONS_SnapshotReason");
+            entity.Property(e => e.SourceDraftIdFk).HasColumnName("SourceDraftID_FK");
 
             entity.HasOne(d => d.ArticleIdFkNavigation).WithMany(p => p.ArticleVersions)
                 .HasForeignKey(d => d.ArticleIdFk)
@@ -316,6 +370,11 @@ public partial class KbDbContext : DbContext
             entity.HasOne(d => d.PublishedByFkNavigation).WithMany(p => p.ArticleVersionPublishedByFkNavigations)
                 .HasForeignKey(d => d.PublishedByFk)
                 .HasConstraintName("FK_ARTICLE_VERSIONS_PublishedBy_USERS");
+
+            entity.HasOne(d => d.SourceDraftIdFkNavigation).WithMany(p => p.SourceArticleVersions)
+                .HasForeignKey(d => d.SourceDraftIdFk)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("FK_ARTICLE_VERSIONS_SourceDraft_ARTICLE_DRAFTS");
         });
 
         modelBuilder.Entity<Category>(entity =>
@@ -624,6 +683,20 @@ public partial class KbDbContext : DbContext
         });
 
         OnModelCreatingPartial(modelBuilder);
+    }
+
+    private void EnsureAuditLogsAreAppendOnly()
+    {
+        if (ChangeTracker.Entries<ArticleAuditLog>()
+            .Any(entry => entry.State is EntityState.Modified or EntityState.Deleted))
+            throw new InvalidOperationException("Audit logs are append-only and cannot be edited or deleted.");
+    }
+
+    private void EnsureArticleVersionsAreAppendOnly()
+    {
+        if (ChangeTracker.Entries<ArticleVersion>().Any(entry =>
+                entry.State is EntityState.Modified or EntityState.Deleted))
+            throw new InvalidOperationException("Article versions are immutable and cannot be modified or deleted.");
     }
 
     partial void OnModelCreatingPartial(ModelBuilder modelBuilder);

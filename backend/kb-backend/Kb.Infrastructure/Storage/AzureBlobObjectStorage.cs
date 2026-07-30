@@ -123,5 +123,16 @@ public sealed class AzureBlobObjectStorage(
     private static void ValidateObjectName(string objectName)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(objectName);
+        if (objectName.Length > 1024 ||
+            objectName.StartsWith('/') ||
+            objectName.StartsWith('\\') ||
+            objectName.Contains('\\') ||
+            objectName.Any(char.IsControl) ||
+            objectName.Split('/').Any(segment => segment is "" or "." or ".."))
+        {
+            throw new ArgumentException(
+                "Object names must be relative, normalized paths without traversal segments.",
+                nameof(objectName));
+        }
     }
 }

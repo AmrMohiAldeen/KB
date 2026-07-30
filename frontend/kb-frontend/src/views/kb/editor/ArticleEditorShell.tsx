@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -13,7 +13,7 @@ import Chip from '@mui/material/Chip'
 import CircularProgress from '@mui/material/CircularProgress'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
-import { RefreshCw, Save } from 'lucide-react'
+import { History, RefreshCw, Save } from 'lucide-react'
 import type { KnowledgeBaseEditorProps } from '@/features/editor/core/KnowledgeBaseEditor'
 import {
   useArticleDraftEditor,
@@ -24,6 +24,17 @@ import { KbPageShell } from '@/views/shared'
 import KbValidationSummary from '@/views/shared/forms/KbValidationSummary'
 import PageHeader from '../shared/components/PageHeader'
 import StatusChip from '../shared/components/StatusChip'
+import {
+  mediaLibraryApi,
+  type MediaLibraryApi
+} from '@/lib/api/mediaApi'
+import { createEditorMediaUploadController } from '@/features/editor/media/MediaUploadController'
+import ArticleLifecyclePanel from '@/features/lifecycle/ArticleLifecyclePanel'
+import ArticleCommentsPanel, {
+  type PendingCommentAnchor
+} from '@/features/comments/ArticleCommentsPanel'
+import { useArticleComments } from '@/features/comments/useArticleComments'
+import type { ArticleCommentsApi } from '@/lib/api/articleCommentsApi'
 
 const EditorCanvas = dynamic<KnowledgeBaseEditorProps>(() => import('@/features/editor/core/KnowledgeBaseEditor'), {
   ssr: false
@@ -34,7 +45,10 @@ type ArticleEditorShellProps = {
   articleId: string
   /** Supplied by the company SSO/session integration, following the existing API-client convention. */
   accessToken: string
+  restoredFromVersion?: string
   api?: ArticleDraftEditorApi
+  mediaApi?: MediaLibraryApi
+  commentsApi?: ArticleCommentsApi
 }
 
 const saveLabel = {
@@ -45,10 +59,60 @@ const saveLabel = {
   conflict: 'Conflict detected'
 } as const
 
-const ArticleEditorShell = ({ lang, articleId, accessToken, api }: ArticleEditorShellProps) => {
+const ArticleEditorShell = ({
+  lang,
+  articleId,
+  accessToken,
+  restoredFromVersion,
+  api,
+  mediaApi = mediaLibraryApi,
+  commentsApi
+}: ArticleEditorShellProps) => {
   const router = useRouter()
-  const editor = useArticleDraftEditor({ articleId, accessToken, api })
-  const articlesUrl = getLocalizedUrl('/articles', lang)
+  const [pendingMediaUploads, setPendingMediaUploads] = useState(0)
+  const [mediaMessages, setMediaMessages] = useState<string[]>([])
+  const [activeCommentThreadId, setActiveCommentThreadId] = useState<string | null>(null)
+  const [pendingCommentAnchor, setPendingCommentAnchor] = useState<PendingCommentAnchor | null>(null)
+  const commentsRefreshVersion = useRef('')
+  const handleMediaError = useCallback((message: string) => {
+    setMediaMessages(current => [...current.filter(item => item !== message), message])
+  }, [])
+  const clearMediaError = useCallback((fileName: string) => {
+    setMediaMessages(current => current.filter(message => !message.startsWith(`${fileName}:`)))
+  }, [])
+  const mediaController = useMemo(() => createEditorMediaUploadController({
+    upload: file => mediaApi.upload(file, accessToken),
+    onError: handleMediaError,
+    onResolved: clearMediaError
+  }), [accessToken, clearMediaError, handleMediaError, mediaApi])
+  const loadMediaContent = useCallback(
+    (mediaId: string) => mediaApi.getContent(mediaId, accessToken),
+    [accessToken, mediaApi]
+  )
+  const editor = useArticleDraftEditor({
+    articleId,
+    accessToken,
+    api,
+    pendingMediaUploads
+  })
+  const comments = useArticleComments(articleId, accessToken, commentsApi)
+  const dashboardUrl = getLocalizedUrl('/dashboard', lang)
+  const versionHistoryUrl = getLocalizedUrl(
+    `/editor/versions?articleId=${encodeURIComponent(articleId)}`,
+    lang
+  )
+
+  useEffect(
+    () => mediaController.subscribe(setPendingMediaUploads),
+    [mediaController]
+  )
+
+  useEffect(() => {
+    const version = editor.saveState.rowVersion
+    if (!version || editor.saveState.status !== 'saved' || commentsRefreshVersion.current === version) return
+    commentsRefreshVersion.current = version
+    void comments.query.refetch()
+  }, [comments.query, editor.saveState.rowVersion, editor.saveState.status])
 
   const pageState = useMemo(() => {
     if (editor.phase === 'loading') return 'Loading'
@@ -111,14 +175,58 @@ const ArticleEditorShell = ({ lang, articleId, accessToken, api }: ArticleEditor
                 Reload server draft
               </Button>
             )}
-            <Button variant='contained' onClick={() => void editor.leave(() => router.push(articlesUrl))}>
-              Back to Articles
+            {articleId && (
+              <Button
+                variant='outlined'
+                startIcon={<History size={18} />}
+                onClick={() => void editor.leave(() => router.push(versionHistoryUrl))}
+              >
+                Version history
+              </Button>
+            )}
+            <Button variant='contained' onClick={() => void editor.leave(() => router.push(dashboardUrl))}>
+              Back to Dashboard
             </Button>
           </>
         }
       />
 
-      <KbValidationSummary title='Draft editor' errors={editor.messages} />
+      <KbValidationSummary title='Draft editor' errors={[...editor.messages, ...mediaMessages]} />
+
+      {restoredFromVersion && (
+        <Alert severity='success'>
+          A new editable draft was created from version {restoredFromVersion}. The currently published article is
+          unchanged until this draft completes review and is published.
+        </Alert>
+      )}
+
+      {articleId && (
+        <ArticleLifecyclePanel
+          articleId={articleId}
+          accessToken={accessToken}
+          beforeAction={editor.prepareForWorkflow}
+          actionsDisabled={Boolean(
+            editor.draft?.lock.isLocked && !editor.draft.isLockOwner ||
+            editor.saveState.status === 'conflict' ||
+            pendingMediaUploads > 0
+          )}
+          actionsDisabledReason={
+            editor.draft?.lock.isLocked && !editor.draft.isLockOwner
+              ? 'Lifecycle actions are disabled while another user owns the draft lock.'
+              : editor.saveState.status === 'conflict'
+                ? 'Reload the conflicting draft before changing lifecycle state.'
+                : pendingMediaUploads > 0
+                  ? 'Wait for media uploads to finish before changing lifecycle state.'
+                  : undefined
+          }
+        />
+      )}
+
+      {pendingMediaUploads > 0 && (
+        <Alert severity='info'>
+          {pendingMediaUploads} media upload{pendingMediaUploads === 1 ? ' is' : 's are'} still in progress. Saving will include each item after its upload completes.
+        </Alert>
+      )}
 
       {editor.phase === 'loading' && (
         <Card variant='outlined'>
@@ -179,18 +287,54 @@ const ArticleEditorShell = ({ lang, articleId, accessToken, api }: ArticleEditor
           <Card variant='outlined' sx={{ overflow: 'hidden', borderRadius: 2, boxShadow: 'none' }}>
             <CardContent sx={{ p: 0, '&:last-child': { pb: 0 } }}>
               <Box sx={{ p: 3, borderBlockEnd: theme => `1px solid ${theme.palette.divider}` }}>
-                <Link href={articlesUrl}>Articles</Link>
+                <Link href={dashboardUrl}>Dashboard</Link>
               </Box>
-              <Box sx={{ display: 'flex', justifyContent: 'center', p: { xs: 3, md: 5 }, bgcolor: 'background.default' }}>
-                <Box sx={{ inlineSize: '100%', maxInlineSize: 1120 }}>
+              <Box
+                sx={{
+                  display: 'flex',
+                  flexDirection: { xs: 'column', xl: 'row' },
+                  alignItems: 'flex-start',
+                  justifyContent: 'center',
+                  gap: 3,
+                  p: { xs: 3, md: 5 },
+                  bgcolor: 'background.default'
+                }}
+              >
+                <Box sx={{ inlineSize: '100%', maxInlineSize: 1120, minInlineSize: 0 }}>
                   <EditorCanvas
                     key={editor.editorKey}
                     content={editor.draft.content}
                     editable={editor.editable}
                     changeDebounceMs={0}
                     onChange={editor.onEditorChange}
+                    fileUploadAdapter={mediaController.adapter}
+                    fileUploadErrorHandler={error => handleMediaError(
+                      error instanceof Error ? error.message : 'The media upload failed.'
+                    )}
+                    mediaUploadController={mediaController}
+                    mediaLibraryApi={mediaApi}
+                    mediaAccessToken={accessToken}
+                    mediaContentLoader={loadMediaContent}
+                    commentAnchors={comments.query.data?.threads ?? []}
+                    activeCommentThreadId={activeCommentThreadId}
+                    onSelectCommentThread={setActiveCommentThreadId}
+                    canComment={Boolean(comments.query.data?.canComment)}
+                    currentDraftId={editor.draft.draftId}
+                    onAddCommentAnchor={(anchorType, anchorData) => {
+                      setPendingCommentAnchor({ anchorType, anchorData })
+                      setActiveCommentThreadId(null)
+                    }}
                   />
                 </Box>
+                <ArticleCommentsPanel
+                  state={comments}
+                  currentDraftId={editor.draft.draftId}
+                  activeThreadId={activeCommentThreadId}
+                  onActiveThreadChange={setActiveCommentThreadId}
+                  pendingAnchor={pendingCommentAnchor}
+                  onClearPendingAnchor={() => setPendingCommentAnchor(null)}
+                  locale={lang}
+                />
               </Box>
             </CardContent>
           </Card>

@@ -262,6 +262,66 @@ public sealed class ArticleDraftSliceTests
         Assert.Empty(f.Storage.UploadedPaths);
     }
 
+    [Fact]
+    public async Task Successful_save_atomically_synchronizes_complete_draft_media_reference_set()
+    {
+        await using var f = await Fixture.CreateAsync();
+        f.Grant(f.AuthorId, PermissionCodes.ArticlesEditOwnDraft);
+        var firstId = Guid.NewGuid();
+        var secondId = Guid.NewGuid();
+        var now = DateTime.UtcNow;
+        f.Context.MediaFiles.AddRange(
+            Media(firstId, "first.png", "image/png", f.AuthorId, now),
+            Media(secondId, "second.pdf", "application/pdf", f.AuthorId, now));
+        await f.Context.SaveChangesAsync();
+        var initial = await f.Service.GetAsync(f.ArticleId, default);
+        var locked = await f.Service.AcquireLockAsync(f.ArticleId, initial.Draft.RowVersion, default);
+
+        var firstSave = await f.Service.SaveContentAsync(f.ArticleId,
+            new(MediaDocument(firstId, secondId), null, null, locked.Draft.RowVersion), default);
+        f.Context.ChangeTracker.Clear();
+        var referencedIds = await f.Context.MediaReferences.AsNoTracking()
+            .Select(reference => reference.MediaIdFk)
+            .ToArrayAsync();
+        Assert.True(new[] { firstId, secondId }.ToHashSet().SetEquals(referencedIds));
+
+        await f.Service.SaveContentAsync(f.ArticleId,
+            new(MediaDocument(secondId), null, null, firstSave.RowVersion), default);
+        f.Context.ChangeTracker.Clear();
+        var remaining = Assert.Single(await f.Context.MediaReferences.AsNoTracking().ToListAsync());
+        Assert.Equal(secondId, remaining.MediaIdFk);
+        Assert.Equal(MediaReferenceTypes.Draft, remaining.ReferenceEntityType);
+        Assert.Equal(f.DraftId, remaining.ReferenceEntityId);
+    }
+
+    [Fact]
+    public async Task Failed_save_does_not_change_existing_media_references()
+    {
+        await using var f = await Fixture.CreateAsync();
+        f.Grant(f.AuthorId, PermissionCodes.ArticlesEditOwnDraft);
+        var activeId = Guid.NewGuid();
+        var archivedId = Guid.NewGuid();
+        var now = DateTime.UtcNow;
+        f.Context.MediaFiles.AddRange(
+            Media(activeId, "active.png", "image/png", f.AuthorId, now),
+            Media(archivedId, "archived.png", "image/png", f.AuthorId, now, MediaStatuses.Archived));
+        await f.Context.SaveChangesAsync();
+        var initial = await f.Service.GetAsync(f.ArticleId, default);
+        var locked = await f.Service.AcquireLockAsync(f.ArticleId, initial.Draft.RowVersion, default);
+        var saved = await f.Service.SaveContentAsync(f.ArticleId,
+            new(MediaDocument(activeId), null, null, locked.Draft.RowVersion), default);
+        await Assert.ThrowsAsync<ConflictException>(() => f.Service.SaveContentAsync(f.ArticleId,
+            new(MediaDocument(archivedId), null, null, saved.RowVersion), default));
+        var uploadCount = f.Storage.UploadedPaths.Count;
+        await Assert.ThrowsAsync<BusinessRuleException>(() => f.Service.SaveContentAsync(f.ArticleId,
+            new(TemporaryMediaDocument(), null, null, saved.RowVersion), default));
+
+        f.Context.ChangeTracker.Clear();
+        Assert.Equal(activeId, (await f.Context.MediaReferences.AsNoTracking().SingleAsync()).MediaIdFk);
+        Assert.Equal(saved.RowVersion, (await f.Context.ArticleDrafts.AsNoTracking().SingleAsync()).RowVersion);
+        Assert.Equal(uploadCount, f.Storage.UploadedPaths.Count);
+    }
+
     private static JsonElement Tiptap(string text)
     {
         using var document = JsonDocument.Parse(JsonSerializer.Serialize(new
@@ -269,6 +329,50 @@ public sealed class ArticleDraftSliceTests
             type = "doc",
             content = new[] { new { type = "paragraph", content = new[] { new { type = "text", text } } } }
         }));
+        return document.RootElement.Clone();
+    }
+
+    private static JsonElement MediaDocument(params Guid[] mediaIds)
+    {
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(new
+        {
+            type = "doc",
+            content = mediaIds.Select((mediaId, index) => new
+            {
+                type = index == 0 ? "image" : "attachment",
+                attrs = new
+                {
+                    mediaId,
+                    src = $"/api/media/{mediaId:D}/content",
+                    mimeType = index == 0 ? "image/png" : "application/pdf",
+                    fileName = index == 0 ? "first.png" : "second.pdf",
+                    fileSize = 12
+                }
+            })
+        }));
+        return document.RootElement.Clone();
+    }
+
+    private static MediaFile Media(Guid id, string name, string mimeType, Guid userId, DateTime now,
+        string status = MediaStatuses.Active) => new()
+    {
+        MediaId = id,
+        OriginalFileName = name,
+        StoredFileName = $"{id:N}{Path.GetExtension(name)}",
+        MimeType = mimeType,
+        FileExtension = Path.GetExtension(name),
+        FileSizeBytes = 12,
+        StoragePath = $"2026/07/{id:N}{Path.GetExtension(name)}",
+        Status = status,
+        UploadedByFk = userId,
+        UploadedAt = now
+    };
+
+    private static JsonElement TemporaryMediaDocument()
+    {
+        using var document = JsonDocument.Parse("""
+            {"type":"doc","content":[{"type":"image","attrs":{"src":"data:image/png;base64,AAAA"}}]}
+            """);
         return document.RootElement.Clone();
     }
 

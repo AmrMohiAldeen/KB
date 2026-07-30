@@ -25,9 +25,8 @@ const horizontalMenuData = (
       label: navigation.content,
       icon: 'tabler-article',
       children: [
-        { label: navigation.articles, icon: 'tabler-article', href: localizedHref(params, '/articles') },
+        { label: navigation.dashboard, icon: 'tabler-layout-dashboard', href: localizedHref(params, '/dashboard') },
         { label: navigation.editor, icon: 'tabler-pencil', href: localizedHref(params, '/editor') },
-        { label: navigation.categories, icon: 'tabler-folder', href: localizedHref(params, '/categories') },
         { label: navigation.templates, icon: 'tabler-template', href: localizedHref(params, '/templates') },
         {
           label: navigation.reusableBlocks,

@@ -86,6 +86,15 @@ public sealed class ContractValidationTests
         AssertInvalid(request, nameof(CreateCommentRequest.AnchorData));
     }
 
+    [Fact]
+    public void Comment_mutations_require_non_empty_row_versions()
+    {
+        AssertInvalid(new UpdateCommentRequest { Body = "Edit", RowVersion = "invalid" },
+            nameof(UpdateCommentRequest.RowVersion));
+        AssertInvalid(new CommentConcurrencyRequest { RowVersion = "" },
+            nameof(CommentConcurrencyRequest.RowVersion));
+    }
+
     [Theory]
     [InlineData("PDF")]
     [InlineData("HTML")]

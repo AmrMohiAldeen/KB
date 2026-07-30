@@ -52,6 +52,14 @@ public static class CommentAnchorTypes
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal) { TextRange, Block };
 }
 
+public static class CommentAnchorStatuses
+{
+    public const string Attached = Kb.Domain.Constants.CommentAnchorStatuses.Attached;
+    public const string NeedsReanchoring = Kb.Domain.Constants.CommentAnchorStatuses.NeedsReanchoring;
+    public const string Orphaned = Kb.Domain.Constants.CommentAnchorStatuses.Orphaned;
+    public static readonly IReadOnlySet<string> All = Kb.Domain.Constants.CommentAnchorStatuses.All;
+}
+
 public static class PermissionCodes
 {
     public const string ArticlesCreate = Kb.Domain.Constants.PermissionCodes.ArticlesCreate;
@@ -62,6 +70,7 @@ public static class PermissionCodes
     public const string ArticlesPublish = Kb.Domain.Constants.PermissionCodes.ArticlesPublish;
     public const string ArticlesDelete = Kb.Domain.Constants.PermissionCodes.ArticlesDelete;
     public const string CommentsCreate = Kb.Domain.Constants.PermissionCodes.CommentsCreate;
+    public const string CommentsModerate = Kb.Domain.Constants.PermissionCodes.CommentsModerate;
     public const string SuggestionsCreate = Kb.Domain.Constants.PermissionCodes.SuggestionsCreate;
     public const string CategoriesManage = Kb.Domain.Constants.PermissionCodes.CategoriesManage;
     public const string TemplatesManage = Kb.Domain.Constants.PermissionCodes.TemplatesManage;

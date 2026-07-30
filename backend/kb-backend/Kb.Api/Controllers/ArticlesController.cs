@@ -38,6 +38,15 @@ public sealed class ArticlesController(ArticleService articles) : ControllerBase
     public async Task<ActionResult<ArticleDetailsResponse>> GetById(Guid id, CancellationToken cancellationToken)
         => Ok(ToDetailsResponse(await articles.GetAsync(id, cancellationToken)));
 
+    [HttpGet("by-slug/{slug}")]
+    [ProducesResponseType<ArticleDetailsResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ArticleDetailsResponse>> GetBySlug(
+        string slug,
+        CancellationToken cancellationToken) =>
+        Ok(ToDetailsResponse(await articles.GetBySlugAsync(slug, cancellationToken)));
+
     [HttpPost]
     [Authorize(Policy = CreatePolicy)]
     [ProducesResponseType<ArticleDetailsResponse>(StatusCodes.Status201Created)]

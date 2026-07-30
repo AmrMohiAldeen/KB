@@ -39,6 +39,7 @@ export const forceReleaseArticleDraftLock = (
   method: 'POST', body: JSON.stringify(request), signal
 })
 
+
 export const saveArticleDraftContent = (
   articleId: string,
   request: SaveArticleDraftRequest,

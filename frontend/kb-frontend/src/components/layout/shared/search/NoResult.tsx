@@ -24,9 +24,9 @@ type NoResultData = {
 
 const noResultData: NoResultData[] = [
   {
-    label: 'Articles',
-    href: '/articles',
-    icon: 'tabler-article'
+    label: 'Dashboard',
+    href: '/dashboard',
+    icon: 'tabler-layout-dashboard'
   },
   {
     label: 'Review Dashboard',

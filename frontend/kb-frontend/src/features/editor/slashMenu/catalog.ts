@@ -17,11 +17,16 @@ export const SLASH_COMMAND_KINDS = [
   'horizontal-rule',
   'glossary',
   'table',
+  'upload-image',
+  'upload-video',
+  'upload-attachment',
+  'media-library',
+  'youtube',
   ...CONTENT_BLOCK_KINDS, // tabs, accordions and callouts
 ] as const;
 
 export type SlashCommandKind = (typeof SLASH_COMMAND_KINDS)[number];
-export type SlashCommandGroup = 'Basic' | 'Lists' | 'Advanced' | 'Callouts';
+export type SlashCommandGroup = 'Basic' | 'Lists' | 'Advanced' | 'Media' | 'Callouts';
 
 export type SlashCommandOption = {
   description: string;
@@ -142,6 +147,41 @@ export const SLASH_COMMAND_OPTIONS: readonly SlashCommandOption[] = [
     description: 'Insert a 3 by 3 table',
     group: 'Advanced',
     keywords: ['grid', 'rows', 'columns'],
+  },
+  {
+    kind: 'upload-image',
+    label: 'Upload image or GIF',
+    description: 'Upload and insert an image',
+    group: 'Media',
+    keywords: ['image', 'gif', 'photo', 'media'],
+  },
+  {
+    kind: 'upload-video',
+    label: 'Upload video',
+    description: 'Upload and insert a video',
+    group: 'Media',
+    keywords: ['video', 'movie', 'media'],
+  },
+  {
+    kind: 'upload-attachment',
+    label: 'Upload attachment',
+    description: 'Upload a PDF or document',
+    group: 'Media',
+    keywords: ['file', 'pdf', 'document', 'media'],
+  },
+  {
+    kind: 'media-library',
+    label: 'Media library',
+    description: 'Insert a previously uploaded file',
+    group: 'Media',
+    keywords: ['existing', 'select', 'file'],
+  },
+  {
+    kind: 'youtube',
+    label: 'YouTube video',
+    description: 'Insert an approved YouTube link',
+    group: 'Media',
+    keywords: ['external', 'embed', 'video'],
   },
   ...CONTENT_BLOCK_OPTIONS.map((item) => ({
     ...item,

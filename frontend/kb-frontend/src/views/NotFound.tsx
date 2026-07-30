@@ -24,8 +24,8 @@ const NotFound = () => {
                 The requested knowledge base page does not exist or is no longer available.
               </Typography>
             </Stack>
-            <Button href='/articles' component={Link} variant='contained'>
-              Back to articles
+            <Button href='/dashboard' component={Link} variant='contained'>
+              Back to dashboard
             </Button>
           </Stack>
         </CardContent>

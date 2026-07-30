@@ -24,8 +24,8 @@ const NotAuthorized = () => {
                 Your global KB role does not include permission to view this page.
               </Typography>
             </Stack>
-            <Button href='/articles' component={Link} variant='contained'>
-              Back to articles
+            <Button href='/dashboard' component={Link} variant='contained'>
+              Back to dashboard
             </Button>
           </Stack>
         </CardContent>
