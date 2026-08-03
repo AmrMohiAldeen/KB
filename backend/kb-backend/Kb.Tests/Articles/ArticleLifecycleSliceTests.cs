@@ -12,6 +12,8 @@ using Kb.Infrastructure.Data;
 using Kb.Infrastructure.Data.Entities;
 using Kb.Infrastructure.Lifecycle;
 using Kb.Infrastructure.Drafts;
+using Kb.Application.Notifications;
+using Kb.Infrastructure.Notifications;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -24,6 +26,13 @@ public sealed class ArticleLifecycleSliceTests
     public async Task Complete_lifecycle_creates_review_events_audits_version_and_search_job()
     {
         await using var f = await Fixture.CreateAsync();
+        var reviewerRoleId = Guid.NewGuid();
+        f.Context.Roles.Add(new Role { RoleId = reviewerRoleId, RoleName = "Lifecycle Reviewer" });
+        f.Context.RolePermissions.Add(new RolePermission
+            { RoleIdFk = reviewerRoleId, PermissionCode = PermissionCodes.ArticlesReview });
+        f.Context.UserRoles.Add(new UserRole
+            { UserId = f.ReviewerId, RoleId = reviewerRoleId, AssignedAt = DateTime.UtcNow });
+        await f.Context.SaveChangesAsync();
         f.Grant(f.AuthorId, PermissionCodes.ArticlesSubmitForReview);
         f.Grant(f.ReviewerId, PermissionCodes.ArticlesReview);
         f.Grant(f.PublisherId, PermissionCodes.ArticlesPublish);
@@ -91,6 +100,34 @@ public sealed class ArticleLifecycleSliceTests
             metadata.RootElement.GetProperty("previousState").GetString());
         Assert.Equal(ArticleStatuses.Published,
             metadata.RootElement.GetProperty("newState").GetString());
+        var notifications = await f.Context.Notifications.AsNoTracking().ToArrayAsync();
+        Assert.Equal(6, notifications.Length);
+        Assert.Equal(3, notifications.Count(value => value.UserIdFk == f.AuthorId));
+        Assert.Equal(3, notifications.Count(value => value.UserIdFk == f.ReviewerId));
+        Assert.Contains(notifications, value =>
+            value.Type == NotificationTypes.ArticleSubmittedForReview && value.UserIdFk == f.ReviewerId);
+        Assert.Contains(notifications, value =>
+            value.Type == NotificationTypes.ArticleChangesRequested && value.UserIdFk == f.AuthorId);
+        Assert.Contains(notifications, value =>
+            value.Type == NotificationTypes.ArticleApproved && value.UserIdFk == f.AuthorId);
+        Assert.Contains(notifications, value => value.Type == NotificationTypes.ArticlePublished);
+    }
+
+    [Fact]
+    public async Task Rejection_returns_the_article_for_changes_and_notifies_the_author()
+    {
+        await using var f = await Fixture.CreateAsync(ArticleStatuses.InReview);
+        f.Grant(f.ReviewerId, PermissionCodes.ArticlesReview);
+        f.Current.UserId = f.ReviewerId;
+
+        var rejected = await f.Service.RejectAsync(f.ArticleId,
+            new(f.RowVersion, "The evidence is incomplete."), default);
+
+        Assert.Equal(ArticleStatuses.ChangesRequested, rejected.Status);
+        var notification = await f.Context.Notifications.AsNoTracking().SingleAsync();
+        Assert.Equal(f.AuthorId, notification.UserIdFk);
+        Assert.Equal(NotificationTypes.ArticleRejected, notification.Type);
+        Assert.Contains("evidence is incomplete", notification.Body, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -595,7 +632,8 @@ public sealed class ArticleLifecycleSliceTests
                 {
                     ContainerName = "article-content",
                     MaxContentSizeBytes = DraftContentOptions.DefaultMaxContentSizeBytes
-                }));
+                }),
+                new NotificationService(new NotificationRepository(context), current, TimeProvider.System));
             return new(connection, context, service, current, permissions, storage, articleId,
                 draftId, authorId, reviewerId, publisherId, rowVersion, contentPath);
         }

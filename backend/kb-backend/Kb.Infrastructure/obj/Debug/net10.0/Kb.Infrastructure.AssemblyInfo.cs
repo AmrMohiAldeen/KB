@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Kb.Infrastructure")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+c3f4ac9b247c2be1ea74dd49a448c025ffc3814c")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+d4c5fe09b2d9750299be9d8119af48b189361a20")]
 [assembly: System.Reflection.AssemblyProductAttribute("Kb.Infrastructure")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Kb.Infrastructure")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

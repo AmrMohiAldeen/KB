@@ -2,18 +2,11 @@ using System.Text.Json;
 
 namespace Kb.Application.Migrations.HelpJuice;
 
-public static class MigrationJobStatuses
+public static class HelpJuiceMigrationStatuses
 {
-    public const string Pending = "Pending";
-    public const string Validating = "Validating";
-    public const string Ready = "Ready";
-    public const string Running = "Running";
+    public const string ValidationFailed = "ValidationFailed";
     public const string Completed = "Completed";
     public const string CompletedWithErrors = "CompletedWithErrors";
-    public const string Failed = "Failed";
-    public const string Cancelled = "Cancelled";
-    public static readonly IReadOnlySet<string> Terminal = new HashSet<string>(StringComparer.Ordinal)
-        { Completed, CompletedWithErrors, Failed, Cancelled };
 }
 
 public static class MigrationConflictBehaviors
@@ -35,9 +28,7 @@ public sealed record HelpJuiceMigrationOptions(
 {
     public string ToJson() => JsonSerializer.Serialize(this);
     public static HelpJuiceMigrationOptions FromJson(string? value) =>
-        string.IsNullOrWhiteSpace(value)
-            ? new()
-            : JsonSerializer.Deserialize<HelpJuiceMigrationOptions>(value) ?? new();
+        string.IsNullOrWhiteSpace(value) ? new() : JsonSerializer.Deserialize<HelpJuiceMigrationOptions>(value) ?? new();
 }
 
 public sealed class HelpJuiceMigrationLimits
@@ -49,7 +40,6 @@ public sealed class HelpJuiceMigrationLimits
     public const int DefaultBatchSize = 50;
     public const int DefaultMaxCompressionRatio = 200;
 
-    public string PackageContainerName { get; set; } = "migrations";
     public long MaxPackageSizeBytes { get; set; } = DefaultMaxPackageSizeBytes;
     public long MaxExtractedSizeBytes { get; set; } = DefaultMaxExtractedSizeBytes;
     public long MaxEntrySizeBytes { get; set; } = 256L * 1024 * 1024;
@@ -61,119 +51,34 @@ public sealed class HelpJuiceMigrationLimits
 }
 
 public sealed record MigrationUploadFile(string FileName, string? ContentType, long Length, Stream Content);
-
-public sealed record MigrationIssueData(
-    Guid Id,
-    string Severity,
-    string? FileName,
-    int? RowNumber,
-    string? ExternalEntityType,
-    string? ExternalId,
-    string ErrorCode,
-    string Message,
-    string? SourceDataSummary,
-    DateTime CreatedAt);
-
-public sealed record HelpJuiceValidationSummary(
-    int TotalArticles,
-    int PublishedArticles,
-    int UnpublishedArticles,
-    int Categories,
-    int CategoryDepth,
-    int ArticlesMissingAnswers,
-    int DuplicateIds,
-    int DuplicateSlugs,
-    int InvalidCategoryReferences,
-    int MissingMedia,
-    IReadOnlyList<string> AvailableFiles,
-    IReadOnlyList<string> MissingRequiredFiles,
-    IReadOnlyList<string> UnsupportedFiles,
-    int BlockingErrorCount,
-    int WarningCount);
-
-public sealed record HelpJuiceMigrationResult(
-    int CategoryImported,
-    int CategoryUpdated,
-    int CategorySkipped,
-    int PublishedImported,
-    int DraftImported,
-    int MediaImported,
-    int MediaReused,
-    int UnresolvedMedia,
-    int UnsupportedData,
-    int WarningCount);
-
-public sealed record MigrationJobData(
-    Guid Id,
-    string Type,
-    string Status,
-    string OriginalFileName,
-    string PackageStoragePath,
-    Guid RequestedByUserId,
-    string? RequestedByName,
-    DateTime RequestedAt,
-    DateTime? StartedAt,
-    DateTime? CompletedAt,
-    string CurrentPhase,
-    int TotalItems,
-    int ProcessedItems,
-    int ImportedItems,
-    int UpdatedItems,
-    int SkippedItems,
-    int FailedItems,
-    HelpJuiceMigrationOptions Options,
-    bool CancellationRequested,
-    HelpJuiceValidationSummary? Validation,
-    HelpJuiceMigrationResult? Result,
-    string? FailureCode,
-    string? FailureMessage,
+public sealed record MigrationIssueData(Guid Id, string Severity, string? FileName, int? RowNumber,
+    string? ExternalEntityType, string? ExternalId, string ErrorCode, string Message,
+    string? SourceDataSummary, DateTime CreatedAt);
+public sealed record HelpJuiceValidationSummary(int TotalArticles, int PublishedArticles, int UnpublishedArticles,
+    int Categories, int CategoryDepth, int ArticlesMissingAnswers, int DuplicateIds, int DuplicateSlugs,
+    int InvalidCategoryReferences, int MissingMedia, IReadOnlyList<string> AvailableFiles,
+    IReadOnlyList<string> MissingRequiredFiles, IReadOnlyList<string> UnsupportedFiles,
+    int BlockingErrorCount, int WarningCount);
+public sealed record HelpJuiceMigrationResult(int ImportedItems, int UpdatedItems, int SkippedItems, int FailedItems,
+    int CategoryImported, int CategoryUpdated, int CategorySkipped, int PublishedImported, int DraftImported,
+    int MediaImported, int MediaReused, int UnresolvedMedia, int UnsupportedData, int WarningCount);
+public sealed record HelpJuiceMigrationPhase(string Phase, string Status, int TotalItems, int ProcessedItems,
+    int ImportedItems, int UpdatedItems, int SkippedItems, int FailedItems);
+public sealed record HelpJuiceMigrationExecutionResult(string Status, string OriginalFileName, DateTime StartedAt,
+    DateTime CompletedAt, HelpJuiceMigrationOptions Options, HelpJuiceValidationSummary Validation,
+    HelpJuiceMigrationResult? Result, IReadOnlyList<HelpJuiceMigrationPhase> Phases,
     IReadOnlyList<MigrationIssueData> Issues);
 
-public sealed record MigrationJobCreateData(
-    Guid Id,
-    string OriginalFileName,
-    string PackageStoragePath,
-    Guid RequestedByUserId,
-    DateTime RequestedAt,
-    HelpJuiceMigrationOptions Options);
-
-public sealed record MigrationProgressUpdate(
-    string Phase,
-    int? TotalItems = null,
-    int ProcessedDelta = 0,
-    int ImportedDelta = 0,
-    int UpdatedDelta = 0,
-    int SkippedDelta = 0,
-    int FailedDelta = 0);
-
 public sealed record CsvRow(int RowNumber, IReadOnlyDictionary<string, string> Values)
-{
-    public string this[string key] => Values.TryGetValue(key, out var value) ? value : string.Empty;
-}
-
+{ public string this[string key] => Values.TryGetValue(key, out var value) ? value : string.Empty; }
 public sealed record ParsedCsv(string FileName, IReadOnlyList<string> Headers, IReadOnlyList<CsvRow> Rows);
-
-public sealed record PackageContents(
-    string RootPath,
-    IReadOnlyDictionary<string, string> KnownCsvFiles,
-    IReadOnlyList<string> MediaFiles,
-    IReadOnlyList<string> AvailableFiles,
-    IReadOnlyList<string> UnsupportedFiles) : IDisposable
+public sealed record PackageContents(string RootPath, IReadOnlyDictionary<string, string> KnownCsvFiles,
+    IReadOnlyList<string> MediaFiles, IReadOnlyList<string> AvailableFiles, IReadOnlyList<string> UnsupportedFiles) : IDisposable
 {
-    public void Dispose()
-    {
-        if (Directory.Exists(RootPath))
-            Directory.Delete(RootPath, recursive: true);
-    }
+    public void Dispose() { if (Directory.Exists(RootPath)) Directory.Delete(RootPath, recursive: true); }
 }
-
-public sealed record HelpJuiceHtmlConversion(
-    string TiptapJson,
-    string RenderedHtml,
-    string PlainText,
-    IReadOnlyList<(string Code, string Message)> Warnings,
-    IReadOnlyList<string> MediaSources);
-
+public sealed record HelpJuiceHtmlConversion(string TiptapJson, string RenderedHtml, string PlainText,
+    IReadOnlyList<(string Code, string Message)> Warnings, IReadOnlyList<string> MediaSources);
 public enum MigrationWriteDisposition { Imported, Updated, Skipped }
 public sealed record MigrationWriteResult(Guid InternalId, MigrationWriteDisposition Disposition, Guid? DraftId = null, Guid? VersionId = null);
 public sealed record ImportedCategoryData(string ExternalId, string Name, string Slug, Guid? ParentId, int Depth, int SortOrder);
@@ -182,18 +87,18 @@ public sealed record ImportedMediaData(Guid Id, string OriginalFileName, string 
 public sealed record StagedArticleContent(string JsonPath, string HtmlPath, string TextPath, string Hash, long Size,
     IReadOnlyCollection<Guid> MediaIds, string? VersionJsonPath = null, string? VersionHtmlPath = null,
     string? VersionTextPath = null);
-public sealed record ImportedArticleData(string ExternalQuestionId, string? ExternalAnswerId, string Title, string Slug,
-    string? Description, Guid? CategoryId, Guid UserId, bool Published, DateTime CreatedAt, DateTime UpdatedAt,
-    StagedArticleContent Content, IReadOnlyDictionary<string, string> SourceMetadata);
+public sealed record ImportedArticleData(string Title, string Slug, string? Description, Guid? CategoryId,
+    Guid UserId, bool Published, DateTime CreatedAt, DateTime UpdatedAt, StagedArticleContent Content);
 
 public interface IHelpJuiceImportWriter
 {
     void ResetState();
-    Task<IReadOnlySet<string>> GetActiveArticleSlugsAsync(CancellationToken cancellationToken);
-    Task<MigrationWriteResult> WriteCategoryAsync(Guid jobId, ImportedCategoryData category,
-        string conflictBehavior, Guid actorId, CancellationToken cancellationToken);
-    Task<MigrationWriteResult> WriteMediaAsync(Guid jobId, ImportedMediaData media,
+    Task WriteOperationAuditAsync(Guid operationId, string action, string status, Guid actorId,
         CancellationToken cancellationToken);
-    Task<MigrationWriteResult> WriteArticleAsync(Guid jobId, ImportedArticleData article,
+    Task<IReadOnlySet<string>> GetActiveArticleSlugsAsync(CancellationToken cancellationToken);
+    Task<MigrationWriteResult> WriteCategoryAsync(Guid operationId, ImportedCategoryData category,
+        string conflictBehavior, Guid actorId, CancellationToken cancellationToken);
+    Task<MigrationWriteResult> WriteMediaAsync(Guid operationId, ImportedMediaData media, CancellationToken cancellationToken);
+    Task<MigrationWriteResult> WriteArticleAsync(Guid operationId, ImportedArticleData article,
         string conflictBehavior, CancellationToken cancellationToken);
 }

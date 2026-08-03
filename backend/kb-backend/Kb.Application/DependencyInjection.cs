@@ -7,6 +7,7 @@ using Kb.Application.Lifecycle;
 using Kb.Application.Comments;
 using Kb.Application.Dashboard;
 using Kb.Application.Migrations.HelpJuice;
+using Kb.Application.Notifications;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Kb.Application;
@@ -24,6 +25,7 @@ public static class DependencyInjection
         services.AddScoped<ArticleCommentService>();
         services.AddScoped<DashboardService>();
         services.AddScoped<HelpJuiceMigrationService>();
+        services.AddScoped<NotificationService>();
         return services;
     }
 }

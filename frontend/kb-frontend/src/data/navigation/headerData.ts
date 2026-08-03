@@ -1,4 +1,3 @@
-import type { NotificationsType } from '@components/layout/shared/NotificationsDropdown'
 import type { ShortcutsType } from '@components/layout/shared/ShortcutsDropdown'
 
 export const kbShortcuts: ShortcutsType[] = [
@@ -39,7 +38,3 @@ export const kbShortcuts: ShortcutsType[] = [
     subtitle: 'Versioned exports'
   }
 ]
-
-// TODO: Replace with backend API call to GET /api/kb/notifications?limit=6.
-// Expected response: notification rows with id, title, body, type, readAt, entityType, entityId, and createdAt for the current SSO user.
-export const kbNotifications: NotificationsType[] = []

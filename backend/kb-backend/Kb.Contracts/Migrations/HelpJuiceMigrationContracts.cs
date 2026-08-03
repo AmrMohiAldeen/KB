@@ -8,10 +8,6 @@ public sealed record HelpJuiceMigrationOptionsRequest(
     bool PreserveTimestamps = true,
     string ConflictBehavior = "Skip");
 
-public sealed record StartHelpJuiceMigrationRequest(
-    Guid JobId,
-    HelpJuiceMigrationOptionsRequest Options);
-
 public sealed record MigrationIssueResponse(
     Guid Id,
     string Severity,
@@ -42,6 +38,10 @@ public sealed record HelpJuiceValidationSummaryResponse(
     int WarningCount);
 
 public sealed record HelpJuiceMigrationResultResponse(
+    int ImportedItems,
+    int UpdatedItems,
+    int SkippedItems,
+    int FailedItems,
     int CategoryImported,
     int CategoryUpdated,
     int CategorySkipped,
@@ -53,30 +53,23 @@ public sealed record HelpJuiceMigrationResultResponse(
     int UnsupportedData,
     int WarningCount);
 
-public sealed record HelpJuiceMigrationJobResponse(
-    Guid Id,
-    string Type,
+public sealed record HelpJuiceMigrationPhaseResponse(
+    string Phase,
     string Status,
-    string OriginalFileName,
-    Guid RequestedByUserId,
-    string? RequestedByName,
-    DateTime RequestedAt,
-    DateTime? StartedAt,
-    DateTime? CompletedAt,
-    string CurrentPhase,
     int TotalItems,
     int ProcessedItems,
     int ImportedItems,
     int UpdatedItems,
     int SkippedItems,
-    int FailedItems,
-    bool CancellationRequested,
+    int FailedItems);
+
+public sealed record HelpJuiceMigrationResponse(
+    string Status,
+    string OriginalFileName,
+    DateTime StartedAt,
+    DateTime CompletedAt,
     HelpJuiceMigrationOptionsRequest Options,
-    HelpJuiceValidationSummaryResponse? Validation,
+    HelpJuiceValidationSummaryResponse Validation,
     HelpJuiceMigrationResultResponse? Result,
-    string? FailureCode,
-    string? FailureMessage,
+    IReadOnlyList<HelpJuiceMigrationPhaseResponse> Phases,
     IReadOnlyList<MigrationIssueResponse> Issues);
-
-public sealed record HelpJuiceMigrationAcceptedResponse(Guid JobId, string Status, string StatusUrl);
-

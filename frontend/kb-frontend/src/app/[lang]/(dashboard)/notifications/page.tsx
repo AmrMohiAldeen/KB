@@ -1,9 +1,7 @@
-// View Imports
-import KbSectionPage from '@/views/kb/sections/KbSectionPage'
+import { getServerAccessToken } from '@/lib/auth/serverAccessToken'
+import NotificationsPage from '@/views/kb/notifications/NotificationsPage'
 
-// Config Imports
-import { notificationsPage } from '@/views/kb/config/sections'
-
-export default function NotificationsPage() {
-  return <KbSectionPage {...notificationsPage} />
+export default async function NotificationsRoute() {
+  const accessToken = await getServerAccessToken()
+  return <NotificationsPage accessToken={accessToken} />
 }

@@ -26,6 +26,7 @@ import { i18n } from '@configs/i18n'
 // Util Imports
 import { getDictionary } from '@/utils/getDictionary'
 import { getMode, getSystemMode } from '@core/utils/serverHelpers'
+import { getServerAccessToken } from '@/lib/auth/serverAccessToken'
 
 const isLocale = (value: string): value is Locale => i18n.locales.includes(value as Locale)
 
@@ -48,8 +49,11 @@ const Layout = async ({ children, params }: ChildrenType & { params: Promise<unk
   const lang = await getLangParam(params)
   const direction = i18n.langDirection[lang]
   const dictionary = await getDictionary(lang)
-  const mode = await getMode()
-  const systemMode = await getSystemMode()
+  const [mode, systemMode, accessToken] = await Promise.all([
+    getMode(),
+    getSystemMode(),
+    getServerAccessToken()
+  ])
 
   return (
     <Providers direction={direction}>
@@ -58,14 +62,14 @@ const Layout = async ({ children, params }: ChildrenType & { params: Promise<unk
         verticalLayout={
           <VerticalLayout
             navigation={<Navigation dictionary={dictionary} mode={mode} systemMode={systemMode} />}
-            navbar={<Navbar />}
+            navbar={<Navbar accessToken={accessToken} />}
             footer={<VerticalFooter />}
           >
             {children}
           </VerticalLayout>
         }
         horizontalLayout={
-          <HorizontalLayout header={<Header dictionary={dictionary} />} footer={<HorizontalFooter />}>
+          <HorizontalLayout header={<Header dictionary={dictionary} accessToken={accessToken} />} footer={<HorizontalFooter />}>
             {children}
           </HorizontalLayout>
         }

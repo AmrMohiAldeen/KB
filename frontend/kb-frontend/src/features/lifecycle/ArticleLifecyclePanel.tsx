@@ -40,7 +40,7 @@ import type { ArticleStatus } from '@/types/apps/articleTypes'
 import { getVisibleLifecycleActions, lifecycleActionLabels } from './lifecycleActions'
 import { useArticleLifecycle, type ArticleLifecycleApi } from './useArticleLifecycle'
 
-type DialogKind = 'requestChanges' | 'publish' | 'override' | 'archive' | null
+type DialogKind = 'requestChanges' | 'reject' | 'publish' | 'override' | 'archive' | null
 
 type ArticleLifecyclePanelProps = {
   articleId: string
@@ -62,6 +62,7 @@ const actionIcons: Record<ArticleLifecycleAction, typeof Send> = {
   requestChanges: RotateCcw,
   resubmit: Send,
   approve: Check,
+  reject: ShieldAlert,
   publish: Upload,
   override: ShieldAlert,
   archive: Archive
@@ -102,7 +103,7 @@ export default function ArticleLifecyclePanel({
   }
 
   const runAction = (action: ArticleLifecycleAction) => {
-    if (action === 'requestChanges' || action === 'publish' || action === 'override' || action === 'archive') {
+    if (action === 'requestChanges' || action === 'reject' || action === 'publish' || action === 'override' || action === 'archive') {
       setDialog(action)
       setLocalError('')
       return
@@ -112,10 +113,10 @@ export default function ArticleLifecyclePanel({
 
   const confirmDialog = async () => {
     if (!dialog) return
-    if ((dialog === 'requestChanges' || dialog === 'override') && !reason.trim()) {
+    if ((dialog === 'requestChanges' || dialog === 'reject' || dialog === 'override') && !reason.trim()) {
       setLocalError(dialog === 'requestChanges'
         ? 'A reason is required when requesting changes.'
-        : 'An override reason is required.')
+        : dialog === 'reject' ? 'A reason is required when rejecting an article.' : 'An override reason is required.')
       return
     }
     if (dialog === 'override' && !targetStatus) {
@@ -152,7 +153,7 @@ export default function ArticleLifecyclePanel({
         key={action}
         size={compact ? 'small' : 'medium'}
         variant={action === 'submitForReview' || action === 'approve' || action === 'publish' ? 'contained' : 'outlined'}
-        color={action === 'archive' ? 'error' : action === 'requestChanges' ? 'warning' : 'primary'}
+        color={action === 'archive' || action === 'reject' ? 'error' : action === 'requestChanges' ? 'warning' : 'primary'}
         startIcon={<Icon size={17} />}
         loading={lifecycle.pendingAction === action}
         disabled={busy || actionsDisabled}
@@ -296,10 +297,12 @@ export default function ArticleLifecyclePanel({
       </CardContent>
 
       <KbFormDialog
-        open={dialog === 'requestChanges'}
-        title='Request changes'
-        description='Explain what must change before this article can be approved.'
-        submitLabel='Request changes'
+        open={dialog === 'requestChanges' || dialog === 'reject'}
+        title={dialog === 'reject' ? 'Reject article' : 'Request changes'}
+        description={dialog === 'reject'
+          ? 'Explain why this article is being rejected. It will return to changes requested.'
+          : 'Explain what must change before this article can be approved.'}
+        submitLabel={dialog === 'reject' ? 'Reject article' : 'Request changes'}
         submitting={busy}
         onClose={resetDialog}
         onSubmit={() => void confirmDialog()}

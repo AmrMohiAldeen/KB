@@ -39,6 +39,10 @@ describe('lifecycle action visibility', () => {
       canRequestChanges: true,
       canApprove: false
     }))).toEqual(['requestChanges'])
+    expect(getVisibleLifecycleActions('InReview', permissions({
+      canRequestChanges: true,
+      canApprove: true
+    }))).toEqual(['requestChanges', 'reject', 'approve'])
   })
 
   it('shows publish, override, and archive only from explicit backend flags', () => {

@@ -12,16 +12,13 @@ import ModeDropdown from '@components/layout/shared/ModeDropdown'
 import NotificationsDropdown from '@components/layout/shared/NotificationsDropdown'
 import UserDropdown from '@components/layout/shared/UserDropdown'
 
-// Data Imports
-import { kbNotifications } from '@/data/navigation/headerData'
-
 // Hook Imports
 import useHorizontalNav from '@menu/hooks/useHorizontalNav'
 
 // Util Imports
 import { horizontalLayoutClasses } from '@layouts/utils/layoutClasses'
 
-const NavbarContent = () => {
+const NavbarContent = ({ accessToken }: { accessToken: string }) => {
   // Hooks
   const { isBreakpointReached } = useHorizontalNav()
 
@@ -36,7 +33,7 @@ const NavbarContent = () => {
         <NavSearch />
         <LanguageDropdown />
         <ModeDropdown />
-        <NotificationsDropdown notifications={kbNotifications} />
+        <NotificationsDropdown accessToken={accessToken} />
         <UserDropdown />
       </div>
     </div>

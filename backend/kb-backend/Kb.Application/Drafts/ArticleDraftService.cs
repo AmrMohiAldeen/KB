@@ -6,6 +6,7 @@ using Kb.Application.Abstractions.Storage;
 using Kb.Application.Exceptions;
 using Kb.Domain.Constants;
 using Kb.Application.Comments;
+using Kb.Application.Notifications;
 using Microsoft.Extensions.Options;
 
 namespace Kb.Application.Drafts;
@@ -20,6 +21,7 @@ public sealed class ArticleDraftService
     private readonly TimeProvider timeProvider;
     private readonly DraftContentOptions options;
     private readonly ArticleCommentService? commentService;
+    private readonly NotificationService? notificationService;
 
     public ArticleDraftService(
         IArticleDraftRepository repository,
@@ -28,7 +30,8 @@ public sealed class ArticleDraftService
         IPermissionChecker permissionChecker,
         TimeProvider timeProvider,
         IOptions<DraftContentOptions> options,
-        ArticleCommentService? commentService = null)
+        ArticleCommentService? commentService = null,
+        NotificationService? notificationService = null)
     {
         this.repository = repository;
         this.storage = storage;
@@ -37,6 +40,7 @@ public sealed class ArticleDraftService
         this.timeProvider = timeProvider;
         this.options = options.Value;
         this.commentService = commentService;
+        this.notificationService = notificationService;
 
         if (string.IsNullOrWhiteSpace(this.options.ContainerName))
             throw new InvalidOperationException("The article content storage container is not configured.");
@@ -70,6 +74,9 @@ public sealed class ArticleDraftService
         var changed = await repository.AcquireLockAsync(articleId, draft.DraftId, actorId,
             expectedRowVersion, now, Audit(actorId, ArticleAuditActions.DraftLockAcquired,
                 new { articleId, draftId = draft.DraftId }, now), cancellationToken);
+        if (notificationService is not null)
+            await notificationService.NotifyLockChangedAsync(articleId, NotificationTypes.ArticleLockAcquired,
+                actorId, null, cancellationToken);
         return new(changed, true, changed.LockedBy?.Id == actorId);
     }
 
@@ -87,6 +94,9 @@ public sealed class ArticleDraftService
         var changed = await repository.ReleaseLockAsync(articleId, draft.DraftId, actorId,
             expectedRowVersion, now, Audit(actorId, ArticleAuditActions.DraftLockReleased,
                 new { articleId, draftId = draft.DraftId }, now), cancellationToken);
+        if (notificationService is not null)
+            await notificationService.NotifyLockChangedAsync(articleId, NotificationTypes.ArticleLockReleased,
+                actorId, null, cancellationToken);
         var canEdit = IsEditableStatus(changed.Status) &&
                       await CanEditAsync(changed.ArticleOwnerId, actorId, cancellationToken);
         return new(changed, canEdit, false);
@@ -108,6 +118,9 @@ public sealed class ArticleDraftService
         var changed = await repository.ForceReleaseLockAsync(articleId, draft.DraftId, actorId,
             expectedRowVersion, now, Audit(actorId, ArticleAuditActions.DraftLockForceReleased,
                 new { articleId, draftId = draft.DraftId, previousOwnerId }, now), cancellationToken);
+        if (notificationService is not null)
+            await notificationService.NotifyLockChangedAsync(articleId,
+                NotificationTypes.ArticleLockForceReleased, actorId, previousOwnerId, cancellationToken);
         var canEdit = IsEditableStatus(changed.Status) &&
                       await CanEditAsync(changed.ArticleOwnerId, actorId, cancellationToken);
         return new(changed, canEdit, false);

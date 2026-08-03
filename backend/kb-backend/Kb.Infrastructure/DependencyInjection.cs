@@ -22,6 +22,8 @@ using Kb.Infrastructure.Services;
 using Kb.Infrastructure.Storage;
 using Kb.Application.Migrations.HelpJuice;
 using Kb.Infrastructure.Migrations.HelpJuice;
+using Kb.Application.Notifications;
+using Kb.Infrastructure.Notifications;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -52,8 +54,8 @@ public static class DependencyInjection
         services.AddScoped<IArticleLifecycleRepository, ArticleLifecycleRepository>();
         services.AddScoped<IArticleCommentRepository, ArticleCommentRepository>();
         services.AddScoped<IDashboardRepository, DashboardRepository>();
-        services.AddScoped<IHelpJuiceMigrationRepository, HelpJuiceMigrationRepository>();
         services.AddScoped<IHelpJuiceImportWriter, HelpJuiceImportWriter>();
+        services.AddScoped<INotificationRepository, NotificationRepository>();
         services.Configure<DraftContentOptions>(options =>
         {
             options.ContainerName = configuration["Storage:Containers:ArticleContent"] ?? "article-content";
@@ -68,7 +70,6 @@ public static class DependencyInjection
         });
         services.Configure<HelpJuiceMigrationLimits>(options =>
         {
-            options.PackageContainerName = configuration["Storage:Containers:Migrations"] ?? "migrations";
             options.MaxPackageSizeBytes = configuration.GetValue<long?>("Migrations:HelpJuice:MaxPackageSizeBytes") ?? HelpJuiceMigrationLimits.DefaultMaxPackageSizeBytes;
             options.MaxExtractedSizeBytes = configuration.GetValue<long?>("Migrations:HelpJuice:MaxExtractedSizeBytes") ?? HelpJuiceMigrationLimits.DefaultMaxExtractedSizeBytes;
             options.MaxEntrySizeBytes = configuration.GetValue<long?>("Migrations:HelpJuice:MaxEntrySizeBytes") ?? 256L * 1024 * 1024;

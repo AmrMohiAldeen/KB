@@ -2,6 +2,7 @@ using System.Text.Json;
 using Kb.Application.Abstractions;
 using Kb.Application.Exceptions;
 using Kb.Domain.Constants;
+using Kb.Application.Notifications;
 
 namespace Kb.Application.Comments;
 
@@ -9,7 +10,8 @@ public sealed class ArticleCommentService(
     IArticleCommentRepository repository,
     ICurrentUser currentUser,
     IPermissionChecker permissionChecker,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    NotificationService? notificationService = null)
 {
     public async Task<ArticleCommentListData> ListAsync(Guid articleId, CancellationToken cancellationToken)
     {
@@ -32,12 +34,16 @@ public sealed class ArticleCommentService(
         ValidateAnchor(article, command.CurrentDraftId, command.AnchorType, command.AnchorData);
         var anchorJson = command.AnchorData?.GetRawText();
         var now = timeProvider.GetUtcNow().UtcDateTime;
-        return await repository.InsertAsync(new(
+        var created = await repository.InsertAsync(new(
                 articleId, null, body, command.CurrentDraftId, command.CurrentDraftId,
                 command.AnchorType, anchorJson, CommentAnchorStatuses.Attached, CommentThreadStatuses.Open,
                 actorId, now),
             Audit(actorId, ArticleAuditActions.CommentCreated, articleId, null,
                 new { command.CurrentDraftId, command.AnchorType }, now), cancellationToken);
+        if (notificationService is not null)
+            await notificationService.NotifyCommentAsync(articleId, created.CommentId, actorId, false,
+                cancellationToken);
+        return created;
     }
 
     public async Task<ArticleCommentData> ReplyAsync(
@@ -58,11 +64,15 @@ public sealed class ArticleCommentService(
             throw new ConflictException("A resolved comment thread must be reopened before replying.");
 
         var now = timeProvider.GetUtcNow().UtcDateTime;
-        return await repository.InsertAsync(new(
+        var created = await repository.InsertAsync(new(
                 articleId, threadId, NormalizeBody(body), null, null, null, null,
                 CommentAnchorStatuses.Attached, CommentThreadStatuses.Open, actorId, now),
             Audit(actorId, ArticleAuditActions.CommentReplied, articleId, null,
                 new { threadId }, now), cancellationToken);
+        if (notificationService is not null)
+            await notificationService.NotifyCommentAsync(articleId, created.CommentId, actorId, true,
+                cancellationToken);
+        return created;
     }
 
     public async Task<ArticleCommentData> UpdateAsync(

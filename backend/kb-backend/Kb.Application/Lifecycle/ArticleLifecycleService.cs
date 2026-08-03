@@ -7,6 +7,7 @@ using Kb.Application.Exceptions;
 using Kb.Application.Workflow;
 using Kb.Domain.Constants;
 using Microsoft.Extensions.Options;
+using Kb.Application.Notifications;
 
 namespace Kb.Application.Lifecycle;
 
@@ -31,6 +32,7 @@ public sealed class ArticleLifecycleService
     private readonly IPermissionChecker permissionChecker;
     private readonly TimeProvider timeProvider;
     private readonly DraftContentOptions options;
+    private readonly NotificationService? notificationService;
 
     public ArticleLifecycleService(
         IArticleLifecycleRepository repository,
@@ -38,7 +40,8 @@ public sealed class ArticleLifecycleService
         ICurrentUser currentUser,
         IPermissionChecker permissionChecker,
         TimeProvider timeProvider,
-        IOptions<DraftContentOptions> options)
+        IOptions<DraftContentOptions> options,
+        NotificationService? notificationService = null)
     {
         this.repository = repository;
         this.storage = storage;
@@ -46,6 +49,7 @@ public sealed class ArticleLifecycleService
         this.permissionChecker = permissionChecker;
         this.timeProvider = timeProvider;
         this.options = options.Value;
+        this.notificationService = notificationService;
     }
 
     public async Task<LifecyclePermissionsData> GetPermissionsAsync(
@@ -249,6 +253,18 @@ public sealed class ArticleLifecycleService
             ArticleStatuses.Approved, ReviewActions.Approve, ArticleAuditActions.Approved,
             preventSelfApproval: true, snapshotReason: ArticleSnapshotReasons.Approved, cancellationToken);
 
+    public Task<LifecycleResultData> RejectAsync(
+        Guid articleId,
+        LifecycleCommand command,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(command.Comment))
+            throw new BusinessRuleException("A reason is required when rejecting an article.");
+        return ReviewerTransitionAsync(articleId, command, [ArticleStatuses.InReview],
+            ArticleStatuses.ChangesRequested, ReviewActions.Reject, ArticleAuditActions.Rejected,
+            preventSelfApproval: true, snapshotReason: null, cancellationToken);
+    }
+
     public async Task<LifecycleResultData> PublishAsync(
         Guid articleId,
         LifecycleCommand command,
@@ -283,7 +299,7 @@ public sealed class ArticleLifecycleService
         {
             var actorId = currentUser.UserId;
             var now = timeProvider.GetUtcNow().UtcDateTime;
-            return await repository.PublishAsync(articleId, draft.DraftId, command.RowVersion, staged,
+            var result = await repository.PublishAsync(articleId, draft.DraftId, command.RowVersion, staged,
                 Review(actorId, ReviewActions.Publish, command.Comment, draft.DraftStatus,
                     ArticleStatuses.Published, now),
                 Audit(actorId, ArticleAuditActions.Published, articleId, draft.DraftId,
@@ -291,6 +307,10 @@ public sealed class ArticleLifecycleService
                     new { versionId = staged.VersionId }, false, now),
                 SnapshotAudit(actorId, articleId, draft, staged, now),
                 cancellationToken);
+            if (notificationService is not null)
+                await notificationService.NotifyWorkflowAsync(articleId, NotificationTypes.ArticlePublished,
+                    actorId, command.Comment, cancellationToken);
+            return result;
         }
         catch
         {
@@ -473,7 +493,7 @@ public sealed class ArticleLifecycleService
             if (snapshotReason is not null)
                 snapshot = await StageSnapshotAsync(
                     articleId, draft, snapshotReason, uploaded, cancellationToken);
-            return await repository.TransitionAsync(articleId, draft.DraftId, command.RowVersion,
+            var result = await repository.TransitionAsync(articleId, draft.DraftId, command.RowVersion,
                 draft.DraftStatus, newStatus,
                 Review(actorId, action, NormalizeComment(command.Comment), draft.DraftStatus, newStatus, now),
                 Audit(actorId, auditAction, articleId, draft.DraftId, draft.DraftStatus, newStatus,
@@ -481,6 +501,10 @@ public sealed class ArticleLifecycleService
                 snapshot,
                 snapshot is null ? null : SnapshotAudit(actorId, articleId, draft, snapshot, now),
                 isOverride, cancellationToken);
+            if (notificationService is not null && NotificationType(action) is { } notificationType)
+                await notificationService.NotifyWorkflowAsync(articleId, notificationType, actorId,
+                    command.Comment, cancellationToken);
+            return result;
         }
         catch (OperationCanceledException)
         {
@@ -767,6 +791,16 @@ public sealed class ArticleLifecycleService
 
     private static bool IsReplaceableByRestore(string status) =>
         status is ArticleStatuses.Published or ArticleStatuses.Draft or ArticleStatuses.ChangesRequested;
+
+    private static string? NotificationType(string action) => action switch
+    {
+        ReviewActions.SubmitForReview or ReviewActions.Resubmit =>
+            NotificationTypes.ArticleSubmittedForReview,
+        ReviewActions.RequestChanges => NotificationTypes.ArticleChangesRequested,
+        ReviewActions.Approve => NotificationTypes.ArticleApproved,
+        ReviewActions.Reject => NotificationTypes.ArticleRejected,
+        _ => null
+    };
 
     private void EnsureAuthenticated()
     {

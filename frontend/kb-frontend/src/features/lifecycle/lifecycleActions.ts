@@ -15,6 +15,7 @@ export const getVisibleLifecycleActions = (
   if ((status === 'SubmittedForReview' || status === 'Resubmitted') && permissions.canReview)
     actions.push('startReview')
   if (status === 'InReview' && permissions.canRequestChanges) actions.push('requestChanges')
+  if (status === 'InReview' && permissions.canApprove) actions.push('reject')
   if (status === 'InReview' && permissions.canApprove) actions.push('approve')
   if (status === 'Approved' && permissions.canPublish) actions.push('publish')
   if (permissions.canOverrideWorkflow && permissions.workflowOverrideTargets.length) actions.push('override')
@@ -29,6 +30,7 @@ export const lifecycleActionLabels: Record<ArticleLifecycleAction, string> = {
   requestChanges: 'Request changes',
   resubmit: 'Resubmit for review',
   approve: 'Approve',
+  reject: 'Reject',
   publish: 'Publish',
   override: 'Admin override',
   archive: 'Archive'

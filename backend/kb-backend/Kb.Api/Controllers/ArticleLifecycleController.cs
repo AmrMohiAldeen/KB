@@ -165,6 +165,14 @@ public sealed class ArticleLifecycleController(ArticleLifecycleService lifecycle
         Execute(articleId, lifecycle.ApproveAsync(articleId,
             new(Decode(request.RowVersion), request.Comment), cancellationToken));
 
+    [HttpPost("review/reject")]
+    public Task<ActionResult<ArticleLifecycleResponse>> Reject(
+        Guid articleId,
+        RejectArticleRequest request,
+        CancellationToken cancellationToken) =>
+        Execute(articleId, lifecycle.RejectAsync(articleId,
+            new(Decode(request.RowVersion), request.Comment), cancellationToken));
+
     [HttpPost("publish")]
     public Task<ActionResult<ArticleLifecycleResponse>> Publish(
         Guid articleId,

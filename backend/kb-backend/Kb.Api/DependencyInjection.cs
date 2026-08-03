@@ -10,7 +10,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Kb.Api.OpenApi;
 using Kb.Application.Media;
 using Microsoft.AspNetCore.Http.Features;
-using Kb.Api.HostedServices;
 using Kb.Application.Migrations.HelpJuice;
 
 namespace Kb.Api;
@@ -60,7 +59,6 @@ public static class DependencyInjection
         services.AddSingleton<IAuthorizationPolicyProvider, PermissionAuthorizationPolicyProvider>();
         services.AddAuthorization(options => options.AddPolicy(AdminPolicy.Name,
             policy => policy.RequireAuthenticatedUser().AddRequirements(new AdminRequirement())));
-        services.AddHostedService<HelpJuiceMigrationWorker>();
         return services;
     }
 }

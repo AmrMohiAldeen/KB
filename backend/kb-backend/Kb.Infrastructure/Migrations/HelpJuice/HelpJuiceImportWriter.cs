@@ -13,49 +13,55 @@ public sealed class HelpJuiceImportWriter(KbDbContext db, TimeProvider timeProvi
 {
     public void ResetState() => db.ChangeTracker.Clear();
 
+    public async Task WriteOperationAuditAsync(Guid operationId, string action, string status, Guid actorId,
+        CancellationToken ct)
+    {
+        db.ArticleAuditLogs.Add(new ArticleAuditLog
+        {
+            AuditLogId = NewId(), ActorIdFk = actorId, ActionType = action,
+            EntityType = "HelpJuiceMigration", EntityId = operationId,
+            MetaDataJson = JsonSerializer.Serialize(new { migrationOperationId = operationId, sourceSystem = "HelpJuice", status }),
+            CreatedAt = timeProvider.GetUtcNow().UtcDateTime
+        });
+        await SaveAsync(ct);
+    }
+
     public async Task<IReadOnlySet<string>> GetActiveArticleSlugsAsync(CancellationToken ct) =>
         (await db.Articles.AsNoTracking().Where(x => x.DeletedAt == null).Select(x => x.Slug).ToListAsync(ct))
         .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-    public async Task<MigrationWriteResult> WriteCategoryAsync(Guid jobId, ImportedCategoryData source,
+    public async Task<MigrationWriteResult> WriteCategoryAsync(Guid operationId, ImportedCategoryData source,
         string behavior, Guid actorId, CancellationToken ct)
     {
-        var mapped = await MappingAsync(jobId, "Category", source.ExternalId, ct);
-        if (mapped is not null) return new(mapped.Value, MigrationWriteDisposition.Skipped);
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
         var existing = await db.Categories.SingleOrDefaultAsync(x => x.Slug == source.Slug, ct);
         if (existing is not null && behavior.Equals(MigrationConflictBehaviors.Skip, StringComparison.OrdinalIgnoreCase))
-        { AddMapping(jobId,"Category",source.ExternalId,existing.CategoryId,new { conflict="skip" }); AddAudit(actorId,"MigrationCategorySkipped","Category",existing.CategoryId,null,jobId,source.ExternalId); await SaveAsync(ct); await tx.CommitAsync(ct); return new(existing.CategoryId,MigrationWriteDisposition.Skipped); }
+        { AddAudit(actorId,"MigrationCategorySkipped","Category",existing.CategoryId,null,operationId); await SaveAsync(ct); await tx.CommitAsync(ct); return new(existing.CategoryId,MigrationWriteDisposition.Skipped); }
         if (existing is not null && behavior.Equals(MigrationConflictBehaviors.UpdateExisting,StringComparison.OrdinalIgnoreCase))
         {
             existing.Name=Normalize(source.Name,200); existing.ParentCategoryIdFk=source.ParentId; existing.Depth=source.Depth;
             existing.SortOrder=source.SortOrder; existing.Path=await BuildCategoryPath(source.ParentId,existing.CategoryId,ct);
-            AddMapping(jobId,"Category",source.ExternalId,existing.CategoryId,new { conflict="update" });
-            AddAudit(actorId,"MigrationCategoryUpdated","Category",existing.CategoryId,null,jobId,source.ExternalId); await SaveAsync(ct); await tx.CommitAsync(ct); return new(existing.CategoryId,MigrationWriteDisposition.Updated);
+            AddAudit(actorId,"MigrationCategoryUpdated","Category",existing.CategoryId,null,operationId); await SaveAsync(ct); await tx.CommitAsync(ct); return new(existing.CategoryId,MigrationWriteDisposition.Updated);
         }
         var slug=await AllocateCategorySlugAsync(source.Slug,ct); var id=Guid.NewGuid();
         var category=new Category{CategoryId=id,Name=Normalize(source.Name,200),Slug=slug,ParentCategoryIdFk=source.ParentId,Depth=source.Depth,SortOrder=source.SortOrder,Path=await BuildCategoryPath(source.ParentId,id,ct)};
-        db.Categories.Add(category); AddMapping(jobId,"Category",source.ExternalId,id,new { source.Name,slug }); AddAudit(actorId,"MigrationCategoryImported","Category",id,null,jobId,source.ExternalId);
+        db.Categories.Add(category); AddAudit(actorId,"MigrationCategoryImported","Category",id,null,operationId);
         await SaveAsync(ct); await tx.CommitAsync(ct); return new(id,MigrationWriteDisposition.Imported);
     }
 
-    public async Task<MigrationWriteResult> WriteMediaAsync(Guid jobId, ImportedMediaData media, CancellationToken ct)
+    public async Task<MigrationWriteResult> WriteMediaAsync(Guid operationId, ImportedMediaData media, CancellationToken ct)
     {
-        var externalId="sha256:"+media.Hash; var mapped=await MappingAsync(jobId,"Media",externalId,ct);
-        if(mapped is not null)return new(mapped.Value,MigrationWriteDisposition.Skipped);
         db.MediaFiles.Add(new MediaFile{MediaId=media.Id,OriginalFileName=Normalize(media.OriginalFileName,260),StoredFileName=media.StoredFileName,MimeType=media.MimeType,FileExtension=media.Extension,FileSizeBytes=media.Size,StoragePath=media.StoragePath,Status=MediaStatuses.Active,UploadedByFk=media.UserId,UploadedAt=media.UploadedAt});
-        AddMapping(jobId,"Media",externalId,media.Id,new{media.Hash,media.OriginalFileName}); AddAudit(media.UserId,"MigrationMediaImported","Media",media.Id,null,jobId,externalId); await SaveAsync(ct); return new(media.Id,MigrationWriteDisposition.Imported);
+        AddAudit(media.UserId,"MigrationMediaImported","Media",media.Id,null,operationId); await SaveAsync(ct); return new(media.Id,MigrationWriteDisposition.Imported);
     }
 
-    public async Task<MigrationWriteResult> WriteArticleAsync(Guid jobId, ImportedArticleData source,
+    public async Task<MigrationWriteResult> WriteArticleAsync(Guid operationId, ImportedArticleData source,
         string behavior, CancellationToken ct)
     {
-        var mapped=await MappingAsync(jobId,"Question",source.ExternalQuestionId,ct);
-        if(mapped is not null)return new(mapped.Value,MigrationWriteDisposition.Skipped);
         await using var tx=await db.Database.BeginTransactionAsync(IsolationLevel.Serializable,ct);
         var existing=await db.Articles.Include(x=>x.CurrentDraftIdFkNavigation).SingleOrDefaultAsync(x=>x.Slug==source.Slug&&x.DeletedAt==null,ct);
         if(existing is not null&&behavior.Equals(MigrationConflictBehaviors.Skip,StringComparison.OrdinalIgnoreCase))
-        { AddMapping(jobId,"Question",source.ExternalQuestionId,existing.ArticleId,new{source.ExternalAnswerId,conflict="skip"});AddAudit(source.UserId,"MigrationArticleSkipped","Article",existing.ArticleId,existing.ArticleId,jobId,source.ExternalQuestionId);await SaveAsync(ct);await tx.CommitAsync(ct);return new(existing.ArticleId,MigrationWriteDisposition.Skipped,existing.CurrentDraftIdFk); }
+        { AddAudit(source.UserId,"MigrationArticleSkipped","Article",existing.ArticleId,existing.ArticleId,operationId);await SaveAsync(ct);await tx.CommitAsync(ct);return new(existing.ArticleId,MigrationWriteDisposition.Skipped,existing.CurrentDraftIdFk); }
 
         var disposition=MigrationWriteDisposition.Imported; Article article; ArticleDraft draft;
         if(existing is not null&&behavior.Equals(MigrationConflictBehaviors.UpdateExisting,StringComparison.OrdinalIgnoreCase))
@@ -94,20 +100,16 @@ public sealed class HelpJuiceImportWriter(KbDbContext db, TimeProvider timeProvi
             var version=new ArticleVersion{VersionId=versionId.Value,ArticleIdFk=article.ArticleId,VersionNumber=number,SourceDraftIdFk=draft.DraftId,SourceDraftNumber=draft.DraftNumber,SnapshotReason=ArticleSnapshotReasons.Published,ContentJsonStoragePath=source.Content.VersionJsonPath??source.Content.JsonPath,RenderedHtmlStoragePath=source.Content.VersionHtmlPath??source.Content.HtmlPath,PlainTextStoragePath=source.Content.VersionTextPath??source.Content.TextPath,ContentHash=source.Content.Hash,ContentSizeBytes=source.Content.Size,CreatedAt=source.UpdatedAt,CreatedByFk=source.UserId,PublishedByFk=source.UserId,PublishedAt=source.UpdatedAt};
             db.ArticleVersions.Add(version);article.Status=ArticleStatuses.Published;article.LastPublishedVersionIdFk=versionId;
             db.SearchIndexJobs.Add(new SearchIndexJob{SearchJobId=NewId(),ArticleIdFk=article.ArticleId,VersionIdFk=versionId,JobType=SearchIndexJobTypes.Upsert,Status=JobStatuses.Pending,RetryCount=0,CreatedAt=timeProvider.GetUtcNow().UtcDateTime});
-            AddAudit(source.UserId,"MigrationPublishedVersionCreated","ArticleVersion",versionId,article.ArticleId,jobId,source.ExternalQuestionId);
+            AddAudit(source.UserId,"MigrationPublishedVersionCreated","ArticleVersion",versionId,article.ArticleId,operationId);
             await SynchronizeReferencesAsync(source.Content.MediaIds,article.ArticleId,"Version",versionId.Value,ct);
         }
         await SynchronizeReferencesAsync(source.Content.MediaIds,article.ArticleId,"Draft",draft.DraftId,ct);
-        AddMapping(jobId,"Question",source.ExternalQuestionId,article.ArticleId,new{source.ExternalAnswerId,source.Description,source.SourceMetadata});
-        if(!string.IsNullOrWhiteSpace(source.ExternalAnswerId))AddMapping(jobId,"Answer",source.ExternalAnswerId!,draft.DraftId,new{questionId=source.ExternalQuestionId});
-        AddAudit(source.UserId,disposition==MigrationWriteDisposition.Updated?"MigrationArticleUpdated":"MigrationArticleImported","Article",article.ArticleId,article.ArticleId,jobId,source.ExternalQuestionId);
+        AddAudit(source.UserId,disposition==MigrationWriteDisposition.Updated?"MigrationArticleUpdated":"MigrationArticleImported","Article",article.ArticleId,article.ArticleId,operationId);
         await SaveAsync(ct);await tx.CommitAsync(ct);return new(article.ArticleId,disposition,draft.DraftId,versionId);
     }
 
     private async Task SynchronizeReferencesAsync(IEnumerable<Guid> ids,Guid articleId,string type,Guid entityId,CancellationToken ct){var desired=ids.ToHashSet();var existing=await db.MediaReferences.Where(x=>x.ReferenceEntityType==type&&x.ReferenceEntityId==entityId).ToListAsync(ct);db.MediaReferences.RemoveRange(existing.Where(x=>!desired.Contains(x.MediaIdFk)));var current=existing.Select(x=>x.MediaIdFk).ToHashSet();foreach(var id in desired.Where(id=>!current.Contains(id)))db.MediaReferences.Add(new(){ReferenceId=NewId(),MediaIdFk=id,ArticleIdFk=articleId,ReferenceEntityType=type,ReferenceEntityId=entityId});}
-    private void AddMapping(Guid jobId,string type,string externalId,Guid internalId,object metadata)=>db.MigrationExternalMappings.Add(new(){Id=NewId(),MigrationJobId=jobId,SourceSystem="HelpJuice",ExternalEntityType=type,ExternalId=externalId,InternalEntityId=internalId,MetadataJson=JsonSerializer.Serialize(metadata),CreatedAt=timeProvider.GetUtcNow().UtcDateTime});
-    private Task<Guid?> MappingAsync(Guid jobId,string type,string id,CancellationToken ct)=>db.MigrationExternalMappings.AsNoTracking().Where(x=>x.MigrationJobId==jobId&&x.ExternalEntityType==type&&x.ExternalId==id).Select(x=>(Guid?)x.InternalEntityId).SingleOrDefaultAsync(ct);
-    private void AddAudit(Guid actor,string action,string type,Guid? entityId,Guid? articleId,Guid jobId,string externalId)=>db.ArticleAuditLogs.Add(new(){AuditLogId=NewId(),ActorIdFk=actor,ArticleIdFk=articleId,ActionType=action,EntityType=type,EntityId=entityId,MetaDataJson=JsonSerializer.Serialize(new{migrationJobId=jobId,sourceSystem="HelpJuice",externalId}),CreatedAt=timeProvider.GetUtcNow().UtcDateTime});
+    private void AddAudit(Guid actor,string action,string type,Guid? entityId,Guid? articleId,Guid operationId)=>db.ArticleAuditLogs.Add(new(){AuditLogId=NewId(),ActorIdFk=actor,ArticleIdFk=articleId,ActionType=action,EntityType=type,EntityId=entityId,MetaDataJson=JsonSerializer.Serialize(new{migrationOperationId=operationId,sourceSystem="HelpJuice"}),CreatedAt=timeProvider.GetUtcNow().UtcDateTime});
     private async Task<string> BuildCategoryPath(Guid? parent,Guid id,CancellationToken ct){if(parent is null)return $"/{id:N}/";var path=await db.Categories.Where(x=>x.CategoryId==parent).Select(x=>x.Path).SingleOrDefaultAsync(ct)??throw new ConflictException("Imported category parent is unavailable.");return $"{path}{id:N}/";}
     private async Task<string> AllocateCategorySlugAsync(string source,CancellationToken ct){var stem=source.Length==0?"category":source;for(var n=1;n<100000;n++){var suffix=n==1?"":$"-{n}";var candidate=stem[..Math.Min(stem.Length,250-suffix.Length)].TrimEnd('-')+suffix;if(!await db.Categories.AnyAsync(x=>x.Slug==candidate,ct))return candidate;}throw new ConflictException("A unique category slug could not be allocated.");}
     private async Task<string> AllocateArticleSlugAsync(string source,CancellationToken ct){var stem=source.Length==0?"article":source;for(var n=1;n<100000;n++){var suffix=n==1?"":$"-{n}";var candidate=stem[..Math.Min(stem.Length,350-suffix.Length)].TrimEnd('-')+suffix;if(!await db.Articles.AnyAsync(x=>x.Slug==candidate&&x.DeletedAt==null,ct))return candidate;}throw new ConflictException("A unique article slug could not be allocated.");}

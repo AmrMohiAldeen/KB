@@ -142,8 +142,10 @@ export function useArticleLifecycle({
     options: { comment?: string; targetStatus?: ArticleStatus } = {}
   ): Promise<ArticleLifecycleResponse | null> => {
     if (pendingAction) return null
-    if (action === 'requestChanges' && !options.comment?.trim()) {
-      setMessages(['A reason is required when requesting changes.'])
+    if ((action === 'requestChanges' || action === 'reject') && !options.comment?.trim()) {
+      setMessages([action === 'reject'
+        ? 'A reason is required when rejecting an article.'
+        : 'A reason is required when requesting changes.'])
       return null
     }
     if (action === 'override' && (!options.comment?.trim() || !options.targetStatus)) {

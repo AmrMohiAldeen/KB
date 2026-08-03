@@ -7,6 +7,7 @@ export type ArticleLifecycleAction =
   | 'requestChanges'
   | 'resubmit'
   | 'approve'
+  | 'reject'
   | 'publish'
   | 'override'
   | 'archive'

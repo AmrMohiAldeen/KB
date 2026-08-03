@@ -10,7 +10,7 @@ describe('HelpJuiceMigrationPage options',()=>{
 
   it('allows selecting conflict behavior and publication/media options before validation',async()=>{
     host=document.createElement('div');document.body.append(host);root=createRoot(host)
-    const api={...helpJuiceMigrationsApi,validate:vi.fn(helpJuiceMigrationsApi.validate),start:vi.fn(helpJuiceMigrationsApi.start),get:vi.fn(helpJuiceMigrationsApi.get),cancel:vi.fn(helpJuiceMigrationsApi.cancel),downloadErrors:vi.fn(helpJuiceMigrationsApi.downloadErrors)}
+    const api={...helpJuiceMigrationsApi,run:vi.fn(helpJuiceMigrationsApi.run)}
     await act(async()=>root?.render(createElement(HelpJuiceMigrationPage,{accessToken:'token',api})))
     const update=host.querySelector<HTMLInputElement>('input[value="UpdateExisting"]')!
     await act(async()=>update.click())

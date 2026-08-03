@@ -22,6 +22,7 @@ const actionPaths: Record<Exclude<ArticleLifecycleAction, 'override' | 'archive'
   requestChanges: 'review/request-changes',
   resubmit: 'resubmit',
   approve: 'review/approve',
+  reject: 'review/reject',
   publish: 'publish'
 }
 

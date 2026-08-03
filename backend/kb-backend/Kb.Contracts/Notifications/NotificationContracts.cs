@@ -8,10 +8,14 @@ public sealed record NotificationResponse(
     Guid? ArticleId,
     string Type,
     string Title,
-    string? Body,
+    string Message,
     bool IsRead,
     DateTime CreatedAt,
     DateTime? ReadAt);
+
+public sealed record UnreadNotificationCountResponse(long UnreadCount);
+
+public sealed record MarkAllNotificationsReadResponse(int MarkedReadCount, long UnreadCount);
 
 public sealed class MarkNotificationsReadRequest : IValidatableObject
 {

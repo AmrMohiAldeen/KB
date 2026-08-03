@@ -25,6 +25,19 @@ public static class ReviewActions
     public const string Override = "Override";
 }
 
+public static class NotificationTypes
+{
+    public const string ArticleSubmittedForReview = "ArticleSubmittedForReview";
+    public const string ArticleApproved = "ArticleApproved";
+    public const string ArticleRejected = "ArticleRejected";
+    public const string ArticleChangesRequested = "ArticleChangesRequested";
+    public const string ArticlePublished = "ArticlePublished";
+    public const string ArticleCommented = "ArticleCommented";
+    public const string ArticleLockAcquired = "ArticleLockAcquired";
+    public const string ArticleLockReleased = "ArticleLockReleased";
+    public const string ArticleLockForceReleased = "ArticleLockForceReleased";
+}
+
 public static class ArticleSnapshotReasons
 {
     public const string SubmittedForReview = "SubmittedForReview";
