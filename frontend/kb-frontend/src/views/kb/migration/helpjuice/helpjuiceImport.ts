@@ -141,9 +141,7 @@ export function createHelpJuicePreparedImportPayload({
   questionsFileName,
   answersFileName
 }: CreatePayloadInput): HelpJuicePreparedImportPayload {
-  // TODO: Connect to the migration backend to save converted Tiptap JSON.
-  // TODO: Connect to the migration backend to store migration warnings.
-  // TODO: Connect to the migration backend to update migration job progress.
+  // This payload remains a client-side preview; the authoritative package is sent once to the migration job API.
   const candidateWarnings = result.answerResults.flatMap(record =>
     record.warnings.map(warning => `${record.answerId}: ${warning.code}: ${warning.message}`)
   )

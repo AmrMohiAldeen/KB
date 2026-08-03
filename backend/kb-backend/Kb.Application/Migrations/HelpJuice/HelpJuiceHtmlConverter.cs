@@ -1,0 +1,255 @@
+using System.Net;
+using System.Text;
+using System.Text.Encodings.Web;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
+
+namespace Kb.Application.Migrations.HelpJuice;
+
+public static partial class HelpJuiceHtmlConverter
+{
+    private static readonly HashSet<string> Supported = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "p", "br", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "b", "em", "i", "u", "a",
+        "ul", "ol", "li", "blockquote", "pre", "code", "table", "thead", "tbody", "tfoot", "tr", "th", "td",
+        "img", "figure", "figcaption", "div", "span", "hr", "iframe", "video", "source"
+    };
+    private static readonly HashSet<string> DropWithContent = new(StringComparer.OrdinalIgnoreCase)
+        { "script", "style", "object", "embed", "form", "noscript", "template", "svg", "math" };
+    private static readonly HashSet<string> VoidTags = new(StringComparer.OrdinalIgnoreCase)
+        { "br", "img", "hr", "source", "meta", "link", "input" };
+
+    public static HelpJuiceHtmlConversion Convert(string? sourceHtml,
+        Func<string, (Guid MediaId, string Url)?>? resolveMedia = null)
+    {
+        var warnings = new List<(string, string)>();
+        var mediaSources = new List<string>();
+        var root = new Node("doc");
+        var stack = new Stack<Node>(); stack.Push(root);
+        var marks = new Stack<Mark>();
+        var droppedDepth = 0;
+
+        foreach (Match token in TokenRegex().Matches(sourceHtml ?? string.Empty))
+        {
+            if (token.Value.StartsWith("<!--", StringComparison.Ordinal) || token.Value.StartsWith("<!", StringComparison.Ordinal))
+                continue;
+            if (!token.Value.StartsWith('<'))
+            {
+                if (droppedDepth == 0) AddText(stack.Peek(), WebUtility.HtmlDecode(token.Value), marks.Reverse().ToArray());
+                continue;
+            }
+            var parsed = ParseTag(token.Value);
+            if (parsed is null) continue;
+            var (name, closing, attrs, selfClosing) = parsed.Value;
+            if (DropWithContent.Contains(name))
+            {
+                if (!closing) { droppedDepth++; Warn("UNSAFE_ELEMENT_REMOVED", $"The unsafe <{name}> element was removed."); }
+                else if (droppedDepth > 0) droppedDepth--;
+                continue;
+            }
+            if (droppedDepth > 0) continue;
+            if (closing)
+            {
+                if (name is "strong" or "b" or "em" or "i" or "u" or "a" or "code")
+                {
+                    if (marks.Count > 0) marks.Pop();
+                    continue;
+                }
+                while (stack.Count > 1)
+                {
+                    var popped = stack.Pop();
+                    if (popped.SourceTag.Equals(name, StringComparison.OrdinalIgnoreCase)) break;
+                }
+                continue;
+            }
+            if (!Supported.Contains(name))
+            {
+                Warn("UNSUPPORTED_ELEMENT", $"Unsupported <{name}> markup was flattened while preserving readable text.");
+                continue;
+            }
+            if (name is "strong" or "b") { marks.Push(new("bold")); continue; }
+            if (name is "em" or "i") { marks.Push(new("italic")); continue; }
+            if (name == "u") { marks.Push(new("underline")); continue; }
+            if (name == "code" && stack.Peek().Type != "codeBlock") { marks.Push(new("code")); continue; }
+            if (name == "a")
+            {
+                var href = attrs.GetValueOrDefault("href");
+                if (TrySafeUrl(href, allowRelative: true, out var safe))
+                    marks.Push(new("link", new() { ["href"] = safe, ["target"] = "_blank", ["rel"] = "noopener noreferrer nofollow" }));
+                else { marks.Push(new("invalidLink")); Warn("DANGEROUS_URL_REMOVED", "A link with an unsafe URL was converted to text."); }
+                continue;
+            }
+            if (name == "br") { stack.Peek().Children.Add(new("hardBreak")); continue; }
+            if (name == "hr") { stack.Peek().Children.Add(new("horizontalRule")); continue; }
+            if (name == "img")
+            {
+                var src = attrs.GetValueOrDefault("src") ?? attrs.GetValueOrDefault("data-src") ?? attrs.GetValueOrDefault("data-mce-src");
+                if (string.IsNullOrWhiteSpace(src) || src.StartsWith("data:", StringComparison.OrdinalIgnoreCase) ||
+                    src.StartsWith("blob:", StringComparison.OrdinalIgnoreCase))
+                { Warn("BROKEN_IMAGE", "An image without a safe source was omitted."); continue; }
+                mediaSources.Add(src);
+                var mapped = resolveMedia?.Invoke(src);
+                if (mapped is null && !TrySafeUrl(src, allowRelative: true, out _))
+                { Warn("DANGEROUS_URL_REMOVED", "An image with an unsafe URL was omitted."); continue; }
+                var image = new Node("image") { Attributes = new()
+                {
+                    ["src"] = mapped?.Url ?? src,
+                    ["alt"] = attrs.GetValueOrDefault("alt"),
+                    ["title"] = attrs.GetValueOrDefault("title"),
+                    ["mediaId"] = mapped?.MediaId.ToString()
+                }};
+                stack.Peek().Children.Add(image);
+                if (mapped is null) Warn("UNRESOLVED_MEDIA", $"Media source '{Limit(src)}' was retained for review.");
+                continue;
+            }
+            if (name is "iframe" or "video" or "source")
+            {
+                var src = attrs.GetValueOrDefault("src");
+                if (name is "video" or "source" && !string.IsNullOrWhiteSpace(src)) mediaSources.Add(src);
+                if (name is "video" or "source" && !string.IsNullOrWhiteSpace(src) && resolveMedia?.Invoke(src) is { } videoMedia)
+                {
+                    stack.Peek().Children.Add(new("video") { Attributes = new() { ["src"] = videoMedia.Url, ["mediaId"] = videoMedia.MediaId.ToString(), ["title"] = attrs.GetValueOrDefault("title") } });
+                }
+                else if (TryYoutubeUrl(src, out var youtube))
+                {
+                    stack.Peek().Children.Add(new("youtube") { Attributes = new() { ["src"] = youtube } });
+                }
+                else if (TrySafeUrl(src, false, out var safe))
+                {
+                    var paragraph = new Node("paragraph");
+                    paragraph.Children.Add(new("text") { Text = safe, Marks = [new("link", new() { ["href"] = safe })] });
+                    stack.Peek().Children.Add(paragraph);
+                    Warn("EMBED_CONVERTED_TO_LINK", "A supported video/embed URL was converted to a safe link.");
+                }
+                else Warn("UNSAFE_EMBED_REMOVED", "An unsafe or unsupported embed was removed.");
+                continue;
+            }
+
+            var node = CreateNode(name, attrs, Warn);
+            if (node is null) continue;
+            stack.Peek().Children.Add(node);
+            if (!selfClosing && !VoidTags.Contains(name)) stack.Push(node);
+        }
+        while (stack.Count > 1) stack.Pop();
+        Normalize(root);
+        var json = root.ToJson().ToJsonString(new JsonSerializerOptions { Encoder = JavaScriptEncoder.Default });
+        return new(json, Render(root), PlainText(root), warnings.Distinct().ToArray(), mediaSources.Distinct().ToArray());
+
+        void Warn(string code, string message) => warnings.Add((code, message));
+    }
+
+    private static Node? CreateNode(string tag, Dictionary<string, string> attrs, Action<string, string> warning)
+    {
+        return tag.ToLowerInvariant() switch
+        {
+            "p" => new("paragraph", tag),
+            "h1" or "h2" or "h3" or "h4" => new("heading", tag) { Attributes = new() { ["level"] = int.Parse(tag[1..]) } },
+            "h5" or "h6" => HeadingFallback(tag, warning),
+            "ul" => new("bulletList", tag),
+            "ol" => new("orderedList", tag) { Attributes = new() { ["start"] = ParsePositive(attrs.GetValueOrDefault("start"), 1) } },
+            "li" => new("listItem", tag),
+            "blockquote" => new("blockquote", tag),
+            "pre" => new("codeBlock", tag),
+            "table" => new("table", tag),
+            "tr" => new("tableRow", tag),
+            "th" => new("tableHeader", tag) { Attributes = CellAttrs(attrs) },
+            "td" => new("tableCell", tag) { Attributes = CellAttrs(attrs) },
+            "div" or "span" or "figure" or "figcaption" or "thead" or "tbody" or "tfoot" => new("fragment", tag),
+            _ => null
+        };
+    }
+
+    private static Node HeadingFallback(string tag, Action<string, string> warning)
+    { warning("HEADING_LEVEL_NORMALIZED", $"<{tag}> was normalized to a level-4 heading."); return new("heading", tag) { Attributes = new() { ["level"] = 4 } }; }
+    private static Dictionary<string, object?> CellAttrs(Dictionary<string, string> attrs) => new()
+        { ["colspan"] = ParsePositive(attrs.GetValueOrDefault("colspan"), 1), ["rowspan"] = ParsePositive(attrs.GetValueOrDefault("rowspan"), 1) };
+    private static int ParsePositive(string? value, int fallback) => int.TryParse(value, out var number) && number > 0 ? Math.Min(number, 100) : fallback;
+
+    private static void AddText(Node parent, string value, IReadOnlyList<Mark> marks)
+    {
+        if (string.IsNullOrEmpty(value)) return;
+        var normalized = parent.Type is "codeBlock" ? value : WhitespaceRegex().Replace(value, " ");
+        if (normalized.Length == 0) return;
+        parent.Children.Add(new("text") { Text = normalized, Marks = marks.Where(mark => mark.Type != "invalidLink").ToList() });
+    }
+
+    private static void Normalize(Node node)
+    {
+        foreach (var child in node.Children.ToArray()) Normalize(child);
+        for (var i = node.Children.Count - 1; i >= 0; i--)
+        {
+            var child = node.Children[i];
+            if (child.Type == "fragment") { node.Children.RemoveAt(i); node.Children.InsertRange(i, child.Children); }
+        }
+        if (node.Type == "doc" && node.Children.Count == 0) node.Children.Add(new("paragraph"));
+        if (node.Type is "listItem" or "tableCell" or "tableHeader" && node.Children.Count == 0) node.Children.Add(new("paragraph"));
+        if (node.Type == "listItem" && node.Children.FirstOrDefault()?.Type is not ("paragraph" or "heading"))
+        { var paragraph = new Node("paragraph"); while (node.Children.Count > 0 && node.Children[0].Type is not ("bulletList" or "orderedList")) { paragraph.Children.Add(node.Children[0]); node.Children.RemoveAt(0); } node.Children.Insert(0, paragraph); }
+    }
+
+    private static string Render(Node root)
+    {
+        var builder = new StringBuilder(); foreach (var node in root.Children) RenderNode(node, builder); return builder.ToString();
+    }
+    private static void RenderNode(Node node, StringBuilder b)
+    {
+        if (node.Type == "text") { var text = WebUtility.HtmlEncode(node.Text); foreach (var mark in node.Marks) b.Append(mark.OpenHtml()); b.Append(text); foreach (var mark in node.Marks.AsEnumerable().Reverse()) b.Append(mark.CloseHtml()); return; }
+        var (open, close) = node.Type switch
+        {
+            "paragraph" => ("<p>", "</p>"), "heading" => ($"<h{node.Attributes?["level"]}>", $"</h{node.Attributes?["level"]}>"),
+            "bulletList" => ("<ul>", "</ul>"), "orderedList" => ("<ol>", "</ol>"), "listItem" => ("<li>", "</li>"),
+            "blockquote" => ("<blockquote>", "</blockquote>"), "codeBlock" => ("<pre><code>", "</code></pre>"),
+            "table" => ("<table>", "</table>"), "tableRow" => ("<tr>", "</tr>"), "tableHeader" => ("<th>", "</th>"), "tableCell" => ("<td>", "</td>"),
+            "hardBreak" => ("<br>", ""), "horizontalRule" => ("<hr>", ""),
+            "image" => ($"<img src=\"{WebUtility.HtmlEncode(node.Attributes?["src"]?.ToString())}\" alt=\"{WebUtility.HtmlEncode(node.Attributes?["alt"]?.ToString())}\"{(node.Attributes?["mediaId"] is string id ? $" data-media-id=\"{id}\"" : "")}>", ""),
+            "youtube" => ($"<div data-youtube-video><iframe src=\"{WebUtility.HtmlEncode(node.Attributes?["src"]?.ToString())}\" allowfullscreen></iframe></div>", ""),
+            "video" => ($"<video src=\"{WebUtility.HtmlEncode(node.Attributes?["src"]?.ToString())}\" data-media-id=\"{WebUtility.HtmlEncode(node.Attributes?["mediaId"]?.ToString())}\" controls preload=\"metadata\"></video>", ""),
+            _ => ("", "")
+        };
+        b.Append(open); foreach (var child in node.Children) RenderNode(child, b); b.Append(close);
+    }
+    private static string PlainText(Node root) { var b = new StringBuilder(); Visit(root); return b.ToString().Trim(); void Visit(Node n) { if (n.Text is not null) b.Append(n.Text); foreach (var c in n.Children) Visit(c); if (n.Type is "paragraph" or "heading" or "listItem" or "blockquote" or "codeBlock" or "tableRow") b.AppendLine(); } }
+
+    private static bool TrySafeUrl(string? value, bool allowRelative, out string safe)
+    {
+        safe = WebUtility.HtmlDecode(value ?? string.Empty).Trim();
+        if (safe.Length == 0 || safe.Length > 2048 || safe.Any(char.IsControl)) return false;
+        if (safe.StartsWith('#') || allowRelative && safe.StartsWith('/')) return true;
+        return Uri.TryCreate(safe, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https" or "mailto";
+    }
+    private static bool TryYoutubeUrl(string? value,out string canonical){canonical="";if(!Uri.TryCreate(WebUtility.HtmlDecode(value??"").Trim(),UriKind.Absolute,out var uri)||uri.Scheme!="https")return false;var host=uri.Host.ToLowerInvariant();string? id=null;if(host is "youtu.be" or "www.youtu.be")id=uri.AbsolutePath.Trim('/').Split('/')[0];else if(host is "youtube.com" or "www.youtube.com" or "m.youtube.com"){if(uri.AbsolutePath=="/watch")id=System.Web.HttpUtility.ParseQueryString(uri.Query)["v"];else if(uri.AbsolutePath.StartsWith("/embed/"))id=uri.AbsolutePath.Split('/',StringSplitOptions.RemoveEmptyEntries).ElementAtOrDefault(1);}else if(host is "youtube-nocookie.com" or "www.youtube-nocookie.com"&&uri.AbsolutePath.StartsWith("/embed/"))id=uri.AbsolutePath.Split('/',StringSplitOptions.RemoveEmptyEntries).ElementAtOrDefault(1);if(id is null||id.Length is < 6 or > 20||id.Any(ch=>!char.IsLetterOrDigit(ch)&&ch is not '-' and not '_'))return false;canonical=$"https://www.youtube.com/watch?v={id}";return true;}
+    private static string Limit(string value) => value.Length <= 160 ? value : value[..157] + "...";
+
+    private static (string Name, bool Closing, Dictionary<string, string> Attributes, bool SelfClosing)? ParseTag(string token)
+    {
+        var match = TagRegex().Match(token); if (!match.Success) return null;
+        var attrs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (Match attr in AttributeRegex().Matches(match.Groups[3].Value))
+        {
+            var key = attr.Groups[1].Value;
+            if (key.StartsWith("on", StringComparison.OrdinalIgnoreCase) || key is "style" or "srcdoc") continue;
+            attrs[key] = WebUtility.HtmlDecode(attr.Groups[2].Success ? attr.Groups[2].Value : attr.Groups[3].Success ? attr.Groups[3].Value : attr.Groups[4].Value);
+        }
+        return (match.Groups[2].Value.ToLowerInvariant(), match.Groups[1].Success, attrs, token.EndsWith("/>", StringComparison.Ordinal));
+    }
+
+    private sealed class Node(string type, string? sourceTag = null)
+    {
+        public string Type { get; } = type; public string SourceTag { get; } = sourceTag ?? type;
+        public string? Text { get; set; } public List<Node> Children { get; } = [];
+        public List<Mark> Marks { get; set; } = []; public Dictionary<string, object?>? Attributes { get; set; }
+        public JsonObject ToJson() { var o = new JsonObject { ["type"] = Type }; if (Text is not null) o["text"] = Text; if (Attributes?.Count > 0) o["attrs"] = JsonSerializer.SerializeToNode(Attributes); if (Marks.Count > 0) o["marks"] = new JsonArray(Marks.Select(m => m.ToJson()).ToArray()); if (Children.Count > 0) o["content"] = new JsonArray(Children.Select(c => c.ToJson()).ToArray()); return o; }
+    }
+    private sealed record Mark(string Type, Dictionary<string, object?>? Attrs = null)
+    {
+        public JsonObject ToJson() { var o = new JsonObject { ["type"] = Type }; if (Attrs?.Count > 0) o["attrs"] = JsonSerializer.SerializeToNode(Attrs); return o; }
+        public string OpenHtml() => Type switch { "bold" => "<strong>", "italic" => "<em>", "underline" => "<u>", "code" => "<code>", "link" => $"<a href=\"{WebUtility.HtmlEncode(Attrs?["href"]?.ToString())}\" rel=\"noopener noreferrer nofollow\">", _ => "" };
+        public string CloseHtml() => Type switch { "bold" => "</strong>", "italic" => "</em>", "underline" => "</u>", "code" => "</code>", "link" => "</a>", _ => "" };
+    }
+
+    [GeneratedRegex(@"<!--[\s\S]*?-->|<![^>]*>|</?[^>]+>|[^<]+", RegexOptions.Compiled)] private static partial Regex TokenRegex();
+    [GeneratedRegex(@"^<\s*(/)?\s*([a-zA-Z0-9:-]+)([\s\S]*?)/?\s*>$", RegexOptions.Compiled)] private static partial Regex TagRegex();
+    [GeneratedRegex("""([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))""", RegexOptions.Compiled)] private static partial Regex AttributeRegex();
+    [GeneratedRegex(@"\s+", RegexOptions.Compiled)] private static partial Regex WhitespaceRegex();
+}

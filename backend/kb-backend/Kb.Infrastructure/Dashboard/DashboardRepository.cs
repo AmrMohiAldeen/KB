@@ -1,0 +1,178 @@
+using Kb.Application.Articles;
+using Kb.Application.Dashboard;
+using Kb.Domain.Constants;
+using Kb.Infrastructure.Data;
+using Kb.Infrastructure.Data.Entities;
+using Microsoft.EntityFrameworkCore;
+
+namespace Kb.Infrastructure.Dashboard;
+
+public sealed class DashboardRepository(KbDbContext dbContext) : IDashboardRepository
+{
+    public Task<bool> CategoryExistsAsync(Guid id, CancellationToken cancellationToken) =>
+        dbContext.Categories.AsNoTracking().AnyAsync(category => category.CategoryId == id, cancellationToken);
+
+    public async Task<DashboardPageData> GetAsync(DashboardQuery query, CancellationToken cancellationToken)
+    {
+        var categories = dbContext.Categories.AsNoTracking();
+        if (query.CategoryId is { } parentId)
+            categories = categories.Where(category => category.ParentCategoryIdFk == parentId);
+        if (query.Search is not null)
+            categories = categories.Where(category => category.Name.Contains(query.Search));
+
+        var everythingArticles = ActiveArticles();
+        everythingArticles = ApplyArticleScope(everythingArticles, query.Search, query.CategoryId);
+
+        var archivedArticles = ApplyArticleScope(
+            dbContext.Articles.AsNoTracking()
+                .Where(article => article.DeletedAt != null || article.Status == ArticleStatuses.Deleted),
+            query.Search,
+            query.CategoryId);
+        var articles = query.Filter == DashboardFilter.Archived
+            ? archivedArticles
+            : everythingArticles;
+        articles = ApplyFilter(articles, query.Filter);
+
+        var categoryCount = await categories.LongCountAsync(cancellationToken);
+        var articleCount = await articles.LongCountAsync(cancellationToken);
+        var everythingArticleCount = await everythingArticles.LongCountAsync(cancellationToken);
+        var filterCounts = new DashboardFilterCountsData(
+            everythingArticleCount,
+            await ApplyFilter(everythingArticles, DashboardFilter.Published).LongCountAsync(cancellationToken),
+            await ApplyFilter(everythingArticles, DashboardFilter.DraftUnpublished).LongCountAsync(cancellationToken),
+            await ApplyFilter(everythingArticles, DashboardFilter.ToReview).LongCountAsync(cancellationToken),
+            await archivedArticles.LongCountAsync(cancellationToken));
+        var totalCount = categoryCount + articleCount;
+        var windowSize = (int)Math.Min((long)query.Page * query.PageSize, int.MaxValue);
+
+        var categoryItems = await OrderCategories(categories, query.Sort)
+            .Take(windowSize)
+            .Select(category => new DashboardCategoryData(
+                category.CategoryId,
+                category.ParentCategoryIdFk,
+                category.Name,
+                category.Slug,
+                category.Description,
+                category.SortOrder,
+                category.Path,
+                category.Depth,
+                category.Articles.Count(article =>
+                    article.DeletedAt == null && article.Status != ArticleStatuses.Deleted)))
+            .ToListAsync(cancellationToken);
+
+        var articleItems = await OrderArticles(articles, query.Sort)
+            .Take(windowSize)
+            .Select(article => new ArticleListData(
+                article.ArticleId,
+                article.Title,
+                article.Slug,
+                article.Status,
+                article.CategoryIdFkNavigation == null ? null : new CategoryReference(
+                    article.CategoryIdFkNavigation.CategoryId,
+                    article.CategoryIdFkNavigation.Name,
+                    article.CategoryIdFkNavigation.Slug,
+                    article.CategoryIdFkNavigation.Path),
+                new UserReference(article.AuthorIdFkNavigation.UserId, article.AuthorIdFkNavigation.FullName),
+                article.CurrentDraftIdFk,
+                article.LastPublishedVersionIdFk,
+                article.CreatedAt,
+                article.UpdatedAt,
+                article.LastPublishedVersionIdFkNavigation == null
+                    ? null
+                    : article.LastPublishedVersionIdFkNavigation.PublishedAt,
+                article.CurrentDraftIdFkNavigation != null && article.CurrentDraftIdFkNavigation.IsLocked,
+                article.CurrentDraftIdFkNavigation == null ||
+                    article.CurrentDraftIdFkNavigation.LockedByFkNavigation == null
+                    ? null
+                    : new UserReference(
+                        article.CurrentDraftIdFkNavigation.LockedByFkNavigation.UserId,
+                        article.CurrentDraftIdFkNavigation.LockedByFkNavigation.FullName),
+                article.Position))
+            .ToListAsync(cancellationToken);
+
+        var combined = categoryItems.Select(category => new DashboardItemData(
+                "category", category.Id, category.SortOrder, category.Name, null, null, category, null))
+            .Concat(articleItems.Select(article => new DashboardItemData(
+                "article", article.Id, article.Position, article.Title, article.CreatedAt, article.UpdatedAt,
+                null, article)));
+        var ordered = OrderCombined(combined, query.Sort);
+        var skip = (int)Math.Min((long)(query.Page - 1) * query.PageSize, int.MaxValue);
+        var items = ordered.Skip(skip).Take(query.PageSize).ToArray();
+
+        return new(items, query.Page, query.PageSize, totalCount, articleCount, everythingArticleCount, filterCounts,
+            (long)query.Page * query.PageSize < totalCount);
+    }
+
+    private IQueryable<Article> ActiveArticles() => dbContext.Articles.AsNoTracking()
+        .Where(article => article.DeletedAt == null && article.Status != ArticleStatuses.Deleted);
+
+    private static IQueryable<Article> ApplyArticleScope(
+        IQueryable<Article> source,
+        string? search,
+        Guid? categoryId)
+    {
+        if (search is not null)
+            source = source.Where(article => article.Title.Contains(search));
+        if (categoryId is { } id)
+            source = source.Where(article => article.CategoryIdFk == id);
+        return source;
+    }
+
+    private static IQueryable<Article> ApplyFilter(IQueryable<Article> source, DashboardFilter filter) =>
+        filter switch
+        {
+            DashboardFilter.Published => source.Where(article => article.Status == ArticleStatuses.Published),
+            DashboardFilter.DraftUnpublished => source.Where(article =>
+                article.Status != ArticleStatuses.Published && article.Status != ArticleStatuses.Deleted),
+            DashboardFilter.ToReview => source.Where(article =>
+                article.Status == ArticleStatuses.SubmittedForReview ||
+                article.Status == ArticleStatuses.InReview ||
+                article.Status == ArticleStatuses.Resubmitted),
+            _ => source
+        };
+
+    private static IOrderedQueryable<Category> OrderCategories(
+        IQueryable<Category> source,
+        DashboardSort sort) => sort switch
+        {
+            DashboardSort.Title => source.OrderBy(category => category.Name).ThenBy(category => category.CategoryId),
+            _ => source.OrderBy(category => category.SortOrder)
+                .ThenBy(category => category.Name)
+                .ThenBy(category => category.CategoryId)
+        };
+
+    private static IOrderedQueryable<Article> OrderArticles(
+        IQueryable<Article> source,
+        DashboardSort sort) => sort switch
+        {
+            DashboardSort.Title => source.OrderBy(article => article.Title).ThenBy(article => article.ArticleId),
+            DashboardSort.UpdatedAt => source.OrderByDescending(article => article.UpdatedAt)
+                .ThenBy(article => article.Title)
+                .ThenBy(article => article.ArticleId),
+            DashboardSort.CreatedAt => source.OrderByDescending(article => article.CreatedAt)
+                .ThenBy(article => article.Title)
+                .ThenBy(article => article.ArticleId),
+            _ => source.OrderBy(article => article.Position)
+                .ThenBy(article => article.Title)
+                .ThenBy(article => article.ArticleId)
+        };
+
+    private static IOrderedEnumerable<DashboardItemData> OrderCombined(
+        IEnumerable<DashboardItemData> source,
+        DashboardSort sort) => sort switch
+        {
+            DashboardSort.Title => source.OrderBy(item => item.Title, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(item => item.Kind, StringComparer.Ordinal)
+                .ThenBy(item => item.Id),
+            DashboardSort.UpdatedAt => source.OrderByDescending(item => item.UpdatedAt ?? DateTime.MinValue)
+                .ThenBy(item => item.Title, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(item => item.Id),
+            DashboardSort.CreatedAt => source.OrderByDescending(item => item.CreatedAt ?? DateTime.MinValue)
+                .ThenBy(item => item.Title, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(item => item.Id),
+            _ => source.OrderBy(item => item.Position)
+                .ThenBy(item => item.Kind == "category" ? 0 : 1)
+                .ThenBy(item => item.Title, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(item => item.Id)
+        };
+}

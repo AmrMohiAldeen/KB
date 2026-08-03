@@ -6,6 +6,7 @@ export type ArticleStatus =
   | 'Resubmitted'
   | 'Approved'
   | 'Published'
+  | 'Archived'
 
 export type UserSummaryResponse = {
   userId: string
@@ -33,6 +34,7 @@ export type ArticleListItemResponse = {
   publishedAt: string | null
   isCurrentDraftLocked: boolean
   lockedBy: UserSummaryResponse | null
+  position: number
 }
 
 export type ArticleDraftMetadataResponse = {
@@ -94,7 +96,7 @@ export type PagedResponse<T> = {
   totalCount: number
 }
 
-export type ArticleSortField = 'title' | 'createdAt' | 'updatedAt'
+export type ArticleSortField = 'position' | 'title' | 'createdAt' | 'updatedAt'
 export type SortDirection = 'asc' | 'desc'
 
 export type ArticleListQuery = {

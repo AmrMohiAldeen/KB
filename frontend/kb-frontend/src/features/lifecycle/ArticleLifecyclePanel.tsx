@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
@@ -51,6 +52,8 @@ type ArticleLifecyclePanelProps = {
   actionsDisabled?: boolean
   actionsDisabledReason?: string
   compact?: boolean
+  actionsTarget?: HTMLElement | null
+  actionsInHeader?: boolean
 }
 
 const actionIcons: Record<ArticleLifecycleAction, typeof Send> = {
@@ -73,7 +76,9 @@ export default function ArticleLifecyclePanel({
   onChanged,
   actionsDisabled = false,
   actionsDisabledReason,
-  compact = false
+  compact = false,
+  actionsTarget,
+  actionsInHeader = false
 }: ArticleLifecyclePanelProps) {
   const lifecycle = useArticleLifecycle({ articleId, accessToken, api, beforeAction, onArchived, onChanged })
   const [dialog, setDialog] = useState<DialogKind>(null)
@@ -139,6 +144,24 @@ export default function ArticleLifecyclePanel({
 
   const article = lifecycle.article
   const publishedAlongsideDraft = article?.currentPublishedVersion && article.status !== 'Published'
+  const actionButtons = visibleActions.map(action => {
+    const Icon = actionIcons[action]
+
+    return (
+      <Button
+        key={action}
+        size={compact ? 'small' : 'medium'}
+        variant={action === 'submitForReview' || action === 'approve' || action === 'publish' ? 'contained' : 'outlined'}
+        color={action === 'archive' ? 'error' : action === 'requestChanges' ? 'warning' : 'primary'}
+        startIcon={<Icon size={17} />}
+        loading={lifecycle.pendingAction === action}
+        disabled={busy || actionsDisabled}
+        onClick={() => runAction(action)}
+      >
+        {lifecycleActionLabels[action]}
+      </Button>
+    )
+  })
 
   return (
     <Card variant='outlined' sx={{ borderRadius: 2, boxShadow: 'none' }}>
@@ -189,27 +212,11 @@ export default function ArticleLifecyclePanel({
           )}
           {actionsDisabled && actionsDisabledReason && <Alert severity='info'>{actionsDisabledReason}</Alert>}
 
-          {visibleActions.length > 0 ? (
+          {!actionsInHeader && visibleActions.length > 0 ? (
             <Stack direction='row' spacing={1.5} useFlexGap sx={{ flexWrap: 'wrap' }}>
-              {visibleActions.map(action => {
-                const Icon = actionIcons[action]
-                return (
-                  <Button
-                    key={action}
-                    size={compact ? 'small' : 'medium'}
-                    variant={action === 'submitForReview' || action === 'approve' ? 'contained' : 'outlined'}
-                    color={action === 'archive' ? 'error' : action === 'requestChanges' ? 'warning' : 'primary'}
-                    startIcon={<Icon size={17} />}
-                    loading={lifecycle.pendingAction === action}
-                    disabled={busy || actionsDisabled}
-                    onClick={() => runAction(action)}
-                  >
-                    {lifecycleActionLabels[action]}
-                  </Button>
-                )
-              })}
+              {actionButtons}
             </Stack>
-          ) : (
+          ) : !actionsInHeader && (
             <Typography variant='body2' color='text.secondary'>
               No lifecycle actions are currently available to you.
             </Typography>
@@ -372,6 +379,9 @@ export default function ArticleLifecyclePanel({
         onClose={resetDialog}
         onConfirm={() => void confirmDialog()}
       />
+      {actionsInHeader && actionsTarget && actionButtons.length > 0
+        ? createPortal(<>{actionButtons}</>, actionsTarget)
+        : null}
     </Card>
   )
 }

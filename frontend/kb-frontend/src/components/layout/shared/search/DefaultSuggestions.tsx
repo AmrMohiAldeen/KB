@@ -31,11 +31,6 @@ const defaultSuggestions: DefaultSuggestionsType[] = [
         icon: 'tabler-layout-dashboard'
       },
       {
-        label: 'Article Editor',
-        href: '/editor',
-        icon: 'tabler-pencil'
-      },
-      {
         label: 'Templates',
         href: '/templates',
         icon: 'tabler-template'

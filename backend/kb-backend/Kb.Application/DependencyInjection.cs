@@ -5,6 +5,8 @@ using Kb.Application.Drafts;
 using Kb.Application.Media;
 using Kb.Application.Lifecycle;
 using Kb.Application.Comments;
+using Kb.Application.Dashboard;
+using Kb.Application.Migrations.HelpJuice;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Kb.Application;
@@ -20,6 +22,8 @@ public static class DependencyInjection
         services.AddScoped<MediaService>();
         services.AddScoped<ArticleLifecycleService>();
         services.AddScoped<ArticleCommentService>();
+        services.AddScoped<DashboardService>();
+        services.AddScoped<HelpJuiceMigrationService>();
         return services;
     }
 }

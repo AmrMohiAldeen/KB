@@ -73,6 +73,8 @@ public partial class KbDbContext : DbContext
 
             entity.HasIndex(e => e.CategoryIdFk, "IX_ARTICLES_CategoryID_FK");
 
+            entity.HasIndex(e => new { e.CategoryIdFk, e.Position, e.Title }, "IX_ARTICLES_CategoryID_Position");
+
             entity.HasIndex(e => new { e.Status, e.UpdatedAt }, "IX_ARTICLES_Status").IsDescending(false, true);
 
             entity.HasIndex(e => e.Slug, "UX_ARTICLES_Slug_Active")
@@ -90,6 +92,7 @@ public partial class KbDbContext : DbContext
             entity.Property(e => e.CurrentDraftIdFk).HasColumnName("CurrentDraftID_FK");
             entity.Property(e => e.DeletedAt).HasPrecision(3);
             entity.Property(e => e.LastPublishedVersionIdFk).HasColumnName("LastPublishedVersionID_FK");
+            entity.Property(e => e.Position).HasDefaultValue(0, "DF_ARTICLES_Position");
             entity.Property(e => e.Slug).HasMaxLength(350);
             entity.Property(e => e.Status)
                 .HasMaxLength(50)

@@ -10,6 +10,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Kb.Api.OpenApi;
 using Kb.Application.Media;
 using Microsoft.AspNetCore.Http.Features;
+using Kb.Api.HostedServices;
+using Kb.Application.Migrations.HelpJuice;
 
 namespace Kb.Api;
 
@@ -37,8 +39,9 @@ public static class DependencyInjection
         services.AddControllers();
         services.Configure<FormOptions>(options =>
         {
-            var maximumFileSize = configuration.GetValue<long?>("Media:MaxFileSizeBytes")
-                ?? MediaOptions.DefaultMaxFileSizeBytes;
+            var mediaMaximum = configuration.GetValue<long?>("Media:MaxFileSizeBytes") ?? MediaOptions.DefaultMaxFileSizeBytes;
+            var migrationMaximum = configuration.GetValue<long?>("Migrations:HelpJuice:MaxPackageSizeBytes") ?? HelpJuiceMigrationLimits.DefaultMaxPackageSizeBytes;
+            var maximumFileSize = Math.Max(mediaMaximum, migrationMaximum);
             options.MultipartBodyLengthLimit = checked(maximumFileSize + 1024 * 1024);
         });
         services.AddOpenApi(options =>
@@ -53,8 +56,11 @@ public static class DependencyInjection
         services.AddAuthentication();
         services.AddScoped<ICurrentUser, HttpCurrentUser>();
         services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
+        services.AddScoped<IAuthorizationHandler, AdminAuthorizationHandler>();
         services.AddSingleton<IAuthorizationPolicyProvider, PermissionAuthorizationPolicyProvider>();
-        services.AddAuthorization();
+        services.AddAuthorization(options => options.AddPolicy(AdminPolicy.Name,
+            policy => policy.RequireAuthenticatedUser().AddRequirements(new AdminRequirement())));
+        services.AddHostedService<HelpJuiceMigrationWorker>();
         return services;
     }
 }

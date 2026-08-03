@@ -272,7 +272,7 @@ function transformHeadings(root: HTMLElement, warnings: MigrationWarning[]): voi
   Array.from(root.querySelectorAll<HTMLAnchorElement>('a[href^="#"]')).forEach(anchor => {
     const href = anchor.getAttribute('href') ?? ''
     if (HELPJUICE_BOOKMARK_PATTERN.test(href)) {
-      // TODO: Fix link so that you can link it to what the original Helpjuice bookmark was intended to link to.
+      // Preserve unresolved source bookmarks for backend mapping and manual review.
       warnings.push(migrationWarning('UNRESOLVED_BOOKMARK_LINK', 'The Helpjuice bookmark link was retained because its destination is unknown.', 'a'))
       return
     }
@@ -286,7 +286,7 @@ function annotateLinks(root: HTMLElement, warnings: MigrationWarning[]): void {
   Array.from(root.querySelectorAll<HTMLAnchorElement>('a[href]')).forEach(anchor => {
     const href = anchor.getAttribute('href')?.trim() ?? ''
     if (HELPJUICE_LINK_PATTERN.test(href)) {
-      // TODO: Connect to the article migration mapping API and replace the Helpjuice question/article URL with the new article slug or ID.
+      // The backend migration mapping rewrites source article links after destination identities are known.
       warnings.push(migrationWarning('UNRESOLVED_INTERNAL_LINK', 'The Helpjuice internal link was retained until article mappings are available.', 'a'))
     }
 
@@ -328,7 +328,7 @@ function addImagePlaceholder(
   }
 
   if (/^https?:\/\//i.test(src)) {
-    // TODO: Connect to the media migration API to download the Helpjuice media, store it in application media storage, and replace the source URL with the returned media ID or storage URL.
+    // The backend media phase resolves this preview placeholder to a stored media ID and URL.
     warnings.push(migrationWarning('MEDIA_REQUIRES_MIGRATION', 'The external image source is retained temporarily until media migration is available.', 'img'))
   }
 
@@ -414,7 +414,7 @@ function transformEmbeds(root: HTMLElement, placeholders: MediaPlaceholder[], wa
       return
     }
 
-    // TODO: Connect to the media migration API and replace the source URL with the returned media ID or storage URL.
+    // The backend media phase resolves compatible embed sources.
     const label = /\.pdf(?:[?#]|$)/i.test(src)
       ? 'Open PDF attachment'
       : /wizardshot/i.test(src)
@@ -432,7 +432,7 @@ function transformEmbeds(root: HTMLElement, placeholders: MediaPlaceholder[], wa
       return
     }
 
-    // TODO: Connect to the media migration API and replace the source URL with the returned media ID or storage URL.
+    // The backend media phase resolves compatible hosted-video sources.
     replaceEmbedWithLink(video, src, 'Open video')
     warnings.push(migrationWarning('UNSUPPORTED_EMBED', 'A hosted video was converted to a link because no compatible hosted-video node exists.', 'video'))
   })

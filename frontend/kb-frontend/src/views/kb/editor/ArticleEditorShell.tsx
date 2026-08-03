@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
-import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
@@ -13,7 +12,7 @@ import Chip from '@mui/material/Chip'
 import CircularProgress from '@mui/material/CircularProgress'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
-import { History, RefreshCw, Save } from 'lucide-react'
+import { ArrowLeft, History, RefreshCw, Save } from 'lucide-react'
 import type { KnowledgeBaseEditorProps } from '@/features/editor/core/KnowledgeBaseEditor'
 import {
   useArticleDraftEditor,
@@ -73,6 +72,10 @@ const ArticleEditorShell = ({
   const [mediaMessages, setMediaMessages] = useState<string[]>([])
   const [activeCommentThreadId, setActiveCommentThreadId] = useState<string | null>(null)
   const [pendingCommentAnchor, setPendingCommentAnchor] = useState<PendingCommentAnchor | null>(null)
+  const [workflowActionsTarget, setWorkflowActionsTarget] = useState<HTMLElement | null>(null)
+  const handleWorkflowActionsTarget = useCallback((node: HTMLElement | null) => {
+    setWorkflowActionsTarget(node)
+  }, [])
   const commentsRefreshVersion = useRef('')
   const handleMediaError = useCallback((message: string) => {
     setMediaMessages(current => [...current.filter(item => item !== message), message])
@@ -155,12 +158,21 @@ const ArticleEditorShell = ({
     editor.saveState.status === 'conflict' || (!editor.saveState.dirty && !showRetry)
 
   return (
-    <KbPageShell maxWidth='100%'>
+    <KbPageShell maxWidth={1720} spacing={4}>
       <PageHeader
-        title='Article Editor'
-        subtitle={articleId ? `Draft content for article ${articleId}` : 'No article selected'}
+        title='Edit article'
+        subtitle={articleId
+          ? 'Write, collaborate, and move this article through its publishing workflow.'
+          : 'Open an article from the dashboard to begin editing.'}
         actions={
           <>
+            <Button
+              variant='text'
+              startIcon={<ArrowLeft size={18} />}
+              onClick={() => void editor.leave(() => router.push(dashboardUrl))}
+            >
+              Dashboard
+            </Button>
             <StatusChip label={pageState} color={editor.saveState.status === 'conflict' || editor.saveState.status === 'failed' ? 'error' : undefined} />
             <Button
               variant='outlined'
@@ -184,9 +196,11 @@ const ArticleEditorShell = ({
                 Version history
               </Button>
             )}
-            <Button variant='contained' onClick={() => void editor.leave(() => router.push(dashboardUrl))}>
-              Back to Dashboard
-            </Button>
+            <Box
+              component='span'
+              ref={handleWorkflowActionsTarget}
+              sx={{ display: 'contents' }}
+            />
           </>
         }
       />
@@ -198,28 +212,6 @@ const ArticleEditorShell = ({
           A new editable draft was created from version {restoredFromVersion}. The currently published article is
           unchanged until this draft completes review and is published.
         </Alert>
-      )}
-
-      {articleId && (
-        <ArticleLifecyclePanel
-          articleId={articleId}
-          accessToken={accessToken}
-          beforeAction={editor.prepareForWorkflow}
-          actionsDisabled={Boolean(
-            editor.draft?.lock.isLocked && !editor.draft.isLockOwner ||
-            editor.saveState.status === 'conflict' ||
-            pendingMediaUploads > 0
-          )}
-          actionsDisabledReason={
-            editor.draft?.lock.isLocked && !editor.draft.isLockOwner
-              ? 'Lifecycle actions are disabled while another user owns the draft lock.'
-              : editor.saveState.status === 'conflict'
-                ? 'Reload the conflicting draft before changing lifecycle state.'
-                : pendingMediaUploads > 0
-                  ? 'Wait for media uploads to finish before changing lifecycle state.'
-                  : undefined
-          }
-        />
       )}
 
       {pendingMediaUploads > 0 && (
@@ -286,17 +278,14 @@ const ArticleEditorShell = ({
 
           <Card variant='outlined' sx={{ overflow: 'hidden', borderRadius: 2, boxShadow: 'none' }}>
             <CardContent sx={{ p: 0, '&:last-child': { pb: 0 } }}>
-              <Box sx={{ p: 3, borderBlockEnd: theme => `1px solid ${theme.palette.divider}` }}>
-                <Link href={dashboardUrl}>Dashboard</Link>
-              </Box>
               <Box
                 sx={{
-                  display: 'flex',
-                  flexDirection: { xs: 'column', xl: 'row' },
+                  display: 'grid',
+                  gridTemplateColumns: { xs: 'minmax(0, 1fr)', xl: 'minmax(0, 1120px) 340px' },
                   alignItems: 'flex-start',
                   justifyContent: 'center',
-                  gap: 3,
-                  p: { xs: 3, md: 5 },
+                  gap: { xs: 3, md: 4 },
+                  p: { xs: 2, sm: 3, md: 4 },
                   bgcolor: 'background.default'
                 }}
               >
@@ -339,6 +328,30 @@ const ArticleEditorShell = ({
             </CardContent>
           </Card>
         </Stack>
+      )}
+
+      {articleId && (
+        <ArticleLifecyclePanel
+          articleId={articleId}
+          accessToken={accessToken}
+          beforeAction={editor.prepareForWorkflow}
+          actionsTarget={workflowActionsTarget}
+          actionsInHeader
+          actionsDisabled={Boolean(
+            editor.draft?.lock.isLocked && !editor.draft.isLockOwner ||
+            editor.saveState.status === 'conflict' ||
+            pendingMediaUploads > 0
+          )}
+          actionsDisabledReason={
+            editor.draft?.lock.isLocked && !editor.draft.isLockOwner
+              ? 'Lifecycle actions are disabled while another user owns the draft lock.'
+              : editor.saveState.status === 'conflict'
+                ? 'Reload the conflicting draft before changing lifecycle state.'
+                : pendingMediaUploads > 0
+                  ? 'Wait for media uploads to finish before changing lifecycle state.'
+                  : undefined
+          }
+        />
       )}
     </KbPageShell>
   )

@@ -2,7 +2,7 @@ import type { JSONContent } from '@tiptap/core'
 
 import type { MigrationWarning } from './normalizeHelpjuiceHtml'
 
-export type HelpJuiceFileKind = 'questions' | 'answers'
+export type HelpJuiceFileKind = 'questions' | 'answers' | 'categories' | 'categorizations' | 'uploads'
 
 export type HelpJuiceValidationSeverity = 'warning' | 'error'
 

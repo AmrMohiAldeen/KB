@@ -93,7 +93,7 @@ public sealed class ArticlesController(ArticleService articles) : ControllerBase
     private static ArticleListItemResponse ToListResponse(ArticleListData article) => new(article.Id,
         article.Title, article.Slug, article.Status, ToCategory(article.Category), ToUser(article.Owner),
         article.CurrentDraftId, article.CurrentPublishedVersionId, article.CreatedAt, article.UpdatedAt,
-        article.PublishedAt, article.IsCurrentDraftLocked, ToOptionalUser(article.LockedBy));
+        article.PublishedAt, article.IsCurrentDraftLocked, ToOptionalUser(article.LockedBy), article.Position);
 
     private static ArticleDetailsResponse ToDetailsResponse(ArticleData article) => new(article.Id,
         article.Title, article.Slug, article.Status, ToCategory(article.Category), ToUser(article.Owner),

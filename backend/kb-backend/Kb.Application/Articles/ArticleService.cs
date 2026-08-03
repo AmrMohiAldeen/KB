@@ -40,7 +40,8 @@ public sealed class ArticleService(
             "updatedat" or "updated" => ArticleSortField.UpdatedAt,
             "createdat" or "created" => ArticleSortField.CreatedAt,
             "title" => ArticleSortField.Title,
-            _ => throw new BusinessRuleException("Sort field must be updatedAt, createdAt, or title.")
+            "position" => ArticleSortField.Position,
+            _ => throw new BusinessRuleException("Sort field must be updatedAt, createdAt, title, or position.")
         };
         var descending = (sortDirection ?? "desc").Trim().ToLowerInvariant() switch
         {

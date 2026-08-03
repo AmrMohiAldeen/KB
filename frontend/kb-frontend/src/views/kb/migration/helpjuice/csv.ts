@@ -14,7 +14,10 @@ const EXTRA_COLUMN_PREFIX = '__extra_'
 
 const fileLabel: Record<HelpJuiceFileKind, string> = {
   questions: 'questions.csv',
-  answers: 'answers.csv'
+  answers: 'answers.csv',
+  categories: 'categories.csv',
+  categorizations: 'categorizations.csv',
+  uploads: 'uploads.csv'
 }
 
 const isLineBreak = (character: string) => character === '\n' || character === '\r'

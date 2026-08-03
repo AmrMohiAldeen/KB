@@ -22,7 +22,8 @@ export const articleStatuses: ArticleStatus[] = [
   'ChangesRequested',
   'Resubmitted',
   'Approved',
-  'Published'
+  'Published',
+  'Archived'
 ]
 
 export const articleStatusColor: Record<ArticleStatus, ChipProps['color']> = {
@@ -32,7 +33,8 @@ export const articleStatusColor: Record<ArticleStatus, ChipProps['color']> = {
   InReview: 'warning',
   ChangesRequested: 'warning',
   Resubmitted: 'info',
-  Approved: 'success'
+  Approved: 'success',
+  Archived: 'secondary'
 }
 
 export const articleStatusLabel: Record<ArticleStatus, string> = {
@@ -42,5 +44,6 @@ export const articleStatusLabel: Record<ArticleStatus, string> = {
   ChangesRequested: 'Changes Requested',
   Resubmitted: 'Resubmitted',
   Approved: 'Approved',
-  Published: 'Published'
+  Published: 'Published',
+  Archived: 'Archived'
 }

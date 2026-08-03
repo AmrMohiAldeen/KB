@@ -1,6 +1,6 @@
 namespace Kb.Application.Articles;
 
-public enum ArticleSortField { UpdatedAt, CreatedAt, Title }
+public enum ArticleSortField { UpdatedAt, CreatedAt, Title, Position }
 
 public sealed record ArticleListQuery(string? Search, Guid? CategoryId, string? Status, Guid? OwnerId,
     int Page, int PageSize, ArticleSortField SortBy, bool Descending);
@@ -11,7 +11,7 @@ public sealed record UserReference(Guid Id, string Name);
 public sealed record ArticleListData(Guid Id, string Title, string Slug, string Status,
     CategoryReference? Category, UserReference Owner, Guid? CurrentDraftId, Guid? CurrentPublishedVersionId,
     DateTime CreatedAt, DateTime UpdatedAt, DateTime? PublishedAt, bool IsCurrentDraftLocked,
-    UserReference? LockedBy);
+    UserReference? LockedBy, int Position);
 
 public sealed record ArticleData(Guid Id, string Title, string Slug, string Status, CategoryReference? Category,
     UserReference Owner, DraftData? CurrentDraft, PublishedVersionData? CurrentPublishedVersion,
@@ -26,7 +26,8 @@ public sealed record PublishedVersionData(Guid Id, int Number, string ContentJso
     string? PlainTextPath, string? ContentHash, long ContentSizeBytes, UserReference CreatedBy,
     DateTime CreatedAt, UserReference? PublishedBy, DateTime? PublishedAt);
 
-public sealed record ArticleMutationData(Guid Id, Guid OwnerId, string Title, string Slug, Guid? CurrentDraftId,
+public sealed record ArticleMutationData(Guid Id, Guid OwnerId, Guid? CategoryId, string Title, string Slug,
+    int Position, Guid? CurrentDraftId,
     byte[]? CurrentDraftRowVersion, string Status, bool IsDeleted);
 public sealed record CreateArticleCommand(string Title, Guid CategoryId, string? Slug);
 public sealed record UpdateArticleCommand(string Title, Guid CategoryId, string? Slug, byte[] RowVersion);

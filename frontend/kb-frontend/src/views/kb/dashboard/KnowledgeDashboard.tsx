@@ -22,6 +22,7 @@ import TableBody from '@mui/material/TableBody'
 import TableCell from '@mui/material/TableCell'
 import TableContainer from '@mui/material/TableContainer'
 import TableHead from '@mui/material/TableHead'
+import TablePagination from '@mui/material/TablePagination'
 import TableRow from '@mui/material/TableRow'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
@@ -66,16 +67,12 @@ import { getCategoryOptions } from '../categories/utils/categoryForm'
 import { createArticle, deleteArticle, describeArticleApiError } from '@/lib/api/articlesApi'
 import { createCategory, getCategoryTree } from '@/lib/api/categories'
 import {
-  getDashboardArticles,
-  getDashboardEverythingCount,
+  defaultDashboardPageSize,
+  getDashboardItems,
   getDashboardPermissionContext
 } from '@/lib/api/dashboardApi'
 import { describeApiError } from '@/lib/api/http'
-import {
-  buildDashboardItems,
-  canEditDashboardArticle,
-  flattenDashboardCategories
-} from './utils/dashboardItems'
+import { canEditDashboardArticle, flattenDashboardCategories } from './utils/dashboardItems'
 import { getLocalizedUrl } from '@/utils/i18n'
 
 type KnowledgeDashboardProps = {
@@ -149,7 +146,7 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
   const router = useRouter()
   const { lang } = useParams<{ lang: string }>()
   const [categories, setCategories] = useState<KbCategoryNode[]>([])
-  const [articles, setArticles] = useState<ArticleListItemResponse[]>([])
+  const [items, setItems] = useState<DashboardItem[]>([])
   const [permissionContext, setPermissionContext] = useState<DashboardPermissionContext | null>(null)
   const [activeFilter, setActiveFilter] = useState<DashboardArticleFilter>('Everything')
   const [categoryId, setCategoryId] = useState('')
@@ -157,12 +154,13 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [sort, setSort] = useState<DashboardSort>('position')
   const [view, setView] = useState<DashboardView>('list')
-  const [everythingCount, setEverythingCount] = useState<number | null>(null)
-  const [activeCount, setActiveCount] = useState<number | null>(null)
+  const [filterCounts, setFilterCounts] = useState<Record<DashboardArticleFilter, number> | null>(null)
+  const [page, setPage] = useState(0)
+  const [pageSize, setPageSize] = useState(defaultDashboardPageSize)
+  const [totalCount, setTotalCount] = useState(0)
   const [categoriesLoading, setCategoriesLoading] = useState(Boolean(accessToken))
   const [contentLoading, setContentLoading] = useState(Boolean(accessToken))
   const [mutating, setMutating] = useState(false)
-  const [truncated, setTruncated] = useState(false)
   const [pageErrors, setPageErrors] = useState<string[]>(accessToken ? [] : [missingTokenMessage])
   const [mutationErrors, setMutationErrors] = useState<string[]>([])
   const [successMessage, setSuccessMessage] = useState('')
@@ -174,6 +172,7 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setContentLoading(true)
+      setPage(0)
       setDebouncedSearch(search.trim())
     }, 300)
 
@@ -216,56 +215,40 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
 
     if (!accessToken) return () => controller.abort()
 
-    const articleRequest = getDashboardArticles({
+    getDashboardItems({
       accessToken,
       filter: activeFilter,
       search: debouncedSearch || undefined,
       categoryId: categoryId || undefined,
       sort,
+      page: page + 1,
+      pageSize,
       signal: controller.signal
-    })
-    const everythingRequest = activeFilter === 'Everything'
-      ? null
-      : getDashboardEverythingCount({
-          accessToken,
-          search: debouncedSearch || undefined,
-          categoryId: categoryId || undefined,
-          signal: controller.signal
-        })
-
-    Promise.all([articleRequest, everythingRequest]).then(([result, total]) => {
+    }).then(result => {
       if (controller.signal.aborted) return
 
-      setArticles(result.items)
-      setActiveCount(result.totalCount)
-      setEverythingCount(activeFilter === 'Everything' ? result.totalCount : total)
-      setTruncated(result.truncated)
+      setItems(result.items)
+      setFilterCounts(result.filterCounts)
+      setTotalCount(result.totalCount)
       setPageErrors([])
     }).catch(error => {
       if (error instanceof DOMException && error.name === 'AbortError') return
 
-      setArticles([])
-      setActiveCount(null)
-      setTruncated(false)
+      setItems([])
+      setFilterCounts(null)
+      setTotalCount(0)
       setPageErrors(describeArticleApiError(error))
     }).finally(() => {
       if (!controller.signal.aborted) setContentLoading(false)
     })
 
     return () => controller.abort()
-  }, [accessToken, activeFilter, categoryId, debouncedSearch, refreshKey, sort])
+  }, [accessToken, activeFilter, categoryId, debouncedSearch, page, pageSize, refreshKey, sort])
 
   const categoryOptions = useMemo(() => getCategoryOptions(categories), [categories])
-  const listedCategories = useMemo(() => {
-    if (!categoryId) return categories
-
-    const selected = flattenDashboardCategories(categories).find(category => category.id === categoryId)
-
-    return selected ? [selected] : []
-  }, [categories, categoryId])
-  const items = useMemo(
-    () => buildDashboardItems({ categories: listedCategories, articles, search: debouncedSearch, sort }),
-    [articles, debouncedSearch, listedCategories, sort]
+  const selectedCategory = useMemo(
+    () => flattenDashboardCategories(categories).find(category => category.id === categoryId),
+    [categories, categoryId]
   )
   const canCreateArticle = hasPermission(permissionContext, 'articles.create')
   const canManageCategories = hasPermission(permissionContext, 'categories.manage')
@@ -274,12 +257,14 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
 
   const applyFilter = (filter: DashboardArticleFilter) => {
     setContentLoading(true)
+    setPage(0)
     setActiveFilter(filter)
     setMutationErrors([])
   }
 
   const selectCategory = (nextCategoryId: string) => {
     setContentLoading(true)
+    setPage(0)
     setCategoryId(nextCategoryId)
   }
 
@@ -350,13 +335,15 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
 
   const articleActions = (article: ArticleListItemResponse) => {
     const canEdit = canEditDashboardArticle({ article, permissionContext })
+    const canView = canViewArticles && article.status !== 'Archived'
+    const canDelete = canDeleteArticle && article.status !== 'Archived'
 
-    if (!canViewArticles && !canEdit && !canDeleteArticle)
+    if (!canView && !canEdit && !canDelete)
       return <Typography variant='body2' color='text.secondary'>—</Typography>
 
     return (
       <Stack direction='row' spacing={0.5} sx={{ justifyContent: 'flex-end' }}>
-        {canViewArticles && (
+        {canView && (
           <Tooltip title='View article'>
             <IconButton
               size='small'
@@ -371,14 +358,19 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
           <Tooltip title='Open editor'>
             <IconButton
               size='small'
+              color='primary'
               onClick={() => router.push(getLocalizedUrl(`/editor?articleId=${encodeURIComponent(article.articleId)}`, lang))}
               aria-label={`Edit ${article.title}`}
+              sx={{
+                bgcolor: 'primary.light',
+                '&:hover': { bgcolor: 'primary.main', color: 'primary.contrastText' }
+              }}
             >
               <Pencil size={17} />
             </IconButton>
           </Tooltip>
         )}
-        {canDeleteArticle && (
+        {canDelete && (
           <Tooltip title='Delete article'>
             <IconButton
               size='small'
@@ -397,8 +389,8 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
 
   const emptyState = activeFilter === 'Archived'
     ? {
-        title: 'Archived articles are not available yet',
-        description: 'The article API does not currently expose archive state or an archived filter.'
+        title: 'No archived articles',
+        description: 'Archived articles will appear here when they are removed from active content.'
       }
     : debouncedSearch
       ? {
@@ -406,10 +398,12 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
           description: `No article or category names match “${debouncedSearch}”.`
         }
       : {
-          title: 'Nothing to show',
-          description: categoryId || activeFilter !== 'Everything'
-            ? 'No categories or articles match the selected filters.'
-            : 'Create a category or article when content is ready to be added.'
+          title: categoryId ? 'This category is empty' : 'Nothing to show',
+          description: categoryId
+            ? 'This category has no child categories or articles matching the current status filter.'
+            : activeFilter !== 'Everything'
+              ? 'No categories or articles match the selected filter.'
+              : 'Create a category or article when content is ready to be added.'
         }
 
   return (
@@ -458,17 +452,11 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
         </Button>
       )}
       {successMessage && <Alert severity='success' onClose={() => setSuccessMessage('')}>{successMessage}</Alert>}
-      {truncated && (
-        <Alert severity='info'>
-          This view shows the first 100 articles per status. Refine the search or category filter to see a narrower result.
-        </Alert>
-      )}
-
       <Box
         sx={{
           display: 'grid',
-          gridTemplateColumns: { xs: 'minmax(0, 1fr)', xl: '300px minmax(0, 1fr)' },
-          gap: 5,
+          gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: '280px minmax(0, 1fr)' },
+          gap: { xs: 3, md: 4, xl: 5 },
           alignItems: 'start'
         }}
       >
@@ -476,7 +464,7 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
           component='aside'
           variant='outlined'
           aria-label='Dashboard navigation and article filters'
-          sx={{ position: { xl: 'sticky' }, top: { xl: 88 }, borderRadius: 2, boxShadow: 'none' }}
+          sx={{ position: { lg: 'sticky' }, top: { lg: 88 }, borderRadius: 2, boxShadow: 'none' }}
         >
           <CardContent sx={{ p: 4, '&:last-child': { pb: 4 } }}>
             <Typography variant='overline' color='text.secondary' sx={{ fontWeight: 700 }}>
@@ -485,11 +473,7 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
             <Stack spacing={0.75} sx={{ mt: 1.5 }}>
               {filterOptions.map(option => {
                 const Icon = option.icon
-                const count = option.value === 'Everything'
-                  ? everythingCount
-                  : option.value === activeFilter
-                    ? activeCount
-                    : null
+                const count = filterCounts?.[option.value]
 
                 return (
                   <Button
@@ -535,6 +519,30 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
           sx={{ minInlineSize: 0 }}
         >
           <Box sx={{ p: { xs: 4, md: 5 } }}>
+            <Stack
+              direction={{ xs: 'column', sm: 'row' }}
+              spacing={2}
+              sx={{ mb: 4, justifyContent: 'space-between' }}
+            >
+              <Box sx={{ minInlineSize: 0 }}>
+                <Typography variant='h6' sx={{ fontWeight: 700 }}>
+                  {selectedCategory?.name ?? 'All content'}
+                </Typography>
+                <Typography variant='body2' color='text.secondary' sx={{ mt: 0.5 }}>
+                  {selectedCategory
+                    ? selectedCategory.path || 'Child categories and articles in this category'
+                    : 'Categories and articles across the knowledge base'}
+                </Typography>
+              </Box>
+              {selectedCategory && (
+                <Chip
+                  icon={<Folder size={15} />}
+                  label={`${selectedCategory.articleCount} article${selectedCategory.articleCount === 1 ? '' : 's'}`}
+                  variant='outlined'
+                  sx={{ alignSelf: { sm: 'flex-start' } }}
+                />
+              )}
+            </Stack>
             <Stack
               direction={{ xs: 'column', lg: 'row' }}
               spacing={3}
@@ -596,6 +604,7 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
                   value={sort}
                   onChange={event => {
                     setContentLoading(true)
+                    setPage(0)
                     setSort(event.target.value as DashboardSort)
                   }}
                   sx={{ minInlineSize: { sm: 175 } }}
@@ -629,9 +638,17 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
               </Stack>
             </Stack>
 
-            <Stack direction='row' sx={{ mt: 4, alignItems: 'center', justifyContent: 'space-between' }}>
+            <Stack
+              direction={{ xs: 'column', sm: 'row' }}
+              spacing={1.5}
+              sx={{ mt: 4, alignItems: { sm: 'center' }, justifyContent: 'space-between' }}
+            >
               <Typography variant='body2' color='text.secondary' aria-live='polite'>
-                {contentLoading ? 'Loading content…' : `${items.length} visible item${items.length === 1 ? '' : 's'}`}
+                {contentLoading
+                  ? 'Loading content…'
+                  : totalCount === 0
+                    ? 'No matching items'
+                    : `${page * pageSize + 1}–${Math.min((page + 1) * pageSize, totalCount)} of ${totalCount} items`}
               </Typography>
               {(search || categoryId) && (
                 <Button
@@ -648,12 +665,6 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
           </Box>
 
           <Divider />
-
-          {activeFilter === 'Archived' && (
-            <Alert severity='info' sx={{ m: { xs: 4, md: 5 }, mb: 0 }}>
-              Archived article data is not exposed by the current backend API. Categories remain available for navigation.
-            </Alert>
-          )}
 
           {contentLoading ? (
             <Stack spacing={2} sx={{ p: 5 }} aria-label='Loading dashboard content'>
@@ -794,6 +805,28 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
                 </Card>
               ))}
             </Box>
+          )}
+          {!contentLoading && totalCount > 0 && (
+            <>
+              <Divider />
+              <TablePagination
+                component='div'
+                count={totalCount}
+                page={page}
+                rowsPerPage={pageSize}
+                rowsPerPageOptions={[25, 50, 100]}
+                onPageChange={(_, nextPage) => {
+                  setContentLoading(true)
+                  setPage(nextPage)
+                }}
+                onRowsPerPageChange={event => {
+                  setContentLoading(true)
+                  setPage(0)
+                  setPageSize(Number(event.target.value))
+                }}
+                labelRowsPerPage='Items per page'
+              />
+            </>
           )}
         </KbSectionCard>
       </Box>

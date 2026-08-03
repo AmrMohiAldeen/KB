@@ -64,7 +64,8 @@ public sealed class ArticleRepository(KbDbContext dbContext) : IArticleRepositor
                 article.CurrentDraftIdFkNavigation != null && article.CurrentDraftIdFkNavigation.IsLocked,
                 article.CurrentDraftIdFkNavigation == null || article.CurrentDraftIdFkNavigation.LockedByFkNavigation == null
                     ? null : new UserReference(article.CurrentDraftIdFkNavigation.LockedByFkNavigation.UserId,
-                        article.CurrentDraftIdFkNavigation.LockedByFkNavigation.FullName)))
+                        article.CurrentDraftIdFkNavigation.LockedByFkNavigation.FullName),
+                article.Position))
             .ToListAsync(cancellationToken);
         return new(items, query.Page, query.PageSize, totalCount);
     }
@@ -136,8 +137,8 @@ public sealed class ArticleRepository(KbDbContext dbContext) : IArticleRepositor
 
     public Task<ArticleMutationData?> GetForMutationAsync(Guid id, CancellationToken cancellationToken) =>
         dbContext.Articles.AsNoTracking().Where(article => article.ArticleId == id)
-            .Select(article => new ArticleMutationData(article.ArticleId, article.AuthorIdFk, article.Title,
-                article.Slug, article.CurrentDraftIdFk,
+            .Select(article => new ArticleMutationData(article.ArticleId, article.AuthorIdFk, article.CategoryIdFk,
+                article.Title, article.Slug, article.Position, article.CurrentDraftIdFk,
                 article.CurrentDraftIdFkNavigation == null ? null : article.CurrentDraftIdFkNavigation.RowVersion,
                 article.CurrentDraftIdFkNavigation == null
                     ? article.Status
@@ -159,11 +160,16 @@ public sealed class ArticleRepository(KbDbContext dbContext) : IArticleRepositor
     public async Task<ArticleData> InsertWithInitialDraftAndAuditAsync(NewArticleData article,
         ArticleAuditData audit, CancellationToken cancellationToken)
     {
+        var position = (await dbContext.Articles
+            .Where(existing => existing.CategoryIdFk == article.CategoryId && existing.DeletedAt == null &&
+                existing.Status != ArticleStatuses.Deleted)
+            .Select(existing => (int?)existing.Position)
+            .MaxAsync(cancellationToken) ?? -1) + 1;
         var entity = new Article
         {
             ArticleId = NewId(), Title = article.Title, Slug = article.Slug, CategoryIdFk = article.CategoryId,
             AuthorIdFk = article.OwnerId, Status = ArticleStatuses.Draft, CreatedAt = article.CreatedAt,
-            UpdatedAt = article.CreatedAt
+            UpdatedAt = article.CreatedAt, Position = position
         };
         dbContext.Articles.Add(entity);
         try
@@ -216,6 +222,14 @@ public sealed class ArticleRepository(KbDbContext dbContext) : IArticleRepositor
 
         entity.Title = title;
         entity.Slug = slug;
+        if (entity.CategoryIdFk != categoryId)
+        {
+            entity.Position = (await dbContext.Articles
+                .Where(article => article.ArticleId != id && article.CategoryIdFk == categoryId &&
+                    article.DeletedAt == null && article.Status != ArticleStatuses.Deleted)
+                .Select(article => (int?)article.Position)
+                .MaxAsync(cancellationToken) ?? -1) + 1;
+        }
         entity.CategoryIdFk = categoryId;
         entity.UpdatedAt = audit.CreatedAt;
         AddAudit(id, audit);
@@ -275,6 +289,8 @@ public sealed class ArticleRepository(KbDbContext dbContext) : IArticleRepositor
             (ArticleSortField.CreatedAt, false) => query.OrderBy(article => article.CreatedAt).ThenBy(article => article.ArticleId),
             (ArticleSortField.Title, true) => query.OrderByDescending(article => article.Title).ThenBy(article => article.ArticleId),
             (ArticleSortField.Title, false) => query.OrderBy(article => article.Title).ThenBy(article => article.ArticleId),
+            (ArticleSortField.Position, true) => query.OrderByDescending(article => article.Position).ThenBy(article => article.Title).ThenBy(article => article.ArticleId),
+            (ArticleSortField.Position, false) => query.OrderBy(article => article.Position).ThenBy(article => article.Title).ThenBy(article => article.ArticleId),
             (_, true) => query.OrderByDescending(article => article.UpdatedAt).ThenBy(article => article.ArticleId),
             _ => query.OrderBy(article => article.UpdatedAt).ThenBy(article => article.ArticleId)
         };

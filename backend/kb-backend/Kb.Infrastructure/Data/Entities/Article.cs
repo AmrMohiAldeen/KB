@@ -17,6 +17,8 @@ public partial class Article
 
     public string Status { get; set; } = null!;
 
+    public int Position { get; set; }
+
     public Guid? CurrentDraftIdFk { get; set; }
 
     public Guid? LastPublishedVersionIdFk { get; set; }

@@ -278,7 +278,7 @@ function normalizeImageSource(element: HTMLElement, warnings: MigrationWarning[]
   }
 
   if (base64Src) {
-    // TODO: Connect to the media migration API to upload Base64 media and replace it with the returned media ID or storage URL.
+    // Base64 media is deliberately excluded from preview and reported for authoritative backend handling.
     element.setAttribute('src', base64Src)
     warnings.push(warning('BASE64_MEDIA_FOUND', 'warning', 'Base64 media must be uploaded during media migration.', 'img'))
   }

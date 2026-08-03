@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest'
 
 import type { ArticleListItemResponse } from '@/types/apps/articleTypes'
 import type { KbCategoryNode } from '../../types/categories'
-import { buildDashboardItems, canEditDashboardArticle, flattenDashboardCategories } from './dashboardItems'
+import {
+  buildDashboardItems,
+  canEditDashboardArticle,
+  flattenDashboardCategories,
+  getDashboardCategoriesForSelection
+} from './dashboardItems'
 
 const category = (
   id: string,
@@ -35,7 +40,8 @@ const article: ArticleListItemResponse = {
   updatedAt: '2026-02-01T00:00:00Z',
   publishedAt: null,
   isCurrentDraftLocked: false,
-  lockedBy: null
+  lockedBy: null,
+  position: 4
 }
 
 describe('dashboard items', () => {
@@ -44,6 +50,31 @@ describe('dashboard items', () => {
     const root = category('root', 'Root', 0, [child])
 
     expect(flattenDashboardCategories([root]).map(item => item.id)).toEqual(['root', 'child'])
+  })
+
+  it('returns only the immediate children of the selected category', () => {
+    const grandchild = category('grandchild', 'Grandchild', 0)
+    const child = category('child', 'Child', 0, [grandchild])
+    const root = category('root', 'Root', 0, [child])
+
+    expect(getDashboardCategoriesForSelection([root], 'root').map(item => item.id)).toEqual(['child'])
+    expect(getDashboardCategoriesForSelection([root], 'child').map(item => item.id)).toEqual(['grandchild'])
+    expect(getDashboardCategoriesForSelection([root], 'missing')).toEqual([])
+  })
+
+  it('can keep a selected category view limited to immediate children', () => {
+    const grandchild = category('grandchild', 'Grandchild', 0)
+    const child = category('child', 'Child', 0, [grandchild])
+
+    const items = buildDashboardItems({
+      categories: [child],
+      articles: [],
+      search: '',
+      sort: 'position',
+      includeCategoryDescendants: false
+    })
+
+    expect(items.map(item => item.id)).toEqual(['category:child'])
   })
 
   it('combines category and article matches and sorts them by title', () => {
@@ -66,6 +97,19 @@ describe('dashboard items', () => {
     })
 
     expect(items.map(item => item.id)).toEqual(['article:article-1'])
+  })
+
+  it('uses backend article positions for position sorting', () => {
+    const earlier = { ...article, articleId: 'article-2', title: 'Zulu', position: 1 }
+
+    const items = buildDashboardItems({
+      categories: [],
+      articles: [article, earlier],
+      search: '',
+      sort: 'position'
+    })
+
+    expect(items.map(item => item.id)).toEqual(['article:article-2', 'article:article-1'])
   })
 
   it('applies own and any-draft permissions without category scoping', () => {

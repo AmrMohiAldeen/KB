@@ -132,6 +132,33 @@ public sealed class ArticleSliceTests
     }
 
     [Fact]
+    public async Task Positions_are_stable_per_category_and_moving_an_article_appends_to_the_target()
+    {
+        await using var f = await Fixture.CreateAsync();
+        f.Grant(f.AuthorId, PermissionCodes.ArticlesCreate, PermissionCodes.ArticlesEditOwnDraft);
+
+        var first = await f.Service.CreateAsync(new("First", f.CategoryId, null), default);
+        var second = await f.Service.CreateAsync(new("Second", f.CategoryId, null), default);
+        var target = await f.Service.CreateAsync(new("Target", f.OtherCategoryId, null), default);
+
+        var positioned = await f.Service.GetPagedAsync(null, f.CategoryId, null, null,
+            1, 20, "position", "asc", default);
+        Assert.Equal(new[] { first.Id, second.Id }, positioned.Items.Select(item => item.Id));
+        Assert.Equal(new[] { 0, 1 }, positioned.Items.Select(item => item.Position));
+        var initialTargetCategory = await f.Service.GetPagedAsync(null, f.OtherCategoryId, null, null,
+            1, 20, "position", "asc", default);
+        Assert.Equal(0, Assert.Single(initialTargetCategory.Items).Position);
+
+        var moved = await f.Service.UpdateAsync(second.Id,
+            new("Second", f.OtherCategoryId, null, second.CurrentDraft!.RowVersion), default);
+        var targetCategory = await f.Service.GetPagedAsync(null, f.OtherCategoryId, null, null,
+            1, 20, "position", "asc", default);
+
+        Assert.Equal(new[] { target.Id, moved.Id }, targetCategory.Items.Select(item => item.Id));
+        Assert.Equal(new[] { 0, 1 }, targetCategory.Items.Select(item => item.Position));
+    }
+
+    [Fact]
     public async Task Stale_draft_row_version_does_not_overwrite_metadata()
     {
         await using var f = await Fixture.CreateAsync();
