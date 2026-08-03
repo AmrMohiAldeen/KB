@@ -3,17 +3,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Alert from '@mui/material/Alert'
-import Avatar from '@mui/material/Avatar'
 import Box from '@mui/material/Box'
+import Breadcrumbs from '@mui/material/Breadcrumbs'
 import Button from '@mui/material/Button'
 import ButtonGroup from '@mui/material/ButtonGroup'
-import Card from '@mui/material/Card'
-import CardActionArea from '@mui/material/CardActionArea'
-import CardContent from '@mui/material/CardContent'
+import Checkbox from '@mui/material/Checkbox'
 import Chip from '@mui/material/Chip'
 import Divider from '@mui/material/Divider'
+import Drawer from '@mui/material/Drawer'
 import IconButton from '@mui/material/IconButton'
 import InputAdornment from '@mui/material/InputAdornment'
+import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import Skeleton from '@mui/material/Skeleton'
 import Stack from '@mui/material/Stack'
@@ -26,8 +26,11 @@ import TablePagination from '@mui/material/TablePagination'
 import TableRow from '@mui/material/TableRow'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
+import { useTheme } from '@mui/material/styles'
 import {
   Archive,
+  ChevronDown,
+  ChevronRight,
   Eye,
   FileClock,
   FileText,
@@ -38,11 +41,12 @@ import {
   Plus,
   RotateCcw,
   Search,
+  SlidersHorizontal,
   Trash2
 } from 'lucide-react'
 
 import CustomTextField from '@core/components/mui/TextField'
-import { KbEmptyState, KbPageShell, KbSectionCard } from '@/views/shared'
+import { KbEmptyState } from '@/views/shared'
 import KbValidationSummary from '@/views/shared/forms/KbValidationSummary'
 import KbConfirmDialog from '@/views/shared/dialogs/KbConfirmDialog'
 import type { ArticleFormState } from '../articles/components/KbArticleDialog'
@@ -50,7 +54,6 @@ import KbArticleDialog from '../articles/components/KbArticleDialog'
 import type { CategoryFormState } from '../categories/utils/categoryForm'
 import KbCategoryDialog from '../categories/components/KbCategoryDialog'
 import DashboardCategoryTree from './DashboardCategoryTree'
-import PageHeader from '../shared/components/PageHeader'
 import StatusChip from '../shared/components/StatusChip'
 import type { ArticleListItemResponse } from '@/types/apps/articleTypes'
 import type {
@@ -106,44 +109,138 @@ const hasPermission = (
 ) => Boolean(context?.permissions.includes(permission))
 
 const ItemName = ({ item }: { item: DashboardItem }) => (
-  <Stack direction='row' spacing={2.5} sx={{ alignItems: 'center', minInlineSize: 220 }}>
-    <Avatar
-      variant='rounded'
+  <Stack direction='row' spacing={1.75} sx={{ alignItems: 'center', minInlineSize: 220 }}>
+    <Box
       sx={theme => ({
-        inlineSize: 38,
-        blockSize: 38,
+        display: 'grid',
+        placeItems: 'center',
+        inlineSize: 34,
+        blockSize: 34,
+        borderRadius: 1.25,
+        flexShrink: 0,
         bgcolor: item.kind === 'category'
-          ? theme.palette.warning.light
-          : theme.palette.primary.light,
-        color: item.kind === 'category'
-          ? theme.palette.warning.dark
-          : theme.palette.primary.dark
+          ? `rgba(${theme.vars.palette.warning.mainChannel} / 0.12)`
+          : `rgba(${theme.vars.palette.primary.mainChannel} / 0.1)`,
+        color: item.kind === 'category' ? 'warning.main' : 'primary.main'
       })}
     >
-      {item.kind === 'category' ? <Folder size={19} /> : <FileText size={19} />}
-    </Avatar>
+      {item.kind === 'category' ? <Folder size={18} /> : <FileText size={18} />}
+    </Box>
     <Box sx={{ minInlineSize: 0 }}>
-      <Typography color='text.primary' sx={{ fontWeight: 700 }} noWrap>
+      <Typography color='text.primary' sx={{ fontWeight: 700, lineHeight: 1.35 }} noWrap>
         {item.kind === 'category' ? item.category.name : item.article.title}
       </Typography>
-      <Typography variant='body2' color='text.secondary' noWrap>
-        {item.kind === 'category' ? item.category.path || item.category.slug : item.article.slug}
+      <Typography variant='caption' color='text.secondary' noWrap sx={{ display: 'block', mt: 0.25 }}>
+        {item.kind === 'category'
+          ? `${item.category.articleCount} article${item.category.articleCount === 1 ? '' : 's'}`
+          : `Updated ${formatDate(item.article.updatedAt)} · ${item.article.owner.fullName}`}
       </Typography>
     </Box>
   </Stack>
 )
 
-const UnavailableCategoryDate = () => (
-  // TODO(backend): add createdAt and updatedAt to GET /api/categories/tree and GET /api/categories/{id}.
-  <Tooltip title='Category timestamps are not returned by the current backend API.'>
-    <Typography component='span' variant='body2' color='text.secondary' aria-label='Last updated unavailable'>
-      Not available
-    </Typography>
-  </Tooltip>
+type DashboardFiltersProps = {
+  activeFilter: DashboardArticleFilter
+  categories: KbCategoryNode[]
+  categoriesLoading: boolean
+  categoryId: string
+  filterCounts: Record<DashboardArticleFilter, number> | null
+  onFilter: (filter: DashboardArticleFilter) => void
+  onSelectCategory: (categoryId: string) => void
+}
+
+const DashboardFilters = ({
+  activeFilter,
+  categories,
+  categoriesLoading,
+  categoryId,
+  filterCounts,
+  onFilter,
+  onSelectCategory
+}: DashboardFiltersProps) => (
+  <Box sx={{ display: 'flex', flexDirection: 'column', blockSize: '100%', minBlockSize: 0 }}>
+    <Box sx={{ px: 3, pt: 3, pb: 2.5 }}>
+      <Typography
+        variant='caption'
+        color='text.secondary'
+        sx={{ display: 'block', mb: 1.25, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase' }}
+      >
+        Article status
+      </Typography>
+      <Stack spacing={0.5}>
+        {filterOptions.map(option => {
+          const Icon = option.icon
+          const active = activeFilter === option.value
+          const count = filterCounts?.[option.value]
+
+          return (
+            <Button
+              key={option.value}
+              fullWidth
+              variant='text'
+              color={active ? 'primary' : 'secondary'}
+              onClick={() => onFilter(option.value)}
+              startIcon={<Icon size={16} />}
+              aria-pressed={active}
+              sx={theme => ({
+                justifyContent: 'flex-start',
+                minBlockSize: 36,
+                px: 1.5,
+                borderRadius: 1.25,
+                fontWeight: active ? 700 : 500,
+                bgcolor: active ? `rgba(${theme.vars.palette.primary.mainChannel} / 0.1)` : 'transparent',
+                '&:hover': {
+                  bgcolor: active
+                    ? `rgba(${theme.vars.palette.primary.mainChannel} / 0.14)`
+                    : 'action.hover'
+                }
+              })}
+            >
+              <Box component='span' sx={{ flex: 1, minInlineSize: 0, textAlign: 'start' }}>{option.label}</Box>
+              <Typography
+                component='span'
+                variant='caption'
+                color='inherit'
+                sx={{ fontVariantNumeric: 'tabular-nums', opacity: active ? 1 : 0.72 }}
+              >
+                {count ?? '—'}
+              </Typography>
+            </Button>
+          )
+        })}
+      </Stack>
+    </Box>
+
+    <Divider />
+
+    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 3, pt: 2.5, pb: 1.25 }}>
+      <Typography
+        variant='caption'
+        color='text.secondary'
+        sx={{ fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase' }}
+      >
+        Categories
+      </Typography>
+      {categoryId && (
+        <Button size='small' onClick={() => onSelectCategory('')} sx={{ minInlineSize: 0, px: 1 }}>
+          Clear
+        </Button>
+      )}
+    </Box>
+    <Box sx={{ flex: 1, minBlockSize: 0, overflowY: 'auto', px: 2, pb: 3 }}>
+      <DashboardCategoryTree
+        categories={categories}
+        selectedCategoryId={categoryId}
+        loading={categoriesLoading}
+        onSelect={id => onSelectCategory(categoryId === id ? '' : id)}
+      />
+    </Box>
+  </Box>
 )
 
 const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
   const router = useRouter()
+  const theme = useTheme()
   const { lang } = useParams<{ lang: string }>()
   const [categories, setCategories] = useState<KbCategoryNode[]>([])
   const [items, setItems] = useState<DashboardItem[]>([])
@@ -167,12 +264,17 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
   const [categoryDialogOpen, setCategoryDialogOpen] = useState(false)
   const [articleDialogOpen, setArticleDialogOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<ArticleListItemResponse>()
+  const [selectedArticleIds, setSelectedArticleIds] = useState<Set<string>>(() => new Set())
+  const [bulkMenuAnchor, setBulkMenuAnchor] = useState<HTMLElement | null>(null)
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
+  const [filterDrawerOpen, setFilterDrawerOpen] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setContentLoading(true)
       setPage(0)
+      setSelectedArticleIds(new Set())
       setDebouncedSearch(search.trim())
     }, 300)
 
@@ -254,11 +356,23 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
   const canManageCategories = hasPermission(permissionContext, 'categories.manage')
   const canDeleteArticle = hasPermission(permissionContext, 'articles.delete')
   const canViewArticles = hasPermission(permissionContext, 'articles.view')
+  const selectableArticles = useMemo(
+    () => items.flatMap(item => item.kind === 'article' && item.article.status !== 'Archived' && canDeleteArticle
+      ? [item.article]
+      : []),
+    [canDeleteArticle, items]
+  )
+  const selectedArticles = useMemo(
+    () => selectableArticles.filter(article => selectedArticleIds.has(article.articleId)),
+    [selectableArticles, selectedArticleIds]
+  )
+  const allArticlesSelected = selectableArticles.length > 0 && selectedArticles.length === selectableArticles.length
 
   const applyFilter = (filter: DashboardArticleFilter) => {
     setContentLoading(true)
     setPage(0)
     setActiveFilter(filter)
+    setSelectedArticleIds(new Set())
     setMutationErrors([])
   }
 
@@ -266,6 +380,8 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
     setContentLoading(true)
     setPage(0)
     setCategoryId(nextCategoryId)
+    setSelectedArticleIds(new Set())
+    setFilterDrawerOpen(false)
   }
 
   const refresh = useCallback(() => {
@@ -333,6 +449,53 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
     }
   }, [accessToken, canDeleteArticle, deleteTarget, mutating, refresh])
 
+  const confirmBulkDelete = useCallback(async () => {
+    if (!accessToken || !canDeleteArticle || !selectedArticles.length || mutating) return
+
+    setMutating(true)
+    setMutationErrors([])
+
+    try {
+      const results = await Promise.allSettled(
+        selectedArticles.map(article => deleteArticle(article.articleId, accessToken))
+      )
+      const failedCount = results.filter(result => result.status === 'rejected').length
+      const deletedCount = results.length - failedCount
+
+      if (deletedCount > 0)
+        setSuccessMessage(`${deletedCount} article${deletedCount === 1 ? '' : 's'} deleted.`)
+
+      if (failedCount > 0) {
+        setMutationErrors([
+          `${failedCount} article${failedCount === 1 ? '' : 's'} could not be deleted. Refresh and try again.`
+        ])
+      }
+
+      setSelectedArticleIds(new Set())
+      setBulkDeleteOpen(false)
+      refresh()
+    } finally {
+      setMutating(false)
+    }
+  }, [accessToken, canDeleteArticle, mutating, refresh, selectedArticles])
+
+  const toggleArticle = (articleId: string) => {
+    setSelectedArticleIds(current => {
+      const next = new Set(current)
+
+      if (next.has(articleId)) next.delete(articleId)
+      else next.add(articleId)
+
+      return next
+    })
+  }
+
+  const toggleAllArticles = () => {
+    setSelectedArticleIds(allArticlesSelected
+      ? new Set()
+      : new Set(selectableArticles.map(article => article.articleId)))
+  }
+
   const articleActions = (article: ArticleListItemResponse) => {
     const canEdit = canEditDashboardArticle({ article, permissionContext })
     const canView = canViewArticles && article.status !== 'Archived'
@@ -342,7 +505,7 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
       return <Typography variant='body2' color='text.secondary'>—</Typography>
 
     return (
-      <Stack direction='row' spacing={0.5} sx={{ justifyContent: 'flex-end' }}>
+      <Stack direction='row' spacing={0.25} sx={{ justifyContent: 'flex-end' }}>
         {canView && (
           <Tooltip title='View article'>
             <IconButton
@@ -350,7 +513,7 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
               onClick={() => router.push(getLocalizedUrl(`/kb/${article.slug}`, lang))}
               aria-label={`View ${article.title}`}
             >
-              <Eye size={17} />
+              <Eye size={16} />
             </IconButton>
           </Tooltip>
         )}
@@ -361,12 +524,8 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
               color='primary'
               onClick={() => router.push(getLocalizedUrl(`/editor?articleId=${encodeURIComponent(article.articleId)}`, lang))}
               aria-label={`Edit ${article.title}`}
-              sx={{
-                bgcolor: 'primary.light',
-                '&:hover': { bgcolor: 'primary.main', color: 'primary.contrastText' }
-              }}
             >
-              <Pencil size={17} />
+              <Pencil size={16} />
             </IconButton>
           </Tooltip>
         )}
@@ -379,7 +538,7 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
               onClick={() => setDeleteTarget(article)}
               aria-label={`Delete ${article.title}`}
             >
-              <Trash2 size={17} />
+              <Trash2 size={16} />
             </IconButton>
           </Tooltip>
         )}
@@ -406,429 +565,546 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
               : 'Create a category or article when content is ready to be added.'
         }
 
-  return (
-    <KbPageShell maxWidth={1680}>
-      <PageHeader
-        title='Dashboard'
-        subtitle='Browse and manage knowledge base categories and articles from one place.'
-        actions={
-          canManageCategories || canCreateArticle ? (
-            <>
-              {canManageCategories && (
-                <Button
-                  variant='outlined'
-                  startIcon={<Plus size={18} />}
-                  disabled={mutating}
-                  onClick={() => {
-                    setMutationErrors([])
-                    setCategoryDialogOpen(true)
-                  }}
-                >
-                  New Category
-                </Button>
-              )}
-              {canCreateArticle && (
-                <Button
-                  variant='contained'
-                  startIcon={<Plus size={18} />}
-                  disabled={mutating || !categories.length}
-                  onClick={() => {
-                    setMutationErrors([])
-                    setArticleDialogOpen(true)
-                  }}
-                >
-                  New Article
-                </Button>
-              )}
-            </>
-          ) : undefined
-        }
-      />
+  const filters = (
+    <DashboardFilters
+      activeFilter={activeFilter}
+      categories={categories}
+      categoriesLoading={categoriesLoading}
+      categoryId={categoryId}
+      filterCounts={filterCounts}
+      onFilter={applyFilter}
+      onSelectCategory={selectCategory}
+    />
+  )
 
-      <KbValidationSummary title='Dashboard could not be loaded or changed' errors={[...pageErrors, ...mutationErrors]} />
-      {pageErrors.length > 0 && (
-        <Button variant='outlined' startIcon={<RotateCcw size={17} />} onClick={refresh} sx={{ alignSelf: 'flex-start' }}>
-          Try again
-        </Button>
-      )}
-      {successMessage && <Alert severity='success' onClose={() => setSuccessMessage('')}>{successMessage}</Alert>}
+  return (
+    <>
       <Box
         sx={{
-          display: 'grid',
-          gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: '280px minmax(0, 1fr)' },
-          gap: { xs: 3, md: 4, xl: 5 },
-          alignItems: 'start'
+          display: 'flex',
+          minBlockSize: 'calc(100dvh - var(--header-height, 64px))',
+          mx: { xs: -2.5, md: -4 },
+          my: { xs: -2.5, md: -4 },
+          bgcolor: 'background.default'
         }}
       >
-        <Card
+        <Box
           component='aside'
-          variant='outlined'
           aria-label='Dashboard navigation and article filters'
-          sx={{ position: { lg: 'sticky' }, top: { lg: 88 }, borderRadius: 2, boxShadow: 'none' }}
+          sx={{
+            display: { xs: 'none', lg: 'block' },
+            position: 'sticky',
+            top: 'var(--header-height, 64px)',
+            inlineSize: 272,
+            blockSize: 'calc(100dvh - var(--header-height, 64px))',
+            flexShrink: 0,
+            alignSelf: 'flex-start',
+            overflow: 'hidden',
+            borderInlineEnd: 1,
+            borderColor: 'divider',
+            bgcolor: 'background.paper'
+          }}
         >
-          <CardContent sx={{ p: 4, '&:last-child': { pb: 4 } }}>
-            <Typography variant='overline' color='text.secondary' sx={{ fontWeight: 700 }}>
-              Articles
-            </Typography>
-            <Stack spacing={0.75} sx={{ mt: 1.5 }}>
-              {filterOptions.map(option => {
-                const Icon = option.icon
-                const count = filterCounts?.[option.value]
+          {filters}
+        </Box>
 
-                return (
-                  <Button
-                    key={option.value}
-                    fullWidth
-                    variant={activeFilter === option.value ? 'tonal' : 'text'}
-                    color={activeFilter === option.value ? 'primary' : 'secondary'}
-                    onClick={() => applyFilter(option.value)}
-                    startIcon={<Icon size={17} />}
-                    aria-pressed={activeFilter === option.value}
-                    sx={{ justifyContent: 'flex-start', minBlockSize: 40, px: 2.5, borderRadius: 1.5 }}
-                  >
-                    <Box component='span' sx={{ flex: 1, textAlign: 'start' }}>{option.label}</Box>
-                    <Typography component='span' variant='caption' color='inherit'>
-                      {count ?? '—'}
-                    </Typography>
-                  </Button>
-                )
-              })}
-            </Stack>
-
-            <Divider sx={{ my: 4 }} />
-
-            <Stack direction='row' sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
-              <Typography variant='overline' color='text.secondary' sx={{ fontWeight: 700 }}>
-                Categories
-              </Typography>
-              {categoryId && (
-                <Button size='small' onClick={() => selectCategory('')}>Clear</Button>
-              )}
-            </Stack>
-            <DashboardCategoryTree
-              categories={categories}
-              selectedCategoryId={categoryId}
-              loading={categoriesLoading}
-              onSelect={id => selectCategory(categoryId === id ? '' : id)}
-            />
-          </CardContent>
-        </Card>
-
-        <KbSectionCard
-          contentSx={{ p: 0, '&:last-child': { pb: 0 } }}
-          sx={{ minInlineSize: 0 }}
+        <Drawer
+          anchor={theme.direction === 'rtl' ? 'right' : 'left'}
+          open={filterDrawerOpen}
+          onClose={() => setFilterDrawerOpen(false)}
+          slotProps={{ paper: { sx: { inlineSize: 288 } } }}
         >
-          <Box sx={{ p: { xs: 4, md: 5 } }}>
+          <DashboardFilters
+            activeFilter={activeFilter}
+            categories={categories}
+            categoriesLoading={categoriesLoading}
+            categoryId={categoryId}
+            filterCounts={filterCounts}
+            onFilter={filter => {
+              applyFilter(filter)
+              setFilterDrawerOpen(false)
+            }}
+            onSelectCategory={selectCategory}
+          />
+        </Drawer>
+
+        <Box component='main' sx={{ flex: 1, minInlineSize: 0 }}>
+          <Box
+            component='header'
+            sx={{
+              px: { xs: 2.5, sm: 3.5, xl: 4.5 },
+              py: { xs: 2.5, md: 3 },
+              borderBlockEnd: 1,
+              borderColor: 'divider',
+              bgcolor: 'background.paper'
+            }}
+          >
+            <Breadcrumbs separator={<ChevronRight size={13} />} aria-label='Breadcrumbs' sx={{ mb: 1 }}>
+              <Typography variant='caption' color='text.secondary'>Knowledge base</Typography>
+              <Typography variant='caption' color='text.secondary'>Dashboard</Typography>
+              {selectedCategory && <Typography variant='caption' color='text.primary'>{selectedCategory.name}</Typography>}
+            </Breadcrumbs>
             <Stack
               direction={{ xs: 'column', sm: 'row' }}
               spacing={2}
-              sx={{ mb: 4, justifyContent: 'space-between' }}
+              sx={{ alignItems: { sm: 'center' }, justifyContent: 'space-between' }}
             >
               <Box sx={{ minInlineSize: 0 }}>
-                <Typography variant='h6' sx={{ fontWeight: 700 }}>
-                  {selectedCategory?.name ?? 'All content'}
+                <Typography variant='h5' sx={{ fontWeight: 800, letterSpacing: '-0.02em' }}>
+                  {selectedCategory?.name ?? 'Dashboard'}
                 </Typography>
-                <Typography variant='body2' color='text.secondary' sx={{ mt: 0.5 }}>
+                <Typography variant='body2' color='text.secondary' sx={{ mt: 0.25 }} noWrap>
                   {selectedCategory
-                    ? selectedCategory.path || 'Child categories and articles in this category'
-                    : 'Categories and articles across the knowledge base'}
+                    ? selectedCategory.path || 'Child categories and articles'
+                    : 'Manage knowledge base categories and articles'}
                 </Typography>
               </Box>
-              {selectedCategory && (
-                <Chip
-                  icon={<Folder size={15} />}
-                  label={`${selectedCategory.articleCount} article${selectedCategory.articleCount === 1 ? '' : 's'}`}
-                  variant='outlined'
-                  sx={{ alignSelf: { sm: 'flex-start' } }}
-                />
-              )}
-            </Stack>
-            <Stack
-              direction={{ xs: 'column', lg: 'row' }}
-              spacing={3}
-              useFlexGap
-              sx={{ alignItems: { lg: 'center' }, justifyContent: 'space-between' }}
-            >
-              <CustomTextField
-                fullWidth
-                label='Search'
-                value={search}
-                onChange={event => setSearch(event.target.value)}
-                placeholder='Search article and category names'
-                slotProps={{
-                  input: {
-                    startAdornment: (
-                      <InputAdornment position='start'>
-                        <Search size={18} aria-hidden='true' />
-                      </InputAdornment>
-                    )
-                  }
-                }}
-                sx={{ maxInlineSize: { lg: 460 } }}
-              />
-
-              <Stack
-                direction={{ xs: 'column', sm: 'row' }}
-                spacing={2}
-                useFlexGap
-                sx={{ alignItems: { sm: 'center' }, flexWrap: 'wrap' }}
-              >
-                <CustomTextField
-                  select
-                  label='Status'
-                  value={activeFilter}
-                  onChange={event => applyFilter(event.target.value as DashboardArticleFilter)}
-                  sx={{ minInlineSize: { sm: 190 } }}
-                >
-                  {filterOptions.map(option => (
-                    <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
-                  ))}
-                </CustomTextField>
-                <CustomTextField
-                  select
-                  label='Category'
-                  value={categoryId}
-                  onChange={event => selectCategory(event.target.value)}
-                  sx={{ minInlineSize: { sm: 190 } }}
-                >
-                  <MenuItem value=''>All categories</MenuItem>
-                  {categoryOptions.map(category => (
-                    <MenuItem key={category.id} value={category.id}>
-                      {`${'— '.repeat(category.depth)}${category.name}`}
-                    </MenuItem>
-                  ))}
-                </CustomTextField>
-                <CustomTextField
-                  select
-                  label='Sort by'
-                  value={sort}
-                  onChange={event => {
-                    setContentLoading(true)
-                    setPage(0)
-                    setSort(event.target.value as DashboardSort)
-                  }}
-                  sx={{ minInlineSize: { sm: 175 } }}
-                >
-                  {sortOptions.map(option => (
-                    <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
-                  ))}
-                </CustomTextField>
-                <ButtonGroup variant='outlined' aria-label='Dashboard view'>
-                  <Tooltip title='List view'>
-                    <IconButton
-                      color={view === 'list' ? 'primary' : 'secondary'}
-                      onClick={() => setView('list')}
-                      aria-label='List view'
-                      aria-pressed={view === 'list'}
+              {(canManageCategories || canCreateArticle) && (
+                <Stack direction='row' spacing={1.25} sx={{ flexShrink: 0 }}>
+                  {canManageCategories && (
+                    <Button
+                      size='small'
+                      variant='outlined'
+                      startIcon={<Plus size={16} />}
+                      disabled={mutating}
+                      onClick={() => {
+                        setMutationErrors([])
+                        setCategoryDialogOpen(true)
+                      }}
                     >
-                      <List size={19} />
-                    </IconButton>
-                  </Tooltip>
-                  <Tooltip title='Grid view'>
-                    <IconButton
-                      color={view === 'grid' ? 'primary' : 'secondary'}
-                      onClick={() => setView('grid')}
-                      aria-label='Grid view'
-                      aria-pressed={view === 'grid'}
+                      New Category
+                    </Button>
+                  )}
+                  {canCreateArticle && (
+                    <Button
+                      size='small'
+                      variant='contained'
+                      startIcon={<Plus size={16} />}
+                      disabled={mutating || !categories.length}
+                      onClick={() => {
+                        setMutationErrors([])
+                        setArticleDialogOpen(true)
+                      }}
                     >
-                      <Grid2X2 size={19} />
-                    </IconButton>
-                  </Tooltip>
-                </ButtonGroup>
-              </Stack>
-            </Stack>
-
-            <Stack
-              direction={{ xs: 'column', sm: 'row' }}
-              spacing={1.5}
-              sx={{ mt: 4, alignItems: { sm: 'center' }, justifyContent: 'space-between' }}
-            >
-              <Typography variant='body2' color='text.secondary' aria-live='polite'>
-                {contentLoading
-                  ? 'Loading content…'
-                  : totalCount === 0
-                    ? 'No matching items'
-                    : `${page * pageSize + 1}–${Math.min((page + 1) * pageSize, totalCount)} of ${totalCount} items`}
-              </Typography>
-              {(search || categoryId) && (
-                <Button
-                  size='small'
-                  onClick={() => {
-                    setSearch('')
-                    selectCategory('')
-                  }}
-                >
-                  Clear search & filters
-                </Button>
+                      New Article
+                    </Button>
+                  )}
+                </Stack>
               )}
             </Stack>
           </Box>
 
-          <Divider />
-
-          {contentLoading ? (
-            <Stack spacing={2} sx={{ p: 5 }} aria-label='Loading dashboard content'>
-              {[1, 2, 3, 4, 5].map(row => (
-                <Stack key={row} direction='row' spacing={3} sx={{ alignItems: 'center' }}>
-                  <Skeleton variant='rounded' width={38} height={38} />
-                  <Box sx={{ flex: 1 }}>
-                    <Skeleton width={`${55 + row * 4}%`} />
-                    <Skeleton width='32%' />
-                  </Box>
-                  <Skeleton width={100} />
-                </Stack>
-              ))}
-            </Stack>
-          ) : items.length === 0 ? (
-            <Box sx={{ p: { xs: 4, md: 6 } }}>
-              <KbEmptyState
-                title={emptyState.title}
-                description={emptyState.description}
-                icon={activeFilter === 'Archived' ? <Archive /> : <Search />}
-                action={debouncedSearch ? (
-                  <Button variant='outlined' onClick={() => setSearch('')}>Clear search</Button>
-                ) : undefined}
+          {(pageErrors.length > 0 || mutationErrors.length > 0 || successMessage) && (
+            <Stack spacing={1.5} sx={{ px: { xs: 2.5, sm: 3.5, xl: 4.5 }, pt: 2.5 }}>
+              <KbValidationSummary
+                title='Dashboard could not be loaded or changed'
+                errors={[...pageErrors, ...mutationErrors]}
               />
-            </Box>
-          ) : view === 'list' ? (
-            <TableContainer>
-              <Table aria-label='Categories and articles' sx={{ minInlineSize: 940 }}>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Name</TableCell>
-                    <TableCell>Status / contents</TableCell>
-                    <TableCell>Category</TableCell>
-                    <TableCell>Owner</TableCell>
-                    <TableCell>Last updated</TableCell>
-                    <TableCell align='right'>Actions</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {items.map(item => (
-                    <TableRow key={item.id} hover>
-                      <TableCell><ItemName item={item} /></TableCell>
-                      <TableCell>
+              {pageErrors.length > 0 && (
+                <Button
+                  size='small'
+                  variant='outlined'
+                  startIcon={<RotateCcw size={15} />}
+                  onClick={refresh}
+                  sx={{ alignSelf: 'flex-start' }}
+                >
+                  Try again
+                </Button>
+              )}
+              {successMessage && (
+                <Alert severity='success' onClose={() => setSuccessMessage('')}>{successMessage}</Alert>
+              )}
+            </Stack>
+          )}
+
+          <Box
+            role='toolbar'
+            aria-label='Content controls'
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1.25,
+              flexWrap: 'wrap',
+              px: { xs: 2.5, sm: 3.5, xl: 4.5 },
+              py: 2,
+              borderBlockEnd: 1,
+              borderColor: 'divider',
+              bgcolor: 'background.paper'
+            }}
+          >
+            <Button
+              size='small'
+              variant='outlined'
+              color='secondary'
+              startIcon={<SlidersHorizontal size={15} />}
+              onClick={() => setFilterDrawerOpen(true)}
+              sx={{ display: { xs: 'inline-flex', lg: 'none' } }}
+            >
+              Filters
+            </Button>
+
+            <Button
+              size='small'
+              variant='outlined'
+              color='secondary'
+              endIcon={<ChevronDown size={15} />}
+              disabled={!selectedArticles.length || mutating}
+              onClick={event => setBulkMenuAnchor(event.currentTarget)}
+              aria-haspopup='menu'
+              aria-expanded={Boolean(bulkMenuAnchor)}
+            >
+              Bulk actions{selectedArticles.length ? ` (${selectedArticles.length})` : ''}
+            </Button>
+            <Menu
+              anchorEl={bulkMenuAnchor}
+              open={Boolean(bulkMenuAnchor)}
+              onClose={() => setBulkMenuAnchor(null)}
+            >
+              <MenuItem
+                onClick={() => {
+                  setBulkMenuAnchor(null)
+                  setBulkDeleteOpen(true)
+                }}
+              >
+                <Trash2 size={16} style={{ marginInlineEnd: 10 }} />
+                Delete selected
+              </MenuItem>
+              <MenuItem
+                onClick={() => {
+                  setBulkMenuAnchor(null)
+                  setSelectedArticleIds(new Set())
+                }}
+              >
+                Clear selection
+              </MenuItem>
+            </Menu>
+
+            <CustomTextField
+              value={search}
+              onChange={event => setSearch(event.target.value)}
+              placeholder='Search articles and categories'
+              slotProps={{
+                input: {
+                  startAdornment: (
+                    <InputAdornment position='start'>
+                      <Search size={16} aria-hidden='true' />
+                    </InputAdornment>
+                  )
+                },
+                htmlInput: { 'aria-label': 'Search articles and categories' }
+              }}
+              sx={{ flex: '1 1 240px', minInlineSize: 180, maxInlineSize: 480 }}
+            />
+
+            <CustomTextField
+              select
+              value={activeFilter}
+              onChange={event => applyFilter(event.target.value as DashboardArticleFilter)}
+              slotProps={{ htmlInput: { 'aria-label': 'Filter by article status' } }}
+              sx={{ display: { xs: 'none', sm: 'block' }, minInlineSize: 160 }}
+            >
+              {filterOptions.map(option => (
+                <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+              ))}
+            </CustomTextField>
+
+            <CustomTextField
+              select
+              value={categoryId}
+              onChange={event => selectCategory(event.target.value)}
+              slotProps={{ htmlInput: { 'aria-label': 'Filter by category' } }}
+              sx={{ display: { xs: 'none', xl: 'block' }, minInlineSize: 175 }}
+            >
+              <MenuItem value=''>All categories</MenuItem>
+              {categoryOptions.map(category => (
+                <MenuItem key={category.id} value={category.id}>
+                  {`${'— '.repeat(category.depth)}${category.name}`}
+                </MenuItem>
+              ))}
+            </CustomTextField>
+
+            <CustomTextField
+              select
+              value={sort}
+              onChange={event => {
+                setContentLoading(true)
+                setPage(0)
+                setSelectedArticleIds(new Set())
+                setSort(event.target.value as DashboardSort)
+              }}
+              slotProps={{ htmlInput: { 'aria-label': 'Sort content' } }}
+              sx={{ minInlineSize: 150 }}
+            >
+              {sortOptions.map(option => (
+                <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+              ))}
+            </CustomTextField>
+
+            <ButtonGroup size='small' variant='outlined' aria-label='Dashboard view'>
+              <Tooltip title='List view'>
+                <IconButton
+                  color={view === 'list' ? 'primary' : 'secondary'}
+                  onClick={() => setView('list')}
+                  aria-label='List view'
+                  aria-pressed={view === 'list'}
+                >
+                  <List size={17} />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title='Grid view'>
+                <IconButton
+                  color={view === 'grid' ? 'primary' : 'secondary'}
+                  onClick={() => setView('grid')}
+                  aria-label='Grid view'
+                  aria-pressed={view === 'grid'}
+                >
+                  <Grid2X2 size={17} />
+                </IconButton>
+              </Tooltip>
+            </ButtonGroup>
+
+            <Typography
+              variant='caption'
+              color='text.secondary'
+              aria-live='polite'
+              sx={{ ml: { xl: 'auto' }, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}
+            >
+              {contentLoading
+                ? 'Loading…'
+                : totalCount === 0
+                  ? 'No matching items'
+                  : `${page * pageSize + 1}–${Math.min((page + 1) * pageSize, totalCount)} of ${totalCount}`}
+            </Typography>
+
+            {(search || categoryId || activeFilter !== 'Everything') && (
+              <Button
+                size='small'
+                onClick={() => {
+                  setSearch('')
+                  setActiveFilter('Everything')
+                  selectCategory('')
+                }}
+              >
+                Clear
+              </Button>
+            )}
+          </Box>
+
+          <Box sx={{ bgcolor: 'background.paper', minBlockSize: 420 }}>
+            {contentLoading ? (
+              <TableContainer aria-label='Loading dashboard content'>
+                <Table sx={{ minInlineSize: { xs: 620, md: 840 } }}>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell padding='checkbox'><Skeleton variant='rounded' width={18} height={18} /></TableCell>
+                      <TableCell>Name</TableCell>
+                      <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>Category</TableCell>
+                      <TableCell>Status</TableCell>
+                      <TableCell align='right'>Actions</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {[1, 2, 3, 4, 5, 6].map(row => (
+                      <TableRow key={row}>
+                        <TableCell padding='checkbox'><Skeleton variant='rounded' width={18} height={18} /></TableCell>
+                        <TableCell>
+                          <Stack direction='row' spacing={1.75} sx={{ alignItems: 'center' }}>
+                            <Skeleton variant='rounded' width={34} height={34} />
+                            <Box sx={{ flex: 1 }}>
+                              <Skeleton width={`${42 + row * 5}%`} />
+                              <Skeleton width={`${28 + row * 2}%`} />
+                            </Box>
+                          </Stack>
+                        </TableCell>
+                        <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}><Skeleton width={100} /></TableCell>
+                        <TableCell><Skeleton variant='rounded' width={76} height={24} /></TableCell>
+                        <TableCell align='right'><Skeleton width={68} sx={{ ml: 'auto' }} /></TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            ) : items.length === 0 ? (
+              <Box sx={{ p: { xs: 4, md: 7 } }}>
+                <KbEmptyState
+                  title={emptyState.title}
+                  description={emptyState.description}
+                  icon={activeFilter === 'Archived' ? <Archive /> : <Search />}
+                  action={debouncedSearch ? (
+                    <Button variant='outlined' onClick={() => setSearch('')}>Clear search</Button>
+                  ) : undefined}
+                />
+              </Box>
+            ) : view === 'list' ? (
+              <TableContainer>
+                <Table aria-label='Categories and articles' sx={{ minInlineSize: { xs: 620, md: 840 } }}>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell padding='checkbox'>
+                        <Checkbox
+                          size='small'
+                          checked={allArticlesSelected}
+                          indeterminate={selectedArticles.length > 0 && !allArticlesSelected}
+                          disabled={!selectableArticles.length}
+                          onChange={toggleAllArticles}
+                          slotProps={{ input: { 'aria-label': 'Select all deletable articles on this page' } }}
+                        />
+                      </TableCell>
+                      <TableCell>Name</TableCell>
+                      <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>Category</TableCell>
+                      <TableCell>Status</TableCell>
+                      <TableCell align='right'>Actions</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {items.map(item => {
+                      const isArticle = item.kind === 'article'
+                      const selectable = isArticle && canDeleteArticle && item.article.status !== 'Archived'
+                      const selected = isArticle && selectedArticleIds.has(item.article.articleId)
+
+                      return (
+                        <TableRow
+                          key={item.id}
+                          selected={selected}
+                          sx={{
+                            '& > *': { borderBlockEndColor: 'divider' },
+                            '&:hover': { bgcolor: 'action.hover' },
+                            '&.Mui-selected': { bgcolor: 'action.selected' }
+                          }}
+                        >
+                          <TableCell padding='checkbox'>
+                            {isArticle ? (
+                              <Checkbox
+                                size='small'
+                                checked={selected}
+                                disabled={!selectable}
+                                onChange={() => toggleArticle(item.article.articleId)}
+                                slotProps={{ input: { 'aria-label': `Select ${item.article.title}` } }}
+                              />
+                            ) : <Box sx={{ inlineSize: 34 }} />}
+                          </TableCell>
+                          <TableCell sx={{ py: 1.5 }}><ItemName item={item} /></TableCell>
+                          <TableCell sx={{ display: { xs: 'none', md: 'table-cell' }, color: 'text.secondary' }}>
+                            {item.kind === 'category'
+                              ? item.category.path || 'Top level'
+                              : item.article.category?.name ?? 'Uncategorized'}
+                          </TableCell>
+                          <TableCell>
+                            {item.kind === 'category' ? (
+                              <Chip size='small' label='Category' variant='outlined' color='warning' />
+                            ) : (
+                              <StatusChip
+                                label={articleStatusLabel[item.article.status]}
+                                color={articleStatusColor[item.article.status]}
+                              />
+                            )}
+                          </TableCell>
+                          <TableCell align='right' sx={{ whiteSpace: 'nowrap' }}>
+                            {item.kind === 'category' ? (
+                              <Button size='small' onClick={() => selectCategory(item.category.id)}>Browse</Button>
+                            ) : articleActions(item.article)}
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            ) : (
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 290px), 1fr))',
+                  gap: 2,
+                  p: { xs: 2.5, sm: 3.5, xl: 4.5 }
+                }}
+              >
+                {items.map(item => {
+                  const isArticle = item.kind === 'article'
+                  const selectable = isArticle && canDeleteArticle && item.article.status !== 'Archived'
+                  const selected = isArticle && selectedArticleIds.has(item.article.articleId)
+
+                  return (
+                    <Box
+                      key={item.id}
+                      sx={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        minBlockSize: 168,
+                        p: 2.25,
+                        border: 1,
+                        borderColor: selected ? 'primary.main' : 'divider',
+                        borderRadius: 1.5,
+                        bgcolor: selected ? 'action.selected' : 'background.paper',
+                        transition: theme.transitions.create(['border-color', 'background-color', 'box-shadow']),
+                        '&:hover': { borderColor: 'text.disabled', boxShadow: theme.shadows[2] }
+                      }}
+                    >
+                      <Stack direction='row' sx={{ alignItems: 'flex-start', justifyContent: 'space-between', mb: 2 }}>
+                        {isArticle ? (
+                          <Checkbox
+                            size='small'
+                            checked={selected}
+                            disabled={!selectable}
+                            onChange={() => toggleArticle(item.article.articleId)}
+                            slotProps={{ input: { 'aria-label': `Select ${item.article.title}` } }}
+                            sx={{ p: 0.5, ml: -0.5 }}
+                          />
+                        ) : <Box />}
                         {item.kind === 'category' ? (
-                          <Typography variant='body2'>
-                            {item.category.articleCount} article{item.category.articleCount === 1 ? '' : 's'}
-                          </Typography>
+                          <Chip size='small' label='Category' variant='outlined' color='warning' />
                         ) : (
                           <StatusChip
                             label={articleStatusLabel[item.article.status]}
                             color={articleStatusColor[item.article.status]}
                           />
                         )}
-                      </TableCell>
-                      <TableCell>
-                        {item.kind === 'category'
-                          ? 'Navigation'
-                          : item.article.category?.name ?? 'Uncategorized'}
-                      </TableCell>
-                      <TableCell>
-                        {item.kind === 'category' ? '—' : item.article.owner.fullName}
-                      </TableCell>
-                      <TableCell>
-                        {item.kind === 'category'
-                          ? <UnavailableCategoryDate />
-                          : formatDate(item.article.updatedAt)}
-                      </TableCell>
-                      <TableCell align='right'>
-                        {item.kind === 'category' ? (
-                          <Button size='small' onClick={() => selectCategory(item.category.id)}>
-                            Browse
-                          </Button>
-                        ) : articleActions(item.article)}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          ) : (
-            <Box
-              sx={{
-                display: 'grid',
-                gridTemplateColumns: {
-                  xs: 'minmax(0, 1fr)',
-                  sm: 'repeat(2, minmax(0, 1fr))',
-                  lg: 'repeat(3, minmax(0, 1fr))'
-                },
-                gap: 3,
-                p: { xs: 4, md: 5 }
-              }}
-            >
-              {items.map(item => (
-                <Card key={item.id} variant='outlined' sx={{ display: 'flex', flexDirection: 'column', boxShadow: 'none' }}>
-                  {item.kind === 'category' ? (
-                    <CardActionArea
-                      onClick={() => selectCategory(item.category.id)}
-                      aria-label={`Browse ${item.category.name}`}
-                      sx={{ flex: 1 }}
-                    >
-                      <CardContent>
-                        <ItemName item={item} />
-                        <Stack direction='row' spacing={1} sx={{ mt: 4, alignItems: 'center', flexWrap: 'wrap' }}>
-                          <Chip size='small' label='Category' variant='tonal' color='warning' />
-                          <Typography variant='body2' color='text.secondary'>
-                            {item.category.articleCount} article{item.category.articleCount === 1 ? '' : 's'}
-                          </Typography>
-                        </Stack>
-                        <Typography variant='caption' color='text.secondary' sx={{ display: 'block', mt: 3 }}>
-                          Last updated: <UnavailableCategoryDate />
-                        </Typography>
-                      </CardContent>
-                    </CardActionArea>
-                  ) : (
-                    <CardContent sx={{ display: 'flex', flex: 1, flexDirection: 'column' }}>
-                      <ItemName item={item} />
-                      <Box sx={{ mt: 4 }}>
-                        <StatusChip
-                          label={articleStatusLabel[item.article.status]}
-                          color={articleStatusColor[item.article.status]}
-                        />
-                      </Box>
-                      <Stack spacing={1} sx={{ mt: 3, flex: 1 }}>
-                        <Typography variant='body2' color='text.secondary'>
-                          {item.article.category?.name ?? 'Uncategorized'}
-                        </Typography>
-                        <Typography variant='body2' color='text.secondary'>
-                          {item.article.owner.fullName}
-                        </Typography>
-                        <Typography variant='caption' color='text.secondary'>
-                          Updated {formatDate(item.article.updatedAt)}
-                        </Typography>
                       </Stack>
-                      <Divider sx={{ my: 3 }} />
-                      {articleActions(item.article)}
-                    </CardContent>
-                  )}
-                </Card>
-              ))}
-            </Box>
-          )}
-          {!contentLoading && totalCount > 0 && (
-            <>
-              <Divider />
-              <TablePagination
-                component='div'
-                count={totalCount}
-                page={page}
-                rowsPerPage={pageSize}
-                rowsPerPageOptions={[25, 50, 100]}
-                onPageChange={(_, nextPage) => {
-                  setContentLoading(true)
-                  setPage(nextPage)
-                }}
-                onRowsPerPageChange={event => {
-                  setContentLoading(true)
-                  setPage(0)
-                  setPageSize(Number(event.target.value))
-                }}
-                labelRowsPerPage='Items per page'
-              />
-            </>
-          )}
-        </KbSectionCard>
+                      <ItemName item={item} />
+                      <Typography variant='caption' color='text.secondary' noWrap sx={{ mt: 1.5 }}>
+                        {item.kind === 'category'
+                          ? item.category.path || 'Top-level category'
+                          : item.article.category?.name ?? 'Uncategorized'}
+                      </Typography>
+                      <Box sx={{ flex: 1 }} />
+                      <Divider sx={{ my: 1.75 }} />
+                      {item.kind === 'category' ? (
+                        <Button size='small' onClick={() => selectCategory(item.category.id)} sx={{ alignSelf: 'flex-end' }}>
+                          Browse
+                        </Button>
+                      ) : articleActions(item.article)}
+                    </Box>
+                  )
+                })}
+              </Box>
+            )}
+
+            {!contentLoading && totalCount > 0 && (
+              <>
+                <Divider />
+                <TablePagination
+                  component='div'
+                  count={totalCount}
+                  page={page}
+                  rowsPerPage={pageSize}
+                  rowsPerPageOptions={[25, 50, 100]}
+                  onPageChange={(_, nextPage) => {
+                    setContentLoading(true)
+                    setSelectedArticleIds(new Set())
+                    setPage(nextPage)
+                  }}
+                  onRowsPerPageChange={event => {
+                    setContentLoading(true)
+                    setSelectedArticleIds(new Set())
+                    setPage(0)
+                    setPageSize(Number(event.target.value))
+                  }}
+                  labelRowsPerPage='Items per page'
+                />
+              </>
+            )}
+          </Box>
+        </Box>
       </Box>
 
       <KbCategoryDialog
@@ -857,7 +1133,17 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
         onClose={() => { if (!mutating) setDeleteTarget(undefined) }}
         onConfirm={() => void confirmDelete()}
       />
-    </KbPageShell>
+      <KbConfirmDialog
+        open={bulkDeleteOpen}
+        title='Delete selected articles?'
+        description={`Delete ${selectedArticles.length} selected article${selectedArticles.length === 1 ? '' : 's'}? This removes them from active results.`}
+        confirmLabel='Delete selected'
+        confirmColor='error'
+        submitting={mutating}
+        onClose={() => { if (!mutating) setBulkDeleteOpen(false) }}
+        onConfirm={() => void confirmBulkDelete()}
+      />
+    </>
   )
 }
 

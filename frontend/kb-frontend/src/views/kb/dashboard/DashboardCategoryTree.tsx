@@ -43,7 +43,7 @@ const DashboardCategoryNode = ({
 
   return (
     <Box component='li' sx={{ listStyle: 'none' }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', pl: depth * 2 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', pl: depth * 1.5 }}>
         {hasChildren ? (
           <Tooltip title={expanded ? `Collapse ${node.name}` : `Expand ${node.name}`}>
             <IconButton
@@ -51,7 +51,7 @@ const DashboardCategoryNode = ({
               onClick={() => onToggle(node.id)}
               aria-label={expanded ? `Collapse ${node.name}` : `Expand ${node.name}`}
               aria-expanded={expanded}
-              sx={{ mr: 0.5 }}
+              sx={{ mr: 0.25, inlineSize: 28, blockSize: 28 }}
             >
               <ChevronRight
                 size={15}
@@ -61,21 +61,39 @@ const DashboardCategoryNode = ({
             </IconButton>
           </Tooltip>
         ) : (
-          <Box sx={{ inlineSize: 34, flexShrink: 0 }} />
+          <Box sx={{ inlineSize: 30, flexShrink: 0 }} />
         )}
         <ListItemButton
           dense
           selected={selectedCategoryId === node.id}
           onClick={() => onSelect(node.id)}
-          sx={{ minInlineSize: 0, minBlockSize: 38, gap: 1.5, borderRadius: 1.5, px: 2 }}
+          sx={theme => ({
+            minInlineSize: 0,
+            minBlockSize: 34,
+            gap: 1.25,
+            borderRadius: 1.25,
+            px: 1.5,
+            color: 'text.secondary',
+            '&:hover': { bgcolor: 'action.hover', color: 'text.primary' },
+            '&.Mui-selected': {
+              bgcolor: `rgba(${theme.vars.palette.primary.mainChannel} / 0.1)`,
+              color: 'primary.main',
+              '&:hover': { bgcolor: `rgba(${theme.vars.palette.primary.mainChannel} / 0.14)` }
+            }
+          })}
         >
           {expanded ? <FolderOpen size={17} aria-hidden='true' /> : <Folder size={17} aria-hidden='true' />}
           <ListItemText
             primary={node.name}
-            slotProps={{ primary: { variant: 'body2', noWrap: true } }}
+            slotProps={{ primary: { variant: 'body2', noWrap: true, sx: { fontWeight: selectedCategoryId === node.id ? 700 : 500 } } }}
             sx={{ minInlineSize: 0, m: 0 }}
           />
-          <Typography component='span' variant='caption' color='text.secondary'>
+          <Typography
+            component='span'
+            variant='caption'
+            color='inherit'
+            sx={{ minInlineSize: 22, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}
+          >
             {node.articleCount}
           </Typography>
         </ListItemButton>
@@ -129,9 +147,9 @@ const DashboardCategoryTree = ({
 
   if (loading) {
     return (
-      <Box aria-label='Loading categories' sx={{ display: 'grid', gap: 1, px: 1 }}>
+      <Box aria-label='Loading categories' sx={{ display: 'grid', gap: 0.75, px: 1 }}>
         {[92, 78, 86, 66].map((width, index) => (
-          <Skeleton key={width} variant='rounded' height={34} width={`${width}%`} sx={{ ml: index % 2 ? 3 : 0 }} />
+          <Skeleton key={width} variant='rounded' height={32} width={`${width}%`} sx={{ ml: index % 2 ? 3 : 0 }} />
         ))}
       </Box>
     )

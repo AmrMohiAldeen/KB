@@ -108,12 +108,6 @@ const VerticalMenu = ({ dictionary, scrollMenu }: Props) => {
           <MenuItem href={href('/kb/migration/helpjuice')} icon={<i className='tabler-file-import' />}>
             {navigation.helpJuiceMigration}
           </MenuItem>
-          <MenuItem href={href('/search-index')} icon={<i className='tabler-database-search' />}>
-            {navigation.searchIndex}
-          </MenuItem>
-          <MenuItem href={href('/export-jobs')} icon={<i className='tabler-file-export' />}>
-            {navigation.exportJobs}
-          </MenuItem>
         </MenuSection>
 
         <MenuSection label={navigation.administration}>

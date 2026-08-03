@@ -53,8 +53,6 @@ const verticalMenuData = (
           icon: 'tabler-file-import',
           href: localizedHref(params, '/kb/migration/helpjuice')
         },
-        { label: navigation.searchIndex, icon: 'tabler-database-search', href: localizedHref(params, '/search-index') },
-        { label: navigation.exportJobs, icon: 'tabler-file-export', href: localizedHref(params, '/export-jobs') }
       ]
     },
     {
