@@ -1,7 +1,8 @@
 import { buildHelpJuiceImport } from './helpjuiceImport'
-import { parseHelpJuiceCsv } from './csv'
-import { inspectZip, readZipText } from './zipPreview'
-import type { HelpJuiceImportBuildResult, ParsedCsvFile } from './types'
+import { openBlobStream } from './blobStream'
+import { parseHelpJuiceCsvPreview } from './csv'
+import { inspectZip, openZipEntryStream } from './zipPreview'
+import type { HelpJuiceFileKind, HelpJuiceImportBuildResult, ParsedCsvFile } from './types'
 
 export type ClientPackagePreview = {
   files: string[]; missingRequired: string[]; unsupported: string[]; questions?: ParsedCsvFile; answers?: ParsedCsvFile
@@ -12,31 +13,46 @@ export type ClientPackagePreview = {
 
 const knownCsv = new Set(['questions.csv','answers.csv','categories.csv','categorizations.csv','uploads.csv','groups.csv','passes.csv','users.csv'])
 const mediaExtensions = new Set(['jpg','jpeg','png','gif','webp','bmp','tif','tiff','pdf','mp4','mov','webm','avi','mpeg','mpg','docx','xlsx','pptx','odt','ods','odp','doc','xls','ppt','rtf','txt','md','json','xml'])
+const previewCsvKinds = new Map<string, HelpJuiceFileKind>([
+  ['questions.csv', 'questions'],
+  ['answers.csv', 'answers'],
+  ['categories.csv', 'categories'],
+  ['categorizations.csv', 'categorizations'],
+  ['uploads.csv', 'uploads']
+])
 const baseName = (value: string) => value.replace(/\\/g, '/').split('/').pop()?.toLowerCase() ?? ''
 const field = (row: { values: Record<string,string> }, key: string) => row.values[key]?.trim() ?? ''
 const boolean = (value: string) => ['true','1','yes'].includes(value.trim().toLowerCase())
 
 export async function previewHelpJuiceFiles(selected: File[]): Promise<ClientPackagePreview> {
-  const texts = new Map<string,string>(); let names: string[] = []
+  const parsedFiles = new Map<string,ParsedCsvFile>(); const selectedCsvNames = new Set<string>(); let names: string[] = []
   if (selected.length === 1 && selected[0].name.toLowerCase().endsWith('.zip')) {
     const entries = await inspectZip(selected[0]); names = entries.map(entry => entry.name)
     for (const kind of ['questions.csv','answers.csv','categories.csv','categorizations.csv','uploads.csv']) {
       const matches = entries.filter(entry => baseName(entry.name) === kind)
       if (matches.length > 1) throw new Error(`The ZIP contains more than one ${kind} file.`)
-      if (matches[0]) texts.set(kind, await readZipText(selected[0], matches[0]))
+      if (matches[0]) {
+        selectedCsvNames.add(kind)
+        parsedFiles.set(kind, await parseHelpJuiceCsvPreview(await openZipEntryStream(selected[0], matches[0]), previewCsvKinds.get(kind)!))
+      }
     }
   } else {
     names = selected.map(file => file.webkitRelativePath || file.name)
     for (const file of selected) {
       const name = baseName(file.webkitRelativePath || file.name)
-      if (knownCsv.has(name)) { if (texts.has(name)) throw new Error(`${name} was selected more than once.`); texts.set(name, await file.text()) }
+      if (knownCsv.has(name)) {
+        if (selectedCsvNames.has(name)) throw new Error(`${name} was selected more than once.`)
+        selectedCsvNames.add(name)
+        const fileKind = previewCsvKinds.get(name)
+        if (fileKind) parsedFiles.set(name, await parseHelpJuiceCsvPreview(openBlobStream(file), fileKind))
+      }
     }
   }
-  const missingRequired = ['questions.csv','answers.csv'].filter(name => !texts.has(name))
+  const missingRequired = ['questions.csv','answers.csv'].filter(name => !selectedCsvNames.has(name))
   const unsupported = names.filter(name => { const base = baseName(name); const extension = base.split('.').pop() ?? ''; return !knownCsv.has(base) && !mediaExtensions.has(extension) })
-  const questions = texts.has('questions.csv') ? parseHelpJuiceCsv(texts.get('questions.csv')!, 'questions') : undefined
-  const answers = texts.has('answers.csv') ? parseHelpJuiceCsv(texts.get('answers.csv')!, 'answers') : undefined
-  const categories = texts.has('categories.csv') ? parseHelpJuiceCsv(texts.get('categories.csv')!, 'categories') : undefined
+  const questions = parsedFiles.get('questions.csv')
+  const answers = parsedFiles.get('answers.csv')
+  const categories = parsedFiles.get('categories.csv')
   const build = questions && answers ? buildHelpJuiceImport({ questions, answers }) : undefined
   const answersByQuestion = new Map<string,string>()
   answers?.rows.forEach(row => { if (!answersByQuestion.has(field(row,'question_id'))) answersByQuestion.set(field(row,'question_id'), row.values.body ?? '') })

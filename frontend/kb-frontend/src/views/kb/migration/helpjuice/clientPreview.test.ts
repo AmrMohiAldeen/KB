@@ -3,10 +3,11 @@ import { previewHelpJuiceFiles } from './clientPreview'
 
 describe('HelpJuice client package preview', () => {
   it('detects required files and reports missing answers clearly', async () => {
-    const questions = new File(['id,name\nq1,One'], 'questions.csv', { type: 'text/csv' })
+    const questions = new File(['id,name,description\nq1,"One, quoted","First line\nSecond line"'], 'questions.csv', { type: 'text/csv' })
     const preview = await previewHelpJuiceFiles([questions])
     expect(preview.missingRequired).toEqual(['answers.csv'])
     expect(preview.totalArticles).toBe(1)
+    expect(preview.questions?.rows[0].values).toMatchObject({ name: 'One, quoted', description: 'First line\nSecond line' })
   })
 
   it('matches answers to questions and calculates publication category and validation totals', async () => {
@@ -20,5 +21,26 @@ describe('HelpJuice client package preview', () => {
     expect(preview).toMatchObject({ totalArticles:2,published:1,unpublished:1,categoryCount:2,categoryDepth:2,missingAnswers:1,duplicateSlugs:1,invalidCategoryReferences:1 })
     expect(preview.unsupported).toEqual(['payload.exe'])
     expect(preview.build?.answerResults[0]).toMatchObject({ questionId:'q1',answerId:'a1' })
+  })
+
+  it('previews only the first 100 data rows from files with more rows', async () => {
+    const questionRows = Array.from({ length: 105 }, (_, index) => {
+      const number = index + 1
+      return number === 50 ? `q${number},"Article ${number}, first line\nsecond line"` : `q${number},Article ${number}`
+    })
+    const answerRows = Array.from({ length: 105 }, (_, index) => `a${index + 1},q${index + 1},Body ${index + 1}`)
+    const questionPreview = await previewHelpJuiceFiles([
+      new File([['id,name', ...questionRows].join('\n')], 'questions.csv')
+    ])
+    const answerPreview = await previewHelpJuiceFiles([
+      new File([['id,question_id,body', ...answerRows].join('\n')], 'answers.csv')
+    ])
+
+    expect(questionPreview.questions?.headers).toEqual(['id', 'name'])
+    expect(questionPreview.questions?.rows).toHaveLength(100)
+    expect(answerPreview.answers?.rows).toHaveLength(100)
+    expect(questionPreview.questions?.rows[49].values.name).toBe('Article 50, first line\nsecond line')
+    expect(questionPreview.questions?.rows.at(-1)?.values.id).toBe('q100')
+    expect(questionPreview.totalArticles).toBe(100)
   })
 })

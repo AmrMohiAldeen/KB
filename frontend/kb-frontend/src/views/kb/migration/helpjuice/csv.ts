@@ -12,6 +12,8 @@ type RawCsvRow = {
 
 const EXTRA_COLUMN_PREFIX = '__extra_'
 
+export const CSV_PREVIEW_DATA_ROW_LIMIT = 100
+
 const fileLabel: Record<HelpJuiceFileKind, string> = {
   questions: 'questions.csv',
   answers: 'answers.csv',
@@ -242,6 +244,126 @@ export function parseHelpJuiceCsv(text: string, file: HelpJuiceFileKind): Parsed
     rows: mappedRows.rows,
     issues: [...tokenized.issues, ...normalizedHeaders.issues, ...mappedRows.issues]
   }
+}
+
+type CsvPreviewScanState = {
+  dataRows: number
+  fieldStarted: boolean
+  headerComplete: boolean
+  inQuotes: boolean
+  pendingQuote: boolean
+  rowHasContent: boolean
+  skipLineFeed: boolean
+}
+
+const createCsvPreviewScanState = (): CsvPreviewScanState => ({
+  dataRows: 0,
+  fieldStarted: false,
+  headerComplete: false,
+  inQuotes: false,
+  pendingQuote: false,
+  rowHasContent: false,
+  skipLineFeed: false
+})
+
+function scanCsvPreviewChunk(
+  text: string,
+  state: CsvPreviewScanState,
+  maximumDataRows: number
+): number | undefined {
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index]
+
+    if (state.skipLineFeed) {
+      state.skipLineFeed = false
+      if (character === '\n') continue
+    }
+
+    if (state.inQuotes) {
+      if (character === '"') {
+        state.inQuotes = false
+        state.pendingQuote = true
+      } else if (!/\s/.test(character)) {
+        state.rowHasContent = true
+      }
+
+      continue
+    }
+
+    if (state.pendingQuote) {
+      if (character === '"') {
+        state.inQuotes = true
+        state.pendingQuote = false
+        state.rowHasContent = true
+        continue
+      }
+
+      state.pendingQuote = false
+    }
+
+    if (character === '"' && !state.fieldStarted) {
+      state.fieldStarted = true
+      state.inQuotes = true
+      continue
+    }
+
+    if (character === ',') {
+      state.fieldStarted = false
+      continue
+    }
+
+    if (isLineBreak(character)) {
+      if (state.headerComplete) {
+        if (state.rowHasContent) state.dataRows += 1
+      } else {
+        state.headerComplete = true
+      }
+
+      state.fieldStarted = false
+      state.rowHasContent = false
+      state.skipLineFeed = character === '\r'
+
+      if (state.dataRows >= maximumDataRows) return index + 1
+      continue
+    }
+
+    state.fieldStarted = true
+    if (!/\s/.test(character)) state.rowHasContent = true
+  }
+
+  return undefined
+}
+
+export async function parseHelpJuiceCsvPreview(
+  stream: ReadableStream<Uint8Array>,
+  file: HelpJuiceFileKind,
+  maximumDataRows = CSV_PREVIEW_DATA_ROW_LIMIT
+): Promise<ParsedCsvFile> {
+  const reader = stream.getReader()
+  const decoder = new TextDecoder()
+  const state = createCsvPreviewScanState()
+  const textParts: string[] = []
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      const decoded = decoder.decode(value, { stream: !done })
+      const cutoff = scanCsvPreviewChunk(decoded, state, maximumDataRows)
+
+      textParts.push(cutoff === undefined ? decoded : decoded.slice(0, cutoff))
+
+      if (cutoff !== undefined) {
+        await reader.cancel()
+        break
+      }
+
+      if (done) break
+    }
+  } finally {
+    reader.releaseLock()
+  }
+
+  return parseHelpJuiceCsv(textParts.join(''), file)
 }
 
 export function validateRequiredColumns(
