@@ -497,6 +497,27 @@ public sealed class ArticleLifecycleSliceTests
     }
 
     [Fact]
+    public async Task Permission_queries_run_sequentially_and_preserve_granted_permissions()
+    {
+        await using var f = await Fixture.CreateAsync();
+        f.Grant(f.AuthorId,
+            PermissionCodes.ArticlesEditOwnDraft,
+            PermissionCodes.ArticlesSubmitForReview,
+            PermissionCodes.CommentsCreate);
+        f.TrackPermissionCheckConcurrency();
+
+        var result = await f.Service.GetPermissionsAsync(f.ArticleId, default);
+
+        Assert.Equal(1, f.MaxConcurrentPermissionChecks);
+        Assert.True(result.CanEdit);
+        Assert.True(result.CanSubmitForReview);
+        Assert.True(result.CanLock);
+        Assert.True(result.CanComment);
+        Assert.False(result.CanReview);
+        Assert.False(result.CanPublish);
+    }
+
+    [Fact]
     public async Task Restore_requires_restore_permission_and_current_row_version()
     {
         await using var f = await Fixture.CreatePublishedAsync();
@@ -659,6 +680,12 @@ public sealed class ArticleLifecycleSliceTests
         public void Grant(Guid userId, params string[] permissionCodes) =>
             permissions.Grant(userId, permissionCodes);
 
+        public void TrackPermissionCheckConcurrency() =>
+            permissions.TrackConcurrency = true;
+
+        public int MaxConcurrentPermissionChecks =>
+            permissions.MaxConcurrentChecks;
+
         public Task<ArticleVersion> AddVersionAsync(
             int number,
             string reason,
@@ -761,6 +788,11 @@ public sealed class ArticleLifecycleSliceTests
     private sealed class FakePermissionChecker : IPermissionChecker
     {
         private readonly Dictionary<Guid, HashSet<string>> permissions = [];
+        private int activeChecks;
+        private int maxConcurrentChecks;
+
+        public bool TrackConcurrency { get; set; }
+        public int MaxConcurrentChecks => Volatile.Read(ref maxConcurrentChecks);
 
         public void Grant(Guid userId, IEnumerable<string> values)
         {
@@ -769,12 +801,44 @@ public sealed class ArticleLifecycleSliceTests
             existing.UnionWith(values);
         }
 
-        public Task<bool> HasPermissionAsync(
+        public async Task<bool> HasPermissionAsync(
             Guid userId,
             string permissionCode,
-            CancellationToken cancellationToken) =>
-            Task.FromResult(permissions.TryGetValue(userId, out var values) &&
-                            values.Contains(permissionCode));
+            CancellationToken cancellationToken)
+        {
+            if (!TrackConcurrency)
+                return HasPermission(userId, permissionCode);
+
+            var concurrentChecks = Interlocked.Increment(ref activeChecks);
+            InterlockedExtensions.Max(ref maxConcurrentChecks, concurrentChecks);
+            try
+            {
+                await Task.Delay(10, cancellationToken);
+                return HasPermission(userId, permissionCode);
+            }
+            finally
+            {
+                Interlocked.Decrement(ref activeChecks);
+            }
+        }
+
+        private bool HasPermission(Guid userId, string permissionCode) =>
+            permissions.TryGetValue(userId, out var values) && values.Contains(permissionCode);
+    }
+
+    private static class InterlockedExtensions
+    {
+        public static void Max(ref int location, int value)
+        {
+            var current = Volatile.Read(ref location);
+            while (current < value)
+            {
+                var observed = Interlocked.CompareExchange(ref location, value, current);
+                if (observed == current)
+                    return;
+                current = observed;
+            }
+        }
     }
 
     private sealed class FakeStorage : IObjectStorage

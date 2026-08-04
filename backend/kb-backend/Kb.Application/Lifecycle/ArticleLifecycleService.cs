@@ -72,10 +72,12 @@ public sealed class ArticleLifecycleService
             PermissionCodes.CommentsCreate,
             PermissionCodes.SuggestionsCreate
         };
-        var checks = await Task.WhenAll(permissionCodes.Select(async code =>
-            (Code: code, Allowed: await permissionChecker.HasPermissionAsync(actorId, code, cancellationToken))));
-        var granted = checks.Where(check => check.Allowed).Select(check => check.Code)
-            .ToHashSet(StringComparer.Ordinal);
+        var granted = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var code in permissionCodes)
+        {
+            if (await permissionChecker.HasPermissionAsync(actorId, code, cancellationToken))
+                granted.Add(code);
+        }
         var isOwner = draft.ArticleOwnerId == actorId;
         var canEditPermission = granted.Contains(PermissionCodes.ArticlesEditAnyDraft) ||
                                 isOwner && granted.Contains(PermissionCodes.ArticlesEditOwnDraft);
