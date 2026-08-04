@@ -1,0 +1,8 @@
+<Solution>
+  <Project Path="Kb.Api/Kb.Api.csproj" />
+  <Project Path="Kb.Application/Kb.Application.csproj" />
+  <Project Path="Kb.Contracts/Kb.Contracts.csproj" />
+  <Project Path="Kb.Domain/Kb.Domain.csproj" />
+  <Project Path="Kb.Infrastructure/Kb.Infrastructure.csproj" />
+  <Project Path="Kb.Tests/Kb.Tests.csproj" />
+</Solution>

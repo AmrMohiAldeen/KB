@@ -1,0 +1,1 @@
+export { tableExtensions } from './extensions';

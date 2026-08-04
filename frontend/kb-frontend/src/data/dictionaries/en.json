@@ -1,0 +1,22 @@
+{
+  "navigation": {
+    "content": "Content",
+    "workflow": "Workflow",
+    "operations": "Operations",
+    "administration": "Administration",
+    "dashboard": "Dashboard",
+    "editor": "Editor",
+    "review": "Review",
+    "templates": "Templates",
+    "reusableBlocks": "Reusable Blocks",
+    "media": "Media",
+    "helpJuiceMigration": "HelpJuice Migration",
+    "searchIndex": "Search Index",
+    "exportJobs": "Export Jobs",
+    "auditLogs": "Audit Logs",
+    "users": "Users",
+    "roles": "Roles",
+    "notifications": "Notifications",
+    "settings": "Settings"
+  }
+}
