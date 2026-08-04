@@ -52,6 +52,9 @@ export const normalizeAccessToken = (accessToken: string): string =>
 
 export const hasAccessToken = (accessToken: string): boolean => Boolean(normalizeAccessToken(accessToken))
 
+export const isAuthenticationError = (error: unknown): error is ApiError =>
+  error instanceof ApiError && error.status === 401
+
 export async function apiRequest<T>(
   path: string,
   accessToken: string,
@@ -79,6 +82,7 @@ export async function apiRequest<T>(
   try {
     response = await fetch(`${getApiBaseUrl()}${path}`, {
       ...init,
+      cache: 'no-store',
       headers
     })
   } catch (error) {
@@ -130,6 +134,7 @@ export async function apiBlobRequest(
 
   try {
     response = await fetch(`${getApiBaseUrl()}${path}`, {
+      cache: 'no-store',
       headers: {
         Accept: '*/*',
         Authorization: `Bearer ${token}`

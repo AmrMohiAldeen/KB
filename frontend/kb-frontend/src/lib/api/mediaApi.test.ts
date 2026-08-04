@@ -40,6 +40,7 @@ describe('mediaApi', () => {
     expect(fetchMock).toHaveBeenCalledWith(
       'https://kb-api.example.test/api/media?page=3&pageSize=25&search=manual&mediaType=pdf&status=Archived',
       expect.objectContaining({
+        cache: 'no-store',
         headers: expect.any(Headers)
       })
     )

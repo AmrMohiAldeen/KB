@@ -23,12 +23,13 @@ import PageHeader from '../shared/components/PageHeader'
 
 // API and Util Imports
 import { describeAuditLogApiError, getAuditLogs } from '@/lib/api/auditLogsApi'
-import { ApiError } from '@/lib/api/http'
+import { hasAccessToken, isAuthenticationError } from '@/lib/api/http'
+import { useAccessToken } from '@/lib/auth/accessTokenContext'
 import { auditActionOptions, formatAuditAction, toUtcIso } from './utils/auditEvents'
 
 type AuditActivityFeedProps = {
   /** Supplied by the company SSO/session integration, following the existing API-client convention. */
-  accessToken: string
+  accessToken?: string
 }
 
 const missingTokenMessage = 'Sign in through the company authentication provider before loading audit logs.'
@@ -44,7 +45,10 @@ const formatTimestamp = (value: string) => {
   }).format(date)
 }
 
-const AuditActivityFeed = ({ accessToken }: AuditActivityFeedProps) => {
+const AuditActivityFeed = ({ accessToken: accessTokenOverride }: AuditActivityFeedProps) => {
+  const contextAccessToken = useAccessToken()
+  const accessToken = accessTokenOverride ?? contextAccessToken
+  const authenticated = hasAccessToken(accessToken)
   // States
   const [logs, setLogs] = useState<ArticleAuditLogResponse[]>([])
   const [totalCount, setTotalCount] = useState(0)
@@ -58,9 +62,12 @@ const AuditActivityFeed = ({ accessToken }: AuditActivityFeedProps) => {
   const [sort, setSort] = useState<KbDataTableSort>({ columnId: 'createdAt', direction: 'desc' })
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(10)
-  const [loading, setLoading] = useState(Boolean(accessToken))
-  const [errors, setErrors] = useState<string[]>(accessToken ? [] : [missingTokenMessage])
-  const [unauthorized, setUnauthorized] = useState(!accessToken)
+  const [loading, setLoading] = useState(authenticated)
+  const [errors, setErrors] = useState<string[]>([])
+  const [unauthorized, setUnauthorized] = useState(!authenticated)
+  const [authenticationMessage, setAuthenticationMessage] = useState(
+    authenticated ? '' : missingTokenMessage
+  )
 
   // Hooks
   useEffect(() => {
@@ -73,16 +80,19 @@ const AuditActivityFeed = ({ accessToken }: AuditActivityFeedProps) => {
   }, [articleSearch, userFilter])
 
   const loadAuditLogs = useCallback(async (signal?: AbortSignal) => {
-    if (!accessToken) {
+    if (!authenticated) {
       setLogs([])
       setTotalCount(0)
       setLoading(false)
       setUnauthorized(true)
-      setErrors([missingTokenMessage])
+      setAuthenticationMessage(missingTokenMessage)
+      setErrors([])
       return
     }
 
     setLoading(true)
+    setUnauthorized(false)
+    setAuthenticationMessage('')
     setErrors([])
 
     try {
@@ -99,19 +109,26 @@ const AuditActivityFeed = ({ accessToken }: AuditActivityFeedProps) => {
 
       setLogs(response.items)
       setTotalCount(response.totalCount)
-      setUnauthorized(false)
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return
       setLogs([])
       setTotalCount(0)
-      setUnauthorized(error instanceof ApiError && error.status === 401)
-      setErrors(describeAuditLogApiError(error))
+      if (isAuthenticationError(error)) {
+        setUnauthorized(true)
+        setAuthenticationMessage(describeAuditLogApiError(error)[0] ?? missingTokenMessage)
+        setErrors([])
+      } else {
+        setUnauthorized(false)
+        setAuthenticationMessage('')
+        setErrors(describeAuditLogApiError(error))
+      }
     } finally {
       if (!signal?.aborted) setLoading(false)
     }
   }, [
     accessToken,
     actionFilter,
+    authenticated,
     debouncedArticleSearch,
     debouncedUserFilter,
     fromDate,
@@ -206,7 +223,7 @@ const AuditActivityFeed = ({ accessToken }: AuditActivityFeedProps) => {
       {unauthorized && (
         <Alert severity='warning'>
           <AlertTitle>Sign in required</AlertTitle>
-          {errors[0] ?? missingTokenMessage}
+          {authenticationMessage || missingTokenMessage}
         </Alert>
       )}
       {!unauthorized && <KbValidationSummary title='Audit logs could not be loaded' errors={errors} />}
