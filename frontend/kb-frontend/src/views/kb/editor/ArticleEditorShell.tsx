@@ -92,6 +92,11 @@ const ArticleEditorShell = ({
     (mediaId: string) => mediaApi.getContent(mediaId, accessToken),
     [accessToken, mediaApi]
   )
+  const handleFileUploadError = useCallback((error: unknown) => {
+    handleMediaError(
+      error instanceof Error ? error.message : 'The media upload failed.'
+    )
+  }, [handleMediaError])
   const editor = useArticleDraftEditor({
     articleId,
     accessToken,
@@ -297,9 +302,7 @@ const ArticleEditorShell = ({
                     changeDebounceMs={0}
                     onChange={editor.onEditorChange}
                     fileUploadAdapter={mediaController.adapter}
-                    fileUploadErrorHandler={error => handleMediaError(
-                      error instanceof Error ? error.message : 'The media upload failed.'
-                    )}
+                    fileUploadErrorHandler={handleFileUploadError}
                     mediaUploadController={mediaController}
                     mediaLibraryApi={mediaApi}
                     mediaAccessToken={accessToken}

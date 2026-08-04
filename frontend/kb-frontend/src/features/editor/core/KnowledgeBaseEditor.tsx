@@ -52,6 +52,35 @@ class CommentExtensionBridge {
   select = (threadId: string) => this.onSelect?.(threadId);
 }
 
+class RuntimeExtensionBridge {
+  private fileUploadAdapter?: EditorFileUploadAdapter;
+  private fileUploadErrorHandler?: EditorFileUploadErrorHandler;
+  private mediaContentLoader?: (mediaId: string) => Promise<Blob>;
+
+  update(
+    fileUploadAdapter?: EditorFileUploadAdapter,
+    fileUploadErrorHandler?: EditorFileUploadErrorHandler,
+    mediaContentLoader?: (mediaId: string) => Promise<Blob>,
+  ) {
+    this.fileUploadAdapter = fileUploadAdapter;
+    this.fileUploadErrorHandler = fileUploadErrorHandler;
+    this.mediaContentLoader = mediaContentLoader;
+  }
+
+  uploadFile: EditorFileUploadAdapter = (file, context) =>
+    this.fileUploadAdapter?.(file, context);
+
+  handleUploadError: EditorFileUploadErrorHandler = (error, file, context) =>
+    this.fileUploadErrorHandler?.(error, file, context);
+
+  loadMediaContent = (mediaId: string): Promise<Blob> => {
+    const loader = this.mediaContentLoader;
+    return loader
+      ? loader(mediaId)
+      : Promise.reject(new Error("No media content loader is configured."));
+  };
+}
+
 export interface KnowledgeBaseEditorProps {
   onChange: EditorChangeHandler;
   onChangeError?: EditorUpdateErrorHandler;
@@ -98,6 +127,7 @@ export default function KnowledgeBaseEditor({
 }: KnowledgeBaseEditorProps) {
   const lastSerializableContent = useRef<string | null>(null);
   const [commentExtensionState] = useState(() => new CommentExtensionBridge());
+  const [runtimeExtensionState] = useState(() => new RuntimeExtensionBridge());
   useEffect(() => {
     commentExtensionState.update(
       commentAnchors,
@@ -110,6 +140,18 @@ export default function KnowledgeBaseEditor({
     commentExtensionState,
     onSelectCommentThread,
   ]);
+  useEffect(() => {
+    runtimeExtensionState.update(
+      fileUploadAdapter,
+      fileUploadErrorHandler,
+      mediaContentLoader,
+    );
+  }, [
+    fileUploadAdapter,
+    fileUploadErrorHandler,
+    mediaContentLoader,
+    runtimeExtensionState,
+  ]);
   const scheduleChange = useDebouncedEditorUpdate(
     onChange,
     changeDebounceMs,
@@ -120,14 +162,25 @@ export default function KnowledgeBaseEditor({
       editor.getText(),
     ],
   );
+  const hasFileUploadAdapter = Boolean(fileUploadAdapter);
+  const hasMediaContentLoader = Boolean(mediaContentLoader);
+  const allowedFileMimeTypesKey = JSON.stringify(allowedFileMimeTypes ?? null);
+  const stableAllowedFileMimeTypes = useMemo<readonly string[] | undefined>(() => {
+    const parsed = JSON.parse(allowedFileMimeTypesKey) as string[] | null;
+    return parsed ?? undefined;
+  }, [allowedFileMimeTypesKey]);
   const extensions = useMemo(
     () =>
       getEditorExtensions({
-        mediaContentLoader,
+        mediaContentLoader: hasMediaContentLoader
+          ? runtimeExtensionState.loadMediaContent
+          : undefined,
         fileHandler: {
-          adapter: fileUploadAdapter,
-          allowedMimeTypes: allowedFileMimeTypes,
-          onUploadError: fileUploadErrorHandler,
+          adapter: hasFileUploadAdapter
+            ? runtimeExtensionState.uploadFile
+            : undefined,
+          allowedMimeTypes: stableAllowedFileMimeTypes,
+          onUploadError: runtimeExtensionState.handleUploadError,
         },
         commentAnchors: {
           getAnchors: commentExtensionState.getAnchors,
@@ -136,11 +189,11 @@ export default function KnowledgeBaseEditor({
         },
       }),
     [
-      allowedFileMimeTypes,
-      fileUploadAdapter,
-      fileUploadErrorHandler,
       commentExtensionState,
-      mediaContentLoader,
+      hasFileUploadAdapter,
+      hasMediaContentLoader,
+      runtimeExtensionState,
+      stableAllowedFileMimeTypes,
     ],
   );
 

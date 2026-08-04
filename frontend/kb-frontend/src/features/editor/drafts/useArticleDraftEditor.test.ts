@@ -137,6 +137,18 @@ describe('useArticleDraftEditor', () => {
     expect(api.save).not.toHaveBeenCalled()
   })
 
+  it('opens a draft read-only when the current user lacks edit permission', async () => {
+    const api = createApi({
+      get: vi.fn().mockResolvedValue(draft({ canEdit: false }))
+    })
+    const state = await render(api)
+
+    expect(state.latest.phase).toBe('readonly')
+    expect(state.latest.editable).toBe(false)
+    expect(api.acquire).not.toHaveBeenCalled()
+    expect(api.save).not.toHaveBeenCalled()
+  })
+
   it('does not send draft requests without an authenticated access token', async () => {
     const api = createApi()
     const state = await render(api, false, { accessToken: '  ' })
