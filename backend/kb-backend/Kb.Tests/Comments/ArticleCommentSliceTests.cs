@@ -129,6 +129,22 @@ public sealed class ArticleCommentSliceTests
         Assert.False(await f.Service.HasUnresolvedDraftDependenciesAsync(f.DraftId, default));
     }
 
+    [Fact]
+    public async Task Listing_checks_permissions_sequentially_and_preserves_permission_results()
+    {
+        await using var f = await Fixture.CreateAsync();
+        f.Grant(f.AuthorId, PermissionCodes.CommentsCreate, PermissionCodes.CommentsModerate);
+        f.TrackPermissionCheckConcurrency();
+
+        var listed = await f.Service.ListAsync(f.ArticleId, default);
+
+        Assert.Equal(1, f.MaxConcurrentPermissionChecks);
+        Assert.True(listed.CanComment);
+        Assert.True(listed.CanModerate);
+        Assert.Equal(f.AuthorId, listed.ActorId);
+        Assert.Empty(listed.Comments);
+    }
+
     private static JsonElement Json(string value)
     {
         using var document = JsonDocument.Parse(value);
@@ -202,6 +218,10 @@ public sealed class ArticleCommentSliceTests
 
         public void Grant(Guid userId, params string[] values) => permissions.Grant(userId, values);
 
+        public void TrackPermissionCheckConcurrency() => permissions.TrackConcurrency = true;
+
+        public int MaxConcurrentPermissionChecks => permissions.MaxConcurrentChecks;
+
         public async ValueTask DisposeAsync()
         {
             await Context.DisposeAsync();
@@ -228,6 +248,12 @@ public sealed class ArticleCommentSliceTests
     private sealed class FakePermissionChecker : IPermissionChecker
     {
         private readonly Dictionary<Guid, HashSet<string>> values = [];
+        private readonly object concurrencyLock = new();
+        private int activeChecks;
+
+        public bool TrackConcurrency { get; set; }
+        public int MaxConcurrentChecks { get; private set; }
+
         public void Grant(Guid id, IEnumerable<string> permissions)
         {
             if (!values.TryGetValue(id, out var current))
@@ -235,7 +261,29 @@ public sealed class ArticleCommentSliceTests
             current.UnionWith(permissions);
         }
 
-        public Task<bool> HasPermissionAsync(Guid id, string permission, CancellationToken cancellationToken) =>
-            Task.FromResult(values.TryGetValue(id, out var current) && current.Contains(permission));
+        public async Task<bool> HasPermissionAsync(
+            Guid id,
+            string permission,
+            CancellationToken cancellationToken)
+        {
+            if (!TrackConcurrency)
+                return HasPermission(id, permission);
+
+            var concurrentChecks = Interlocked.Increment(ref activeChecks);
+            lock (concurrencyLock)
+                MaxConcurrentChecks = Math.Max(MaxConcurrentChecks, concurrentChecks);
+            try
+            {
+                await Task.Delay(10, cancellationToken);
+                return HasPermission(id, permission);
+            }
+            finally
+            {
+                Interlocked.Decrement(ref activeChecks);
+            }
+        }
+
+        private bool HasPermission(Guid id, string permission) =>
+            values.TryGetValue(id, out var current) && current.Contains(permission);
     }
 }

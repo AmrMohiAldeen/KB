@@ -1,5 +1,5 @@
 // Next Imports
-import Link from 'next/link'
+import Link from '@components/Link'
 
 // MUI Imports
 import Button from '@mui/material/Button'

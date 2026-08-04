@@ -35,6 +35,11 @@ describe('lifecycle action visibility', () => {
   it('shows reviewer actions without exposing approval when the backend denies it', () => {
     expect(getVisibleLifecycleActions('SubmittedForReview', permissions({ canReview: true })))
       .toEqual(['startReview'])
+    expect(getVisibleLifecycleActions('SubmittedForReview', permissions({
+      canReview: true,
+      canRequestChanges: true,
+      canApprove: true
+    }))).toEqual(['startReview', 'requestChanges', 'reject', 'approve'])
     expect(getVisibleLifecycleActions('InReview', permissions({
       canRequestChanges: true,
       canApprove: false

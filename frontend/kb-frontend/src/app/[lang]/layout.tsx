@@ -10,7 +10,6 @@ import '@/app/globals.css'
 import '@assets/iconify-icons/generated-icons.css'
 
 // Next Imports
-// test
 import { notFound } from 'next/navigation'
 
 // MUI Imports

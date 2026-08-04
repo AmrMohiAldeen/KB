@@ -8,10 +8,14 @@ public static class ArticleWorkflow
     {
         (ArticleStatuses.Draft, ArticleStatuses.SubmittedForReview),
         (ArticleStatuses.SubmittedForReview, ArticleStatuses.InReview),
+        (ArticleStatuses.SubmittedForReview, ArticleStatuses.ChangesRequested),
+        (ArticleStatuses.SubmittedForReview, ArticleStatuses.Approved),
         (ArticleStatuses.InReview, ArticleStatuses.ChangesRequested),
         (ArticleStatuses.InReview, ArticleStatuses.Approved),
         (ArticleStatuses.ChangesRequested, ArticleStatuses.Resubmitted),
         (ArticleStatuses.Resubmitted, ArticleStatuses.InReview),
+        (ArticleStatuses.Resubmitted, ArticleStatuses.ChangesRequested),
+        (ArticleStatuses.Resubmitted, ArticleStatuses.Approved),
         (ArticleStatuses.Approved, ArticleStatuses.Published)
     };
 

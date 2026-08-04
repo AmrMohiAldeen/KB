@@ -12,6 +12,7 @@ using Kb.Infrastructure.Data;
 using Kb.Infrastructure.Data.Entities;
 using Kb.Infrastructure.Lifecycle;
 using Kb.Infrastructure.Drafts;
+using Kb.Infrastructure.Authorization;
 using Kb.Application.Notifications;
 using Kb.Infrastructure.Notifications;
 using Microsoft.Data.Sqlite;
@@ -171,6 +172,75 @@ public sealed class ArticleLifecycleSliceTests
             f.ArticleId, new(started.RowVersion), default));
         Assert.Equal(ArticleStatuses.InReview,
             (await f.Context.ArticleDrafts.AsNoTracking().SingleAsync()).Status);
+    }
+
+    [Fact]
+    public async Task Submitted_article_is_reviewable_without_a_separate_start_transition()
+    {
+        await using var f = await Fixture.CreateAsync(ArticleStatuses.SubmittedForReview);
+        f.Grant(f.ReviewerId, PermissionCodes.ArticlesReview);
+        f.Current.UserId = f.ReviewerId;
+
+        var permissions = await f.Service.GetPermissionsAsync(f.ArticleId, default);
+
+        Assert.True(permissions.CanReview);
+        Assert.True(permissions.CanRequestChanges);
+        Assert.True(permissions.CanApprove);
+        var approved = await f.Service.ApproveAsync(f.ArticleId,
+            new(f.RowVersion, "Ready to publish"), default);
+        Assert.Equal(ArticleStatuses.Approved, approved.Status);
+    }
+
+    [Fact]
+    public async Task Admin_can_approve_own_article_and_publish_it()
+    {
+        await using var f = await Fixture.CreateAsync(ArticleStatuses.InReview);
+        await f.MarkAdminAsync(f.AuthorId);
+
+        var reviewPermissions = await f.Service.GetPermissionsAsync(f.ArticleId, default);
+        Assert.True(reviewPermissions.CanRequestChanges);
+        Assert.True(reviewPermissions.CanApprove);
+
+        var approved = await f.Service.ApproveAsync(f.ArticleId,
+            new(f.RowVersion, "Admin approval"), default);
+        var publishPermissions = await f.Service.GetPermissionsAsync(f.ArticleId, default);
+        Assert.True(publishPermissions.CanPublish);
+
+        var published = await f.Service.PublishAsync(f.ArticleId,
+            new(approved.RowVersion, "Admin publish"), default);
+        Assert.Equal(ArticleStatuses.Published, published.Status);
+    }
+
+    [Fact]
+    public async Task Reviewer_can_publish_only_when_publish_permission_is_explicitly_granted()
+    {
+        await using var f = await Fixture.CreateAsync(ArticleStatuses.Approved);
+        f.Grant(f.ReviewerId, PermissionCodes.ArticlesReview);
+        f.Current.UserId = f.ReviewerId;
+
+        Assert.False((await f.Service.GetPermissionsAsync(f.ArticleId, default)).CanPublish);
+        await Assert.ThrowsAsync<ForbiddenException>(() => f.Service.PublishAsync(
+            f.ArticleId, new(f.RowVersion), default));
+
+        f.Grant(f.ReviewerId, PermissionCodes.ArticlesPublish);
+        Assert.True((await f.Service.GetPermissionsAsync(f.ArticleId, default)).CanPublish);
+        var published = await f.Service.PublishAsync(f.ArticleId, new(f.RowVersion), default);
+        Assert.Equal(ArticleStatuses.Published, published.Status);
+    }
+
+    [Fact]
+    public async Task Changes_requested_restores_edit_access_only_to_an_authorized_editor()
+    {
+        await using var f = await Fixture.CreateAsync(ArticleStatuses.ChangesRequested);
+        f.Grant(f.AuthorId, PermissionCodes.ArticlesEditOwnDraft);
+        f.Grant(f.ReviewerId, PermissionCodes.ArticlesEditOwnDraft);
+
+        var authorDraft = await f.CreateDraftService().GetAsync(f.ArticleId, default);
+        Assert.True(authorDraft.CanEdit);
+
+        f.Current.UserId = f.ReviewerId;
+        var unauthorizedDraft = await f.CreateDraftService().GetAsync(f.ArticleId, default);
+        Assert.False(unauthorizedDraft.CanEdit);
     }
 
     [Fact]
@@ -648,6 +718,7 @@ public sealed class ArticleLifecycleSliceTests
                 storage,
                 current,
                 permissions,
+                new DatabaseAdminChecker(context),
                 TimeProvider.System,
                 Options.Create(new DraftContentOptions
                 {
@@ -679,6 +750,16 @@ public sealed class ArticleLifecycleSliceTests
 
         public void Grant(Guid userId, params string[] permissionCodes) =>
             permissions.Grant(userId, permissionCodes);
+
+        public async Task MarkAdminAsync(Guid userId)
+        {
+            var roleId = Guid.NewGuid();
+            Context.Roles.Add(new Role { RoleId = roleId, RoleName = "Admin" });
+            Context.UserRoles.Add(new UserRole
+                { UserId = userId, RoleId = roleId, AssignedAt = DateTime.UtcNow });
+            await Context.SaveChangesAsync();
+            Context.ChangeTracker.Clear();
+        }
 
         public void TrackPermissionCheckConcurrency() =>
             permissions.TrackConcurrency = true;

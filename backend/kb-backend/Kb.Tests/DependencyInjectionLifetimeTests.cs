@@ -1,4 +1,5 @@
 using Kb.Application;
+using Kb.Application.Comments;
 using Kb.Application.Lifecycle;
 using Kb.Infrastructure;
 using Kb.Infrastructure.Data;
@@ -10,7 +11,7 @@ namespace Kb.Tests;
 public sealed class DependencyInjectionLifetimeTests
 {
     [Fact]
-    public void Lifecycle_service_and_database_context_are_scoped()
+    public void Database_dependent_services_and_context_are_scoped()
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -27,6 +28,9 @@ public sealed class DependencyInjectionLifetimeTests
 
         Assert.Contains(services, descriptor =>
             descriptor.ServiceType == typeof(ArticleLifecycleService) &&
+            descriptor.Lifetime == ServiceLifetime.Scoped);
+        Assert.Contains(services, descriptor =>
+            descriptor.ServiceType == typeof(ArticleCommentService) &&
             descriptor.Lifetime == ServiceLifetime.Scoped);
         Assert.Contains(services, descriptor =>
             descriptor.ServiceType == typeof(KbDbContext) &&

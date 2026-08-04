@@ -338,6 +338,7 @@ const ArticleEditorShell = ({
           articleId={articleId}
           accessToken={accessToken}
           beforeAction={editor.prepareForWorkflow}
+          onChanged={editor.reload}
           actionsTarget={workflowActionsTarget}
           actionsInHeader
           actionsDisabled={Boolean(

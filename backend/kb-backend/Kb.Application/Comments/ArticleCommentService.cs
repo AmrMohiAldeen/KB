@@ -216,10 +216,11 @@ public sealed class ArticleCommentService(
         Guid actorId,
         CancellationToken cancellationToken)
     {
-        var comment = permissionChecker.HasPermissionAsync(actorId, PermissionCodes.CommentsCreate, cancellationToken);
-        var moderate = permissionChecker.HasPermissionAsync(actorId, PermissionCodes.CommentsModerate, cancellationToken);
-        await Task.WhenAll(comment, moderate);
-        return (comment.Result, moderate.Result);
+        var canComment = await permissionChecker.HasPermissionAsync(
+            actorId, PermissionCodes.CommentsCreate, cancellationToken);
+        var canModerate = await permissionChecker.HasPermissionAsync(
+            actorId, PermissionCodes.CommentsModerate, cancellationToken);
+        return (canComment, canModerate);
     }
 
     private static void ValidateAnchor(

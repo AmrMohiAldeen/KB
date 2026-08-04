@@ -30,6 +30,7 @@ public sealed class ArticleLifecycleService
     private readonly IObjectStorage storage;
     private readonly ICurrentUser currentUser;
     private readonly IPermissionChecker permissionChecker;
+    private readonly IAdminChecker adminChecker;
     private readonly TimeProvider timeProvider;
     private readonly DraftContentOptions options;
     private readonly NotificationService? notificationService;
@@ -39,6 +40,7 @@ public sealed class ArticleLifecycleService
         IObjectStorage storage,
         ICurrentUser currentUser,
         IPermissionChecker permissionChecker,
+        IAdminChecker adminChecker,
         TimeProvider timeProvider,
         IOptions<DraftContentOptions> options,
         NotificationService? notificationService = null)
@@ -47,6 +49,7 @@ public sealed class ArticleLifecycleService
         this.storage = storage;
         this.currentUser = currentUser;
         this.permissionChecker = permissionChecker;
+        this.adminChecker = adminChecker;
         this.timeProvider = timeProvider;
         this.options = options.Value;
         this.notificationService = notificationService;
@@ -58,6 +61,7 @@ public sealed class ArticleLifecycleService
     {
         var draft = await GetCurrentActiveAsync(articleId, cancellationToken);
         var actorId = currentUser.UserId;
+        var isAdmin = await adminChecker.IsAdminAsync(actorId, cancellationToken);
         var permissionCodes = new[]
         {
             PermissionCodes.ArticlesEditOwnDraft,
@@ -79,42 +83,44 @@ public sealed class ArticleLifecycleService
                 granted.Add(code);
         }
         var isOwner = draft.ArticleOwnerId == actorId;
+        var hasReviewPermission = isAdmin || granted.Contains(PermissionCodes.ArticlesReview);
+        var hasPublishPermission = isAdmin || granted.Contains(PermissionCodes.ArticlesPublish);
         var canEditPermission = granted.Contains(PermissionCodes.ArticlesEditAnyDraft) ||
                                 isOwner && granted.Contains(PermissionCodes.ArticlesEditOwnDraft);
         var unlocked = !draft.IsLocked;
         var editable = draft.DraftStatus is ArticleStatuses.Draft or ArticleStatuses.ChangesRequested;
+        var reviewable = IsReviewable(draft.DraftStatus);
         var canSubmit = isOwner && unlocked &&
                         granted.Contains(PermissionCodes.ArticlesSubmitForReview) &&
                         draft.DraftStatus == ArticleStatuses.Draft;
         var canResubmit = isOwner && unlocked &&
                           granted.Contains(PermissionCodes.ArticlesSubmitForReview) &&
                           draft.DraftStatus == ArticleStatuses.ChangesRequested;
-        var canReview = unlocked && granted.Contains(PermissionCodes.ArticlesReview) &&
+        var canReview = unlocked && hasReviewPermission &&
                         draft.DraftStatus is ArticleStatuses.SubmittedForReview or ArticleStatuses.Resubmitted;
-        var canRequestChanges = unlocked && granted.Contains(PermissionCodes.ArticlesReview) &&
-                                draft.DraftStatus == ArticleStatuses.InReview;
-        var canApprove = canRequestChanges && !isOwner;
-        var canPublish = unlocked && granted.Contains(PermissionCodes.ArticlesPublish) &&
+        var canRequestChanges = unlocked && hasReviewPermission && reviewable;
+        var canApprove = canRequestChanges && (!isOwner || isAdmin);
+        var canPublish = unlocked && hasPublishPermission &&
                          draft.DraftStatus == ArticleStatuses.Approved;
         var canViewVersions = granted.Contains(PermissionCodes.VersionsView);
         var canRestore = unlocked && granted.Contains(PermissionCodes.VersionsRestore) &&
                          IsReplaceableByRestore(draft.DraftStatus);
 
         var overrideTargets = new List<string>();
-        if (unlocked && granted.Contains(PermissionCodes.ArticlesEditAnyDraft))
+        if (unlocked && (isAdmin || granted.Contains(PermissionCodes.ArticlesEditAnyDraft)))
         {
-            if (granted.Contains(PermissionCodes.ArticlesSubmitForReview))
+            if (isAdmin || granted.Contains(PermissionCodes.ArticlesSubmitForReview))
                 overrideTargets.AddRange([
                     ArticleStatuses.Draft,
                     ArticleStatuses.SubmittedForReview,
                     ArticleStatuses.Resubmitted
                 ]);
-            if (granted.Contains(PermissionCodes.ArticlesReview))
+            if (hasReviewPermission)
                 overrideTargets.AddRange([
                     ArticleStatuses.InReview,
                     ArticleStatuses.ChangesRequested
                 ]);
-            if (!isOwner && granted.Contains(PermissionCodes.ArticlesReview))
+            if ((!isOwner || isAdmin) && hasReviewPermission)
                 overrideTargets.Add(ArticleStatuses.Approved);
         }
         overrideTargets.RemoveAll(status => status == draft.DraftStatus);
@@ -242,7 +248,8 @@ public sealed class ArticleLifecycleService
     {
         if (string.IsNullOrWhiteSpace(command.Comment))
             throw new BusinessRuleException("A reason is required when requesting changes.");
-        return ReviewerTransitionAsync(articleId, command, [ArticleStatuses.InReview],
+        return ReviewerTransitionAsync(articleId, command,
+            [ArticleStatuses.SubmittedForReview, ArticleStatuses.InReview, ArticleStatuses.Resubmitted],
             ArticleStatuses.ChangesRequested, ReviewActions.RequestChanges, ArticleAuditActions.ChangesRequested,
             preventSelfApproval: false, snapshotReason: null, cancellationToken);
     }
@@ -251,7 +258,8 @@ public sealed class ArticleLifecycleService
         Guid articleId,
         LifecycleCommand command,
         CancellationToken cancellationToken) =>
-        ReviewerTransitionAsync(articleId, command, [ArticleStatuses.InReview],
+        ReviewerTransitionAsync(articleId, command,
+            [ArticleStatuses.SubmittedForReview, ArticleStatuses.InReview, ArticleStatuses.Resubmitted],
             ArticleStatuses.Approved, ReviewActions.Approve, ArticleAuditActions.Approved,
             preventSelfApproval: true, snapshotReason: ArticleSnapshotReasons.Approved, cancellationToken);
 
@@ -262,7 +270,8 @@ public sealed class ArticleLifecycleService
     {
         if (string.IsNullOrWhiteSpace(command.Comment))
             throw new BusinessRuleException("A reason is required when rejecting an article.");
-        return ReviewerTransitionAsync(articleId, command, [ArticleStatuses.InReview],
+        return ReviewerTransitionAsync(articleId, command,
+            [ArticleStatuses.SubmittedForReview, ArticleStatuses.InReview, ArticleStatuses.Resubmitted],
             ArticleStatuses.ChangesRequested, ReviewActions.Reject, ArticleAuditActions.Rejected,
             preventSelfApproval: true, snapshotReason: null, cancellationToken);
     }
@@ -273,7 +282,7 @@ public sealed class ArticleLifecycleService
         CancellationToken cancellationToken)
     {
         var draft = await LoadAndValidateAsync(articleId, command.RowVersion, cancellationToken);
-        await RequirePermissionAsync(PermissionCodes.ArticlesPublish, cancellationToken);
+        await RequirePermissionOrAdminAsync(PermissionCodes.ArticlesPublish, cancellationToken);
         EnsureTransition(draft.DraftStatus, ArticleStatuses.Published);
         EnsureUnlocked(draft);
         if (string.IsNullOrWhiteSpace(draft.ContentJsonPath))
@@ -333,10 +342,14 @@ public sealed class ArticleLifecycleService
             ?? throw new BusinessRuleException("The workflow override target status is not supported.");
 
         var draft = await LoadAndValidateAsync(articleId, command.RowVersion, cancellationToken);
-        await RequirePermissionAsync(PermissionCodes.ArticlesEditAnyDraft, cancellationToken);
-        await RequirePermissionAsync(TargetPermission(target), cancellationToken);
+        var isAdmin = await adminChecker.IsAdminAsync(currentUser.UserId, cancellationToken);
+        if (!isAdmin)
+        {
+            await RequirePermissionAsync(PermissionCodes.ArticlesEditAnyDraft, cancellationToken);
+            await RequirePermissionAsync(TargetPermission(target), cancellationToken);
+        }
         EnsureUnlocked(draft);
-        if (target == ArticleStatuses.Approved && draft.ArticleOwnerId == currentUser.UserId)
+        if (target == ArticleStatuses.Approved && draft.ArticleOwnerId == currentUser.UserId && !isAdmin)
             throw new ForbiddenException("Reviewers cannot approve their own articles.");
         if (draft.DraftStatus == target)
             throw new ConflictException($"The article is already in the {target} state.");
@@ -463,10 +476,11 @@ public sealed class ArticleLifecycleService
         CancellationToken cancellationToken)
     {
         var draft = await LoadAndValidateAsync(articleId, command.RowVersion, cancellationToken);
-        await RequirePermissionAsync(PermissionCodes.ArticlesReview, cancellationToken);
+        await RequirePermissionOrAdminAsync(PermissionCodes.ArticlesReview, cancellationToken);
         if (!allowedFrom.Contains(draft.DraftStatus, StringComparer.Ordinal))
             throw InvalidTransition(draft.DraftStatus, newStatus);
-        if (preventSelfApproval && draft.ArticleOwnerId == currentUser.UserId)
+        if (preventSelfApproval && draft.ArticleOwnerId == currentUser.UserId &&
+            !await adminChecker.IsAdminAsync(currentUser.UserId, cancellationToken))
             throw new ForbiddenException("Reviewers cannot approve their own articles.");
         EnsureTransition(draft.DraftStatus, newStatus);
         EnsureUnlocked(draft);
@@ -560,6 +574,14 @@ public sealed class ArticleLifecycleService
     {
         EnsureAuthenticated();
         if (!await permissionChecker.HasPermissionAsync(currentUser.UserId, permission, cancellationToken))
+            throw new ForbiddenException();
+    }
+
+    private async Task RequirePermissionOrAdminAsync(string permission, CancellationToken cancellationToken)
+    {
+        EnsureAuthenticated();
+        if (!await permissionChecker.HasPermissionAsync(currentUser.UserId, permission, cancellationToken) &&
+            !await adminChecker.IsAdminAsync(currentUser.UserId, cancellationToken))
             throw new ForbiddenException();
     }
 
@@ -793,6 +815,9 @@ public sealed class ArticleLifecycleService
 
     private static bool IsReplaceableByRestore(string status) =>
         status is ArticleStatuses.Published or ArticleStatuses.Draft or ArticleStatuses.ChangesRequested;
+
+    private static bool IsReviewable(string status) =>
+        status is ArticleStatuses.SubmittedForReview or ArticleStatuses.InReview or ArticleStatuses.Resubmitted;
 
     private static string? NotificationType(string action) => action switch
     {
