@@ -1,6 +1,6 @@
 import type { JSONContent } from '@tiptap/core'
 import { Editor } from '@tiptap/core'
-import { act, createElement, useState } from 'react'
+import { act, createElement, StrictMode, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EditorFileUploadAdapter } from '../extensions/FileHandlerIntegration'
@@ -58,9 +58,10 @@ describe('KnowledgeBaseEditor lifecycle', () => {
     mountSpy.mockRestore()
   })
 
-  const render = async (editable = true) => {
+  const render = async (editable = true, strict = false) => {
     await act(async () => {
-      root.render(createElement(RerenderingHarness, { editable }))
+      const editor = createElement(RerenderingHarness, { editable })
+      root.render(strict ? createElement(StrictMode, null, editor) : editor)
       await Promise.resolve()
     })
   }
@@ -101,5 +102,27 @@ describe('KnowledgeBaseEditor lifecycle', () => {
     expect(container.querySelector('.ProseMirror')).toBe(editorElement)
     expect(editor.getText()).toBe('Loaded article typed text')
     expect(container.querySelector('.ProseMirror')?.textContent).toBe('Loaded article typed text')
+  })
+
+  it('keeps the mounted editor view connected in Strict Mode', async () => {
+    await render(true, true)
+    const editor = mountedEditors.at(-1)!
+
+    expect(editor.view.dom.isConnected).toBe(true)
+    expect(container.querySelector('.ProseMirror')).toBe(editor.view.dom)
+
+    act(() => {
+      editor.view.dispatch(
+        editor.state.tr.insertText(' strict text', editor.state.doc.content.size - 1)
+      )
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(editor.isDestroyed).toBe(false)
+    expect(editor.view.dom.isConnected).toBe(true)
+    expect(container.querySelector('.ProseMirror')).toBe(editor.view.dom)
+    expect(container.querySelector('.ProseMirror')?.textContent).toBe('Loaded article strict text')
   })
 })

@@ -2,7 +2,7 @@
 
 import type { Content } from "@tiptap/core";
 import { EditorContent, useEditor } from "@tiptap/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getEditorExtensions } from "../extensions";
 import { EditorDragHandle } from "../extensions/EditorDragHandle";
 import { ImageBubbleMenu } from "../blocks/image";
@@ -162,39 +162,31 @@ export default function KnowledgeBaseEditor({
       editor.getText(),
     ],
   );
-  const hasFileUploadAdapter = Boolean(fileUploadAdapter);
-  const hasMediaContentLoader = Boolean(mediaContentLoader);
-  const allowedFileMimeTypesKey = JSON.stringify(allowedFileMimeTypes ?? null);
-  const stableAllowedFileMimeTypes = useMemo<readonly string[] | undefined>(() => {
-    const parsed = JSON.parse(allowedFileMimeTypesKey) as string[] | null;
-    return parsed ?? undefined;
-  }, [allowedFileMimeTypesKey]);
-  const extensions = useMemo(
-    () =>
-      getEditorExtensions({
-        mediaContentLoader: hasMediaContentLoader
-          ? runtimeExtensionState.loadMediaContent
+  // Tiptap treats a changed extension array as a request to destroy and
+  // recreate the Editor. Keep the schema/plugin set fixed for this component
+  // lifetime; the bridges above carry the latest runtime callbacks without
+  // invalidating the mounted ProseMirror view. Server content reloads already
+  // remount this component explicitly through ArticleEditorShell.editorKey.
+  const [extensions] = useState(() =>
+    getEditorExtensions({
+      mediaContentLoader: mediaContentLoader
+        ? runtimeExtensionState.loadMediaContent
+        : undefined,
+      fileHandler: {
+        adapter: fileUploadAdapter
+          ? runtimeExtensionState.uploadFile
           : undefined,
-        fileHandler: {
-          adapter: hasFileUploadAdapter
-            ? runtimeExtensionState.uploadFile
-            : undefined,
-          allowedMimeTypes: stableAllowedFileMimeTypes,
-          onUploadError: runtimeExtensionState.handleUploadError,
-        },
-        commentAnchors: {
-          getAnchors: commentExtensionState.getAnchors,
-          getActiveThreadId: commentExtensionState.getActiveThreadId,
-          onSelect: commentExtensionState.select,
-        },
-      }),
-    [
-      commentExtensionState,
-      hasFileUploadAdapter,
-      hasMediaContentLoader,
-      runtimeExtensionState,
-      stableAllowedFileMimeTypes,
-    ],
+        allowedMimeTypes: allowedFileMimeTypes
+          ? [...allowedFileMimeTypes]
+          : undefined,
+        onUploadError: runtimeExtensionState.handleUploadError,
+      },
+      commentAnchors: {
+        getAnchors: commentExtensionState.getAnchors,
+        getActiveThreadId: commentExtensionState.getActiveThreadId,
+        onSelect: commentExtensionState.select,
+      },
+    }),
   );
 
   const editor = useEditor(
@@ -222,7 +214,7 @@ export default function KnowledgeBaseEditor({
         );
       },
     },
-    [extensions],
+    [],
   );
 
   useEffect(() => {

@@ -81,6 +81,18 @@ describe('article lifecycle API', () => {
     ])
   })
 
+  it('includes the backend trace reference for unexpected lifecycle failures', () => {
+    const error = new ApiError(500, {
+      status: 500,
+      detail: 'An unexpected error occurred. Contact support with the trace ID.',
+      traceId: 'trace-500'
+    })
+
+    expect(describeLifecycleError(error)).toEqual([
+      'An unexpected error occurred. Contact support with the trace ID. (Reference: trace-500)'
+    ])
+  })
+
   it('identifies concurrency conflicts so the UI can offer reload', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
       status: 409,

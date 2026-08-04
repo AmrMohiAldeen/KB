@@ -176,6 +176,10 @@ export const describeApiError = (error: unknown): string[] => {
   if (error.validationMessages.length)
     return error.validationMessages
 
+  const withTraceId = (message: string) => error.problem?.traceId
+    ? `${message} (Reference: ${error.problem.traceId})`
+    : message
+
   switch (error.status) {
     case 0:
       return ['The knowledge base API could not be reached. Check your connection and try again.']
@@ -188,8 +192,8 @@ export const describeApiError = (error: unknown): string[] => {
     case 409:
       return [error.message || 'The resource changed or conflicts with an existing resource. Refresh and try again.']
     case 500:
-      return ['The server could not complete the request. Try again later.']
+      return [withTraceId(error.message || 'The server could not complete the request. Try again later.')]
     default:
-      return [error.message]
+      return [withTraceId(error.message)]
   }
 }
