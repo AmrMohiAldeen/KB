@@ -1,9 +1,8 @@
 import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { describeAuditLogApiError, getAuditLogs } from '@/lib/api/auditLogsApi'
+import { getAuditLogs } from '@/lib/api/auditLogsApi'
 import { ApiError } from '@/lib/api/http'
-import { AccessTokenProvider } from '@/lib/auth/accessTokenContext'
 import AuditActivityFeed from './AuditActivityFeed'
 
 vi.mock('@/lib/api/auditLogsApi', async importOriginal => {
@@ -41,6 +40,21 @@ describe('AuditActivityFeed authentication states', () => {
     })
   }
 
+  it('loads audit logs with the server-forwarded dashboard session token', async () => {
+    vi.mocked(getAuditLogs).mockResolvedValue({
+      items: [],
+      page: 1,
+      pageSize: 10,
+      totalCount: 0
+    })
+
+    await renderPage('session-token')
+
+    expect(getAuditLogs).toHaveBeenCalledWith(expect.any(Object), 'session-token', expect.any(AbortSignal))
+    expect(document.body.textContent).not.toContain('Sign in required')
+    expect(document.body.textContent).not.toContain('Audit logs could not be loaded')
+  })
+
   it('shows the sign-in-required state without calling the API when logged out', async () => {
     await renderPage('')
 
@@ -49,7 +63,7 @@ describe('AuditActivityFeed authentication states', () => {
     expect(getAuditLogs).not.toHaveBeenCalled()
   })
 
-  it('treats a 401 as an authentication failure', async () => {
+  it('treats a backend 401 as an authentication failure', async () => {
     vi.mocked(getAuditLogs).mockRejectedValue(new ApiError(401, {
       status: 401,
       title: 'Unauthorized'
@@ -58,48 +72,32 @@ describe('AuditActivityFeed authentication states', () => {
     await renderPage('expired-token')
 
     expect(document.body.textContent).toContain('Sign in required')
-    expect(document.body.textContent).toContain(describeAuditLogApiError(
-      new ApiError(401, { status: 401, title: 'Unauthorized' })
-    )[0])
     expect(document.body.textContent).not.toContain('Audit logs could not be loaded')
   })
 
-  it('uses the persistent dashboard-layout token during client navigation', async () => {
-    vi.mocked(getAuditLogs).mockResolvedValue({
-      items: [],
-      page: 1,
-      pageSize: 10,
-      totalCount: 0
-    })
-
-    await act(async () => {
-      root.render(createElement(
-        AccessTokenProvider,
-        {
-          accessToken: 'layout-token',
-          children: createElement(AuditActivityFeed)
-        }
-      ))
-    })
-    await act(async () => {
-      await new Promise(resolve => window.setTimeout(resolve, 0))
-      await Promise.resolve()
-    })
-
-    expect(getAuditLogs).toHaveBeenCalledWith(expect.any(Object), 'layout-token', expect.any(AbortSignal))
-    expect(document.body.textContent).not.toContain('Sign in required')
-  })
-
-  it('keeps authorization and server failures out of the sign-in state', async () => {
+  it('keeps a 403 as an authorization failure', async () => {
     vi.mocked(getAuditLogs).mockRejectedValue(new ApiError(403, {
       status: 403,
       title: 'Forbidden'
     }))
 
-    await renderPage('valid-token')
+    await renderPage('session-token')
 
     expect(document.body.textContent).not.toContain('Sign in required')
     expect(document.body.textContent).toContain('Audit logs could not be loaded')
     expect(document.body.textContent).toContain('You do not have permission to view audit logs.')
+  })
+
+  it.each([
+    [new ApiError(503, { status: 503, title: 'Service unavailable' }), 'Service unavailable'],
+    [new ApiError(0, { status: 0, title: 'Network error' }), 'could not be reached']
+  ])('keeps server and network failures distinct from authentication', async (error, message) => {
+    vi.mocked(getAuditLogs).mockRejectedValue(error)
+
+    await renderPage('session-token')
+
+    expect(document.body.textContent).not.toContain('Sign in required')
+    expect(document.body.textContent).toContain('Audit logs could not be loaded')
+    expect(document.body.textContent).toContain(message)
   })
 })

@@ -3,7 +3,6 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MediaLibraryApi } from '@/lib/api/mediaApi'
 import { ApiError } from '@/lib/api/http'
-import { AccessTokenProvider } from '@/lib/auth/accessTokenContext'
 import type { MediaListItemResponse, MediaListResponse } from '@/types/apps/mediaTypes'
 import MediaLibraryPage from './MediaLibraryPage'
 
@@ -249,41 +248,6 @@ describe('MediaLibraryPage', () => {
     expect(document.body.textContent).toContain('Sign in through the company authentication provider')
     expect(api.getList).not.toHaveBeenCalled()
     expect(buttonByText('Add media')?.disabled).toBe(true)
-  })
-
-  it('clears a stale signed-out state when a session token becomes available', async () => {
-    const api = createApi({ getList: vi.fn().mockResolvedValue(response([mediaFile()])) })
-
-    await renderPage(api, '')
-
-    await act(async () => {
-      root.render(createElement(MediaLibraryPage, { accessToken: 'fresh-token', locale: 'en', api }))
-    })
-    await settle()
-
-    expect(api.getList).toHaveBeenCalledWith(expect.any(Object), 'fresh-token', expect.any(AbortSignal))
-    expect(document.body.textContent).not.toContain('Sign in required')
-    expect(document.body.textContent).toContain('guide.pdf')
-    expect(buttonByText('Add media')?.disabled).toBe(false)
-  })
-
-  it('uses the persistent dashboard-layout token during client navigation', async () => {
-    const api = createApi({ getList: vi.fn().mockResolvedValue(response([mediaFile()])) })
-
-    await act(async () => {
-      root.render(createElement(
-        AccessTokenProvider,
-        {
-          accessToken: 'layout-token',
-          children: createElement(MediaLibraryPage, { locale: 'en', api })
-        }
-      ))
-    })
-    await settle()
-
-    expect(api.getList).toHaveBeenCalledWith(expect.any(Object), 'layout-token', expect.any(AbortSignal))
-    expect(document.body.textContent).toContain('guide.pdf')
-    expect(document.body.textContent).not.toContain('Sign in required')
   })
 
   it('separates expired sessions from authorization failures', async () => {

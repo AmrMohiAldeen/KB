@@ -25,8 +25,7 @@ import type {
 } from '@/types/apps/mediaTypes'
 import type { KbDataTableColumn } from '@/views/shared/tables/KbDataTable'
 import type { MediaLibraryApi } from '@/lib/api/mediaApi'
-import { hasAccessToken, isAuthenticationError } from '@/lib/api/http'
-import { useAccessToken } from '@/lib/auth/accessTokenContext'
+import { ApiError } from '@/lib/api/http'
 import { describeMediaApiError, mediaLibraryApi } from '@/lib/api/mediaApi'
 import CustomTextField from '@core/components/mui/TextField'
 import { KbPageShell } from '@/views/shared'
@@ -45,7 +44,7 @@ import {
 } from './utils/mediaValidation'
 
 type MediaLibraryPageProps = {
-  accessToken?: string
+  accessToken: string
   locale?: string
   api?: MediaLibraryApi
 }
@@ -80,13 +79,10 @@ const mediaKindLabel: Record<MediaKind, string> = {
 const missingTokenMessage = 'Sign in through the company authentication provider before loading media.'
 
 const MediaLibraryPage = ({
-  accessToken: accessTokenOverride,
+  accessToken,
   locale = 'en',
   api = mediaLibraryApi
 }: MediaLibraryPageProps) => {
-  const contextAccessToken = useAccessToken()
-  const accessToken = accessTokenOverride ?? contextAccessToken
-  const authenticated = hasAccessToken(accessToken)
   const [files, setFiles] = useState<MediaListItemResponse[]>([])
   const [totalCount, setTotalCount] = useState(0)
   const [search, setSearch] = useState('')
@@ -95,12 +91,9 @@ const MediaLibraryPage = ({
   const [status, setStatus] = useState<MediaStatus | ''>('Active')
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(10)
-  const [loading, setLoading] = useState(authenticated)
-  const [loadErrors, setLoadErrors] = useState<string[]>([])
-  const [unauthorized, setUnauthorized] = useState(!authenticated)
-  const [authenticationMessage, setAuthenticationMessage] = useState(
-    authenticated ? '' : missingTokenMessage
-  )
+  const [loading, setLoading] = useState(Boolean(accessToken))
+  const [loadErrors, setLoadErrors] = useState<string[]>(accessToken ? [] : [missingTokenMessage])
+  const [unauthorized, setUnauthorized] = useState(!accessToken)
   const [actionErrors, setActionErrors] = useState<string[]>([])
   const [successMessage, setSuccessMessage] = useState('')
   const [uploadOpen, setUploadOpen] = useState(false)
@@ -119,19 +112,16 @@ const MediaLibraryPage = ({
   }, [search])
 
   const loadMedia = useCallback(async (signal?: AbortSignal) => {
-    if (!authenticated) {
+    if (!accessToken) {
       setFiles([])
       setTotalCount(0)
       setLoading(false)
       setUnauthorized(true)
-      setAuthenticationMessage(missingTokenMessage)
-      setLoadErrors([])
+      setLoadErrors([missingTokenMessage])
       return
     }
 
     setLoading(true)
-    setUnauthorized(false)
-    setAuthenticationMessage('')
     setLoadErrors([])
 
     try {
@@ -145,24 +135,18 @@ const MediaLibraryPage = ({
 
       setFiles(response.items)
       setTotalCount(response.totalCount)
+      setUnauthorized(false)
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return
 
       setFiles([])
       setTotalCount(0)
-      if (isAuthenticationError(error)) {
-        setUnauthorized(true)
-        setAuthenticationMessage(describeMediaApiError(error)[0] ?? missingTokenMessage)
-        setLoadErrors([])
-      } else {
-        setUnauthorized(false)
-        setAuthenticationMessage('')
-        setLoadErrors(describeMediaApiError(error))
-      }
+      setUnauthorized(error instanceof ApiError && error.status === 401)
+      setLoadErrors(describeMediaApiError(error))
     } finally {
       if (!signal?.aborted) setLoading(false)
     }
-  }, [accessToken, api, authenticated, debouncedSearch, mediaType, page, pageSize, status])
+  }, [accessToken, api, debouncedSearch, mediaType, page, pageSize, status])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -450,7 +434,6 @@ const MediaLibraryPage = ({
 
   const hasFilters = Boolean(debouncedSearch || mediaType || status)
   const loadFailed = loadErrors.length > 0 && !unauthorized
-  const protectedActionsDisabled = !authenticated || unauthorized
 
   return (
     <KbPageShell>
@@ -461,7 +444,7 @@ const MediaLibraryPage = ({
           <Button
             variant='contained'
             startIcon={<Upload size={18} />}
-            disabled={protectedActionsDisabled}
+            disabled={!accessToken || unauthorized}
             onClick={() => {
               setActionErrors([])
               setUploadOpen(true)
@@ -475,7 +458,7 @@ const MediaLibraryPage = ({
       {unauthorized && (
         <Alert severity='warning'>
           <AlertTitle>Sign in required</AlertTitle>
-          {authenticationMessage || missingTokenMessage}
+          {loadErrors[0] ?? missingTokenMessage}
         </Alert>
       )}
       {!unauthorized && <KbValidationSummary title='Media library could not be loaded' errors={loadErrors} />}
@@ -538,20 +521,12 @@ const MediaLibraryPage = ({
           />
         }
         emptyState={{
-          title: unauthorized
-            ? 'Sign in required'
-            : loadFailed
-              ? 'Unable to load media'
-              : hasFilters
-                ? 'No matching media'
-                : 'No media yet',
-          description: unauthorized
-            ? missingTokenMessage
-            : loadFailed
-              ? 'The backend request failed. Try loading the media library again.'
-              : hasFilters
-                ? 'No files match the current search and filters.'
-                : 'Upload the first file to start building the media library.',
+          title: loadFailed ? 'Unable to load media' : hasFilters ? 'No matching media' : 'No media yet',
+          description: loadFailed
+            ? 'The backend request failed. Try loading the media library again.'
+            : hasFilters
+              ? 'No files match the current search and filters.'
+              : 'Upload the first file to start building the media library.',
           action: loadFailed ? (
             <Button variant='outlined' onClick={refresh}>Retry</Button>
           ) : hasFilters ? (
@@ -566,7 +541,7 @@ const MediaLibraryPage = ({
             >
               Clear filters
             </Button>
-          ) : authenticated ? (
+          ) : accessToken && !unauthorized ? (
             <Button variant='outlined' startIcon={<Upload size={18} />} onClick={() => setUploadOpen(true)}>
               Upload media
             </Button>
