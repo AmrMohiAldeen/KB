@@ -23,6 +23,32 @@ public sealed partial class HelpJuiceMigrationService(
     private readonly MediaOptions mediaOptions = mediaOptionsAccessor.Value;
     private readonly DraftContentOptions draftOptions = draftOptionsAccessor.Value;
 
+    public async Task<HelpJuiceMigrationPreview> PreviewAsync(
+        IReadOnlyList<MigrationUploadFile> files, int articleLimit, CancellationToken ct)
+    {
+        if (!currentUser.IsAuthenticated) throw new UnauthorizedAccessException();
+        if (files.Count == 0) throw new BusinessRuleException("Select a HelpJuice ZIP or migration files.");
+
+        var operationId = Guid.NewGuid();
+        var temporaryPackage = Path.Combine(Path.GetTempPath(), $"helpjuice-preview-{operationId:N}.zip");
+        try
+        {
+            await BuildTemporaryPackageAsync(files, temporaryPackage, ct);
+
+            await using var packageStream = new FileStream(temporaryPackage, FileMode.Open, FileAccess.Read,
+                FileShare.Read, 64 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
+            using var package = await HelpJuicePackageReader.ExtractAsync(packageStream, limits, ct);
+            var destinationSlugs = await writer.GetActiveArticleSlugsAsync(ct);
+            var source = await HelpJuiceSourceParser.ParseAndValidateAsync(
+                package, limits, timeProvider, destinationSlugs, ct);
+            return HelpJuicePreviewBuilder.Build(source, articleLimit);
+        }
+        finally
+        {
+            if (File.Exists(temporaryPackage)) File.Delete(temporaryPackage);
+        }
+    }
+
     public async Task<HelpJuiceMigrationExecutionResult> ExecuteAsync(
         IReadOnlyList<MigrationUploadFile> files, HelpJuiceMigrationOptions options, CancellationToken ct)
     {
@@ -37,10 +63,7 @@ public sealed partial class HelpJuiceMigrationService(
         var migrationStarted = false;
         try
         {
-            if (files.Count == 1 && Path.GetExtension(files[0].FileName).Equals(".zip", StringComparison.OrdinalIgnoreCase))
-                await CopyUploadedZipAsync(files[0], temporaryPackage, ct);
-            else
-                await BuildManualPackageAsync(files, temporaryPackage, ct);
+            await BuildTemporaryPackageAsync(files, temporaryPackage, ct);
 
             await using var packageStream = new FileStream(temporaryPackage, FileMode.Open, FileAccess.Read,
                 FileShare.Read, 64 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
@@ -277,6 +300,15 @@ public sealed partial class HelpJuiceMigrationService(
             await using var stream = new MemoryStream(bytes, writable: false);
             return await storage.UploadAsync(draftOptions.ContainerName, name, stream, type, ct);
         }
+    }
+
+    private async Task BuildTemporaryPackageAsync(IReadOnlyList<MigrationUploadFile> files,
+        string destination, CancellationToken ct)
+    {
+        if (files.Count == 1 && Path.GetExtension(files[0].FileName).Equals(".zip", StringComparison.OrdinalIgnoreCase))
+            await CopyUploadedZipAsync(files[0], destination, ct);
+        else
+            await BuildManualPackageAsync(files, destination, ct);
     }
 
     private async Task CopyUploadedZipAsync(MigrationUploadFile file, string target, CancellationToken ct)

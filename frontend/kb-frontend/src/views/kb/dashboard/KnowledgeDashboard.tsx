@@ -68,6 +68,7 @@ import { articleStatusColor, articleStatusLabel } from '../config/articles'
 import { formatDate } from '../shared/utils/formatDate'
 import { getCategoryOptions } from '../categories/utils/categoryForm'
 import { createArticle, deleteArticle, describeArticleApiError } from '@/lib/api/articlesApi'
+import { describeLifecycleError, unarchiveArticle } from '@/lib/api/articleLifecycleApi'
 import { createCategory, getCategoryTree } from '@/lib/api/categories'
 import {
   defaultDashboardPageSize,
@@ -479,6 +480,23 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
     }
   }, [accessToken, canDeleteArticle, mutating, refresh, selectedArticles])
 
+  const restoreArchivedArticle = useCallback(async (article: ArticleListItemResponse) => {
+    if (!accessToken || !canDeleteArticle || article.status !== 'Archived' || mutating) return
+
+    setMutating(true)
+    setMutationErrors([])
+
+    try {
+      await unarchiveArticle(article.articleId, accessToken)
+      setSuccessMessage(`“${article.title}” was restored.`)
+      refresh()
+    } catch (error) {
+      setMutationErrors(describeLifecycleError(error))
+    } finally {
+      setMutating(false)
+    }
+  }, [accessToken, canDeleteArticle, mutating, refresh])
+
   const toggleArticle = (articleId: string) => {
     setSelectedArticleIds(current => {
       const next = new Set(current)
@@ -500,8 +518,9 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
     const canEdit = canEditDashboardArticle({ article, permissionContext })
     const canView = canViewArticles && article.status !== 'Archived'
     const canDelete = canDeleteArticle && article.status !== 'Archived'
+    const canRestore = canDeleteArticle && article.status === 'Archived'
 
-    if (!canView && !canEdit && !canDelete)
+    if (!canView && !canEdit && !canDelete && !canRestore)
       return <Typography variant='body2' color='text.secondary'>—</Typography>
 
     return (
@@ -539,6 +558,19 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
               aria-label={`Delete ${article.title}`}
             >
               <Trash2 size={16} />
+            </IconButton>
+          </Tooltip>
+        )}
+        {canRestore && (
+          <Tooltip title='Restore article'>
+            <IconButton
+              size='small'
+              color='primary'
+              disabled={mutating}
+              onClick={() => void restoreArchivedArticle(article)}
+              aria-label={`Restore ${article.title}`}
+            >
+              <RotateCcw size={16} />
             </IconButton>
           </Tooltip>
         )}

@@ -1,6 +1,8 @@
 export const auditActionOptions = [
   ['ArticleCreated', 'Article created'],
   ['ArticleMetadataUpdated', 'Article metadata updated'],
+  ['ArticleArchived', 'Archived'],
+  ['ArticleUnarchived', 'Restored from archive'],
   ['ArticleDraftContentSaved', 'Draft saved'],
   ['ArticleSubmittedForReview', 'Submitted for review'],
   ['ArticleReviewStarted', 'Review started'],

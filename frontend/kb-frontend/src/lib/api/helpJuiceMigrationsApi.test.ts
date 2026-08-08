@@ -1,11 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { runHelpJuiceMigration, type HelpJuiceMigrationOptions } from './helpJuiceMigrationsApi'
+import { previewHelpJuiceMigration, runHelpJuiceMigration, type HelpJuiceMigrationOptions } from './helpJuiceMigrationsApi'
 
 const options:HelpJuiceMigrationOptions={importPublished:true,importUnpublishedAsDrafts:true,importCategories:true,importMedia:false,preserveTimestamps:true,conflictBehavior:'UpdateExisting'}
 
 describe('helpJuiceMigrationsApi',()=>{
   beforeEach(()=>{process.env.NEXT_PUBLIC_KB_API_BASE_URL='https://kb-api.example.test'})
   afterEach(()=>{vi.unstubAllGlobals();delete process.env.NEXT_PUBLIC_KB_API_BASE_URL})
+
+  it('uploads files to the dedicated read-only preview endpoint',async()=>{
+    const response={previewLimit:100,sourceArticleCount:1,sourceCategoryCount:0,isLimited:false,
+      availableFiles:['questions.csv','answers.csv'],missingRequiredFiles:[],unsupportedFiles:[],packageIssues:[],articles:[]}
+    const fetchMock=vi.fn().mockResolvedValue({ok:true,status:200,text:async()=>JSON.stringify(response)})
+    vi.stubGlobal('fetch',fetchMock)
+    await expect(previewHelpJuiceMigration([new File(['id,name'],'questions.csv')],'token')).resolves.toEqual(response)
+    expect(fetchMock).toHaveBeenCalledWith('https://kb-api.example.test/api/migrations/helpjuice/preview',expect.objectContaining({method:'POST',body:expect.any(FormData)}))
+  })
 
   it('runs one synchronous multipart request and reports upload progress',async()=>{
     let sent:FormData|undefined

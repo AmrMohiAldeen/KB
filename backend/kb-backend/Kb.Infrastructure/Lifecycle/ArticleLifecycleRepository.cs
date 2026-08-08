@@ -65,7 +65,8 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
         dbContext.ArticleVersions.AsNoTracking()
             .Where(version => version.ArticleIdFk == articleId && version.VersionId == versionId &&
                               version.ArticleIdFkNavigation.DeletedAt == null &&
-                              version.ArticleIdFkNavigation.Status != ArticleStatuses.Deleted)
+                              version.ArticleIdFkNavigation.Status != ArticleStatuses.Deleted &&
+                              version.ArticleIdFkNavigation.Status != ArticleStatuses.Archived)
             .Select(version => new LifecycleVersionData(
                 version.VersionId,
                 version.ArticleIdFk,
@@ -115,6 +116,7 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
             .Where(article => article.ArticleId == articleId &&
                               article.DeletedAt == null &&
                               article.Status != ArticleStatuses.Deleted &&
+                              article.Status != ArticleStatuses.Archived &&
                               article.LastPublishedVersionIdFk != null)
             .Select(article => article.LastPublishedVersionIdFkNavigation!)
             .Select(VersionSummaryProjection)
@@ -126,7 +128,8 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
         await dbContext.ArticleReviewEvents.AsNoTracking()
             .Where(review => review.ArticleIdFk == articleId &&
                              review.ArticleIdFkNavigation.DeletedAt == null &&
-                             review.ArticleIdFkNavigation.Status != ArticleStatuses.Deleted)
+                             review.ArticleIdFkNavigation.Status != ArticleStatuses.Deleted &&
+                             review.ArticleIdFkNavigation.Status != ArticleStatuses.Archived)
             .OrderByDescending(review => review.CreatedAt)
             .ThenByDescending(review => review.ReviewEventId)
             .Select(review => new LifecycleReviewEventData(
@@ -313,15 +316,66 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
             var (article, draft) = await LoadForMutationAsync(
                 articleId, draftId, expectedRowVersion, token);
             EnsureUnlocked(draft);
-            article.Status = ArticleStatuses.Deleted;
-            article.DeletedAt = audit.CreatedAt;
+            article.Status = ArticleStatuses.Archived;
             article.UpdatedAt = audit.CreatedAt;
             draft.UpdatedByFk = audit.ActorId;
             draft.UpdatedAt = audit.CreatedAt;
             AdvanceSqliteRowVersion(draft);
+            dbContext.SearchIndexJobs.Add(new SearchIndexJob
+            {
+                SearchJobId = NewId(),
+                ArticleIdFk = articleId,
+                VersionIdFk = null,
+                JobType = SearchIndexJobTypes.Delete,
+                Status = JobStatuses.Pending,
+                RetryCount = 0,
+                CreatedAt = audit.CreatedAt
+            });
             AddAudit(articleId, draftId, audit);
             await SaveChangesAsync(token);
             return true;
+        }, cancellationToken);
+
+    public Task<LifecycleResultData> UnarchiveAsync(
+        Guid articleId,
+        Guid draftId,
+        LifecycleAuditData audit,
+        CancellationToken cancellationToken) =>
+        ExecuteAsync(async token =>
+        {
+            var article = await dbContext.Articles
+                .SingleOrDefaultAsync(item => item.ArticleId == articleId, token)
+                ?? throw new NotFoundException("The article was not found.");
+            if (article.DeletedAt is not null || article.Status == ArticleStatuses.Deleted)
+                throw new NotFoundException("The article was not found.");
+            if (article.Status != ArticleStatuses.Archived || article.CurrentDraftIdFk != draftId)
+                throw new ConflictException("Only an archived article can be unarchived.");
+            var draft = await dbContext.ArticleDrafts
+                .SingleOrDefaultAsync(item => item.DraftId == draftId && item.ArticleIdFk == articleId, token)
+                ?? throw new NotFoundException("The article draft was not found.");
+            EnsureUnlocked(draft);
+
+            article.Status = draft.Status;
+            article.UpdatedAt = audit.CreatedAt;
+            draft.UpdatedByFk = audit.ActorId;
+            draft.UpdatedAt = audit.CreatedAt;
+            AdvanceSqliteRowVersion(draft);
+            if (article.LastPublishedVersionIdFk is { } versionId)
+            {
+                dbContext.SearchIndexJobs.Add(new SearchIndexJob
+                {
+                    SearchJobId = NewId(),
+                    ArticleIdFk = articleId,
+                    VersionIdFk = versionId,
+                    JobType = SearchIndexJobTypes.Upsert,
+                    Status = JobStatuses.Pending,
+                    RetryCount = 0,
+                    CreatedAt = audit.CreatedAt
+                });
+            }
+            AddAudit(articleId, draftId, audit);
+            await SaveChangesAsync(token);
+            return await ReadResultAsync(articleId, null, null, audit.CreatedAt, token);
         }, cancellationToken);
 
     private async Task<(Article Article, ArticleDraft Draft)> LoadForMutationAsync(
@@ -333,7 +387,7 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
         var article = await dbContext.Articles
             .SingleOrDefaultAsync(item => item.ArticleId == articleId, cancellationToken)
             ?? throw new NotFoundException("The article was not found.");
-        if (article.DeletedAt is not null || article.Status == ArticleStatuses.Deleted)
+        if (article.DeletedAt is not null || article.Status is ArticleStatuses.Deleted or ArticleStatuses.Archived)
             throw new NotFoundException("The article was not found.");
         if (article.CurrentDraftIdFk != draftId)
             throw new ConcurrencyConflictException("The article's current draft changed.");
@@ -511,7 +565,8 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
         dbContext.ArticleVersions.AsNoTracking()
             .Where(version => version.ArticleIdFk == articleId &&
                               version.ArticleIdFkNavigation.DeletedAt == null &&
-                              version.ArticleIdFkNavigation.Status != ArticleStatuses.Deleted);
+                              version.ArticleIdFkNavigation.Status != ArticleStatuses.Deleted &&
+                              version.ArticleIdFkNavigation.Status != ArticleStatuses.Archived);
 
     private static void EnsureUnlocked(ArticleDraft draft)
     {

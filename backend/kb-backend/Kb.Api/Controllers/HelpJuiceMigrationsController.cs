@@ -13,6 +13,26 @@ namespace Kb.Api.Controllers;
 [Route("api/migrations/helpjuice")]
 public sealed class HelpJuiceMigrationsController(HelpJuiceMigrationService migrations) : ControllerBase
 {
+    private const int PreviewArticleLimit = 100;
+
+    [HttpPost("preview")]
+    [Consumes("multipart/form-data")]
+    [RequestFormLimits(ValueCountLimit = 100_000)]
+    [ProducesResponseType<HelpJuiceMigrationPreviewResponse>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<HelpJuiceMigrationPreviewResponse>> Preview(CancellationToken ct)
+    {
+        var files = await ReadFilesAsync(ct);
+        try
+        {
+            var result = await migrations.PreviewAsync(files, PreviewArticleLimit, ct);
+            return Ok(ToPreviewResponse(result));
+        }
+        finally
+        {
+            foreach (var file in files) await file.Content.DisposeAsync();
+        }
+    }
+
     [HttpPost]
     [Consumes("multipart/form-data")]
     [RequestFormLimits(ValueCountLimit = 100_000)]
@@ -32,6 +52,13 @@ public sealed class HelpJuiceMigrationsController(HelpJuiceMigrationService migr
         {
             foreach (var file in files) await file.Content.DisposeAsync();
         }
+    }
+
+    private async Task<MigrationUploadFile[]> ReadFilesAsync(CancellationToken ct)
+    {
+        var form = await Request.ReadFormAsync(ct);
+        return form.Files.Select(file => new MigrationUploadFile(
+            file.FileName, file.ContentType, file.Length, file.OpenReadStream())).ToArray();
     }
 
     private static HelpJuiceMigrationOptions ParseOptions(string? json)
@@ -70,7 +97,20 @@ public sealed class HelpJuiceMigrationsController(HelpJuiceMigrationService migr
         result.Phases.Select(phase => new HelpJuiceMigrationPhaseResponse(phase.Phase, phase.Status,
             phase.TotalItems, phase.ProcessedItems, phase.ImportedItems, phase.UpdatedItems,
             phase.SkippedItems, phase.FailedItems)).ToArray(),
-        result.Issues.Select(issue => new MigrationIssueResponse(issue.Id, issue.Severity, issue.FileName,
-            issue.RowNumber, issue.ExternalEntityType, issue.ExternalId, issue.ErrorCode, issue.Message,
-            issue.SourceDataSummary, issue.CreatedAt)).ToArray());
+        result.Issues.Select(ToIssueResponse).ToArray());
+
+    private static HelpJuiceMigrationPreviewResponse ToPreviewResponse(HelpJuiceMigrationPreview result) => new(
+        result.PreviewLimit, result.SourceArticleCount, result.SourceCategoryCount, result.IsLimited,
+        result.AvailableFiles, result.MissingRequiredFiles, result.UnsupportedFiles,
+        result.PackageIssues.Select(ToIssueResponse).ToArray(),
+        result.Articles.Select(article => new HelpJuiceMigrationPreviewArticleResponse(
+            article.ExternalId, article.QuestionRowNumber, article.AnswerExternalId, article.AnswerRowNumber,
+            article.Title, article.Slug, article.Description, article.IsPublished, article.CreatedAt,
+            article.UpdatedAt, article.CategoryExternalId, article.CategoryLocation, article.ContentHtml,
+            article.ContentTextLength, article.SourceMetadata, article.Issues.Select(ToIssueResponse).ToArray()))
+            .ToArray());
+
+    private static MigrationIssueResponse ToIssueResponse(MigrationIssueData issue) => new(
+        issue.Id, issue.Severity, issue.FileName, issue.RowNumber, issue.ExternalEntityType, issue.ExternalId,
+        issue.ErrorCode, issue.Message, issue.SourceDataSummary, issue.CreatedAt);
 }

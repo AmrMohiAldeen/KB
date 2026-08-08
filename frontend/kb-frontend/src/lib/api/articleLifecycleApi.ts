@@ -116,6 +116,11 @@ export const archiveArticle = (articleId: string, rowVersion: string, accessToke
     body: JSON.stringify({ rowVersion })
   })
 
+export const unarchiveArticle = (articleId: string, accessToken: string) =>
+  apiRequest<ArticleLifecycleResponse>(`${articlePath(articleId)}/unarchive`, accessToken, {
+    method: 'POST'
+  })
+
 export const isLifecycleConflict = (error: unknown) => {
   if (!(error instanceof ApiError) || error.status !== 409) return false
 

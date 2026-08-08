@@ -10,6 +10,7 @@ public static class ArticleStatuses
     public const string Approved = "Approved";
     public const string Published = "Published";
 
+    public const string Archived = "Archived";
     public const string Deleted = "Deleted";
 }
 
@@ -54,6 +55,7 @@ public static class ArticleSnapshotReasons
 public static class SearchIndexJobTypes
 {
     public const string Upsert = "Upsert";
+    public const string Delete = "Delete";
 }
 
 public static class ContentBlockTypes

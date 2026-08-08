@@ -43,6 +43,23 @@ public sealed class HelpJuiceParsingTests
     }
 
     [Fact]
+    public async Task Preview_contains_content_category_metadata_and_only_issues_for_previewed_articles()
+    {
+        using var package=Package("id,codename,name,is_published,category_id,user_id\nq1,one,One,TRUE,c1,u1\nq2,two,Two,FALSE,c2,u2",
+            "id,question_id,body\na1,q1,\"<p>First body</p><img src='missing.png'>\"\na2,q2,\"<p>Second body</p><img src='also-missing.png'>\"",
+            "id,parent_id,name\nc0,,Guides\nc1,c0,Setup\nc2,,Other");
+        var source=await HelpJuiceSourceParser.ParseAndValidateAsync(package,new(),TimeProvider.System);
+        var preview=HelpJuicePreviewBuilder.Build(source,1);
+
+        var article=Assert.Single(preview.Articles);
+        Assert.True(preview.IsLimited);Assert.Equal(2,preview.SourceArticleCount);
+        Assert.Equal("One",article.Title);Assert.Equal("Guides / Setup",article.CategoryLocation);
+        Assert.Contains("First body",article.ContentHtml);Assert.Equal("u1",article.SourceMetadata["question.user_id"]);
+        Assert.Contains(article.Issues,issue=>issue.ErrorCode=="MEDIA_UNRESOLVED"&&issue.ExternalId=="a1");
+        Assert.DoesNotContain(article.Issues,issue=>issue.ExternalId is "q2" or "a2");
+    }
+
+    [Fact]
     public void Category_order_is_parent_first_and_cycles_are_reported()
     {
         var ordered=HelpJuiceSourceParser.OrderCategories([new(2,"child","root","Child"),new(3,"root",null,"Root")],out var cycles);
@@ -68,5 +85,5 @@ public sealed class HelpJuiceParsingTests
     }
 
     private static string TempFile(string content){var path=Path.Combine(Path.GetTempPath(),$"hj-{Guid.NewGuid():N}.csv");File.WriteAllText(path,content,new UTF8Encoding(false));return path;}
-    private static PackageContents Package(string questions,string answers){var root=Path.Combine(Path.GetTempPath(),$"hj-{Guid.NewGuid():N}");Directory.CreateDirectory(root);var q=Path.Combine(root,"questions.csv");var a=Path.Combine(root,"answers.csv");File.WriteAllText(q,questions);File.WriteAllText(a,answers);return new(root,new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase){{"questions.csv",q},{"answers.csv",a}},[],["questions.csv","answers.csv"],[]);}
+    private static PackageContents Package(string questions,string answers,string? categories=null){var root=Path.Combine(Path.GetTempPath(),$"hj-{Guid.NewGuid():N}");Directory.CreateDirectory(root);var q=Path.Combine(root,"questions.csv");var a=Path.Combine(root,"answers.csv");File.WriteAllText(q,questions);File.WriteAllText(a,answers);var files=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase){{"questions.csv",q},{"answers.csv",a}};if(categories is not null){var c=Path.Combine(root,"categories.csv");File.WriteAllText(c,categories);files["categories.csv"]=c;}return new(root,files,[],files.Keys.ToArray(),[]);}
 }

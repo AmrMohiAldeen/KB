@@ -111,6 +111,22 @@ public sealed class ArticleSliceTests
     }
 
     [Fact]
+    public async Task Archived_articles_are_excluded_from_normal_list_and_details()
+    {
+        await using var f = await Fixture.CreateAsync();
+        f.Grant(f.AuthorId, PermissionCodes.ArticlesCreate);
+        var article = await f.Service.CreateAsync(new("Archive Me", f.CategoryId, null), default);
+        var stored = await f.Context.Articles.SingleAsync(item => item.ArticleId == article.Id);
+        stored.Status = ArticleStatuses.Archived;
+        await f.Context.SaveChangesAsync();
+        f.Context.ChangeTracker.Clear();
+
+        var page = await f.Service.GetPagedAsync(null, null, null, null, 1, 20, null, null, default);
+        Assert.DoesNotContain(page.Items, item => item.Id == article.Id);
+        await Assert.ThrowsAsync<NotFoundException>(() => f.Service.GetAsync(article.Id, default));
+    }
+
+    [Fact]
     public async Task Pagination_search_category_status_owner_and_sorting_are_database_side()
     {
         await using var f = await Fixture.CreateAsync();

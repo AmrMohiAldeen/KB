@@ -25,7 +25,7 @@ public sealed class DashboardRepository(KbDbContext dbContext) : IDashboardRepos
 
         var archivedArticles = ApplyArticleScope(
             dbContext.Articles.AsNoTracking()
-                .Where(article => article.DeletedAt != null || article.Status == ArticleStatuses.Deleted),
+                .Where(article => article.DeletedAt == null && article.Status == ArticleStatuses.Archived),
             query.Search,
             query.CategoryId);
         var articles = query.Filter == DashboardFilter.Archived
@@ -57,7 +57,8 @@ public sealed class DashboardRepository(KbDbContext dbContext) : IDashboardRepos
                 category.Path,
                 category.Depth,
                 category.Articles.Count(article =>
-                    article.DeletedAt == null && article.Status != ArticleStatuses.Deleted)))
+                    article.DeletedAt == null && article.Status != ArticleStatuses.Deleted &&
+                    article.Status != ArticleStatuses.Archived)))
             .ToListAsync(cancellationToken);
 
         var articleItems = await OrderArticles(articles, query.Sort)
@@ -104,7 +105,8 @@ public sealed class DashboardRepository(KbDbContext dbContext) : IDashboardRepos
     }
 
     private IQueryable<Article> ActiveArticles() => dbContext.Articles.AsNoTracking()
-        .Where(article => article.DeletedAt == null && article.Status != ArticleStatuses.Deleted);
+        .Where(article => article.DeletedAt == null && article.Status != ArticleStatuses.Deleted &&
+                          article.Status != ArticleStatuses.Archived);
 
     private static IQueryable<Article> ApplyArticleScope(
         IQueryable<Article> source,
@@ -123,7 +125,8 @@ public sealed class DashboardRepository(KbDbContext dbContext) : IDashboardRepos
         {
             DashboardFilter.Published => source.Where(article => article.Status == ArticleStatuses.Published),
             DashboardFilter.DraftUnpublished => source.Where(article =>
-                article.Status != ArticleStatuses.Published && article.Status != ArticleStatuses.Deleted),
+                article.Status != ArticleStatuses.Published && article.Status != ArticleStatuses.Deleted &&
+                article.Status != ArticleStatuses.Archived),
             DashboardFilter.ToReview => source.Where(article =>
                 article.Status == ArticleStatuses.SubmittedForReview ||
                 article.Status == ArticleStatuses.InReview ||

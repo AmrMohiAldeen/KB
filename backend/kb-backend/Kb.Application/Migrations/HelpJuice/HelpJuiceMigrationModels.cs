@@ -68,6 +68,15 @@ public sealed record HelpJuiceMigrationExecutionResult(string Status, string Ori
     DateTime CompletedAt, HelpJuiceMigrationOptions Options, HelpJuiceValidationSummary Validation,
     HelpJuiceMigrationResult? Result, IReadOnlyList<HelpJuiceMigrationPhase> Phases,
     IReadOnlyList<MigrationIssueData> Issues);
+public sealed record HelpJuiceMigrationPreviewArticle(string ExternalId, int QuestionRowNumber,
+    string? AnswerExternalId, int? AnswerRowNumber, string Title, string Slug, string? Description,
+    bool IsPublished, DateTime? CreatedAt, DateTime? UpdatedAt, string? CategoryExternalId,
+    string? CategoryLocation, string ContentHtml, int ContentTextLength,
+    IReadOnlyDictionary<string, string> SourceMetadata, IReadOnlyList<MigrationIssueData> Issues);
+public sealed record HelpJuiceMigrationPreview(int PreviewLimit, int SourceArticleCount, int SourceCategoryCount,
+    bool IsLimited, IReadOnlyList<string> AvailableFiles, IReadOnlyList<string> MissingRequiredFiles,
+    IReadOnlyList<string> UnsupportedFiles, IReadOnlyList<MigrationIssueData> PackageIssues,
+    IReadOnlyList<HelpJuiceMigrationPreviewArticle> Articles);
 
 public sealed record CsvRow(int RowNumber, IReadOnlyDictionary<string, string> Values)
 { public string this[string key] => Values.TryGetValue(key, out var value) ? value : string.Empty; }

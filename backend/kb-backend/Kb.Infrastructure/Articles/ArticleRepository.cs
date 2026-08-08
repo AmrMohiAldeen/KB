@@ -32,7 +32,8 @@ public sealed class ArticleRepository(KbDbContext dbContext) : IArticleRepositor
     public async Task<PagedArticleData> GetPagedAsync(ArticleListQuery query, CancellationToken cancellationToken)
     {
         var source = dbContext.Articles.AsNoTracking()
-            .Where(article => article.DeletedAt == null && article.Status != ArticleStatuses.Deleted);
+            .Where(article => article.DeletedAt == null && article.Status != ArticleStatuses.Deleted &&
+                              article.Status != ArticleStatuses.Archived);
         if (query.Search is not null)
             source = source.Where(article => article.Title.Contains(query.Search));
         if (query.CategoryId is { } categoryId)
@@ -140,9 +141,7 @@ public sealed class ArticleRepository(KbDbContext dbContext) : IArticleRepositor
             .Select(article => new ArticleMutationData(article.ArticleId, article.AuthorIdFk, article.CategoryIdFk,
                 article.Title, article.Slug, article.Position, article.CurrentDraftIdFk,
                 article.CurrentDraftIdFkNavigation == null ? null : article.CurrentDraftIdFkNavigation.RowVersion,
-                article.CurrentDraftIdFkNavigation == null
-                    ? article.Status
-                    : article.CurrentDraftIdFkNavigation.Status,
+                article.Status,
                 article.DeletedAt != null || article.Status == ArticleStatuses.Deleted))
             .SingleOrDefaultAsync(cancellationToken);
 
@@ -162,7 +161,7 @@ public sealed class ArticleRepository(KbDbContext dbContext) : IArticleRepositor
     {
         var position = (await dbContext.Articles
             .Where(existing => existing.CategoryIdFk == article.CategoryId && existing.DeletedAt == null &&
-                existing.Status != ArticleStatuses.Deleted)
+                existing.Status != ArticleStatuses.Deleted && existing.Status != ArticleStatuses.Archived)
             .Select(existing => (int?)existing.Position)
             .MaxAsync(cancellationToken) ?? -1) + 1;
         var entity = new Article
@@ -216,7 +215,8 @@ public sealed class ArticleRepository(KbDbContext dbContext) : IArticleRepositor
         byte[] rowVersion, ArticleAuditData audit, CancellationToken cancellationToken)
     {
         var entity = await dbContext.Articles.SingleAsync(article => article.ArticleId == id &&
-            article.DeletedAt == null && article.Status != ArticleStatuses.Deleted, cancellationToken);
+            article.DeletedAt == null && article.Status != ArticleStatuses.Deleted &&
+            article.Status != ArticleStatuses.Archived, cancellationToken);
         if (entity.CurrentDraftIdFk is not { } draftId)
             throw new ConcurrencyConflictException("The article does not have a current draft concurrency token.");
 
@@ -226,7 +226,8 @@ public sealed class ArticleRepository(KbDbContext dbContext) : IArticleRepositor
         {
             entity.Position = (await dbContext.Articles
                 .Where(article => article.ArticleId != id && article.CategoryIdFk == categoryId &&
-                    article.DeletedAt == null && article.Status != ArticleStatuses.Deleted)
+                    article.DeletedAt == null && article.Status != ArticleStatuses.Deleted &&
+                    article.Status != ArticleStatuses.Archived)
                 .Select(article => (int?)article.Position)
                 .MaxAsync(cancellationToken) ?? -1) + 1;
         }
@@ -280,7 +281,8 @@ public sealed class ArticleRepository(KbDbContext dbContext) : IArticleRepositor
     }
 
     private IQueryable<Article> ActiveArticles() => dbContext.Articles.AsNoTracking()
-        .Where(article => article.DeletedAt == null && article.Status != ArticleStatuses.Deleted);
+        .Where(article => article.DeletedAt == null && article.Status != ArticleStatuses.Deleted &&
+                          article.Status != ArticleStatuses.Archived);
 
     private static IOrderedQueryable<Article> Order(IQueryable<Article> query, ArticleSortField field, bool descending) =>
         (field, descending) switch

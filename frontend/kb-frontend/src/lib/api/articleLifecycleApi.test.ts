@@ -6,7 +6,8 @@ import {
   getArticleVersions,
   isLifecycleConflict,
   restoreArticleVersion,
-  transitionArticle
+  transitionArticle,
+  unarchiveArticle
 } from './articleLifecycleApi'
 
 describe('article lifecycle API', () => {
@@ -133,6 +134,25 @@ describe('article lifecycle API', () => {
     expect(url).toBe('https://api.example.test/api/articles/article-id/versions/version-id/restore')
     expect(JSON.parse(String(init?.body))).toEqual({ rowVersion: 'published-row-version' })
     expect(result).toMatchObject({ status: 'Draft', draftId: 'new-draft-id' })
+  })
+
+  it('unarchives an article through the lifecycle endpoint', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      articleId: 'article-id',
+      draftId: 'draft-id',
+      status: 'Published',
+      rowVersion: 'restored-version',
+      publishedVersionId: null,
+      publishedVersionNumber: null,
+      changedAt: '2026-08-08T09:30:00Z'
+    }), { status: 200, headers: { 'content-type': 'application/json' } }))
+
+    const result = await unarchiveArticle('article-id', 'access-token')
+    const [url, init] = fetchMock.mock.calls[0]
+
+    expect(url).toBe('https://api.example.test/api/articles/article-id/unarchive')
+    expect(init?.method).toBe('POST')
+    expect(result.status).toBe('Published')
   })
 
   it('loads a paginated version history', async () => {

@@ -3,7 +3,6 @@ using Kb.Application.Dashboard;
 using Kb.Contracts.Articles;
 using Kb.Contracts.Common;
 using Kb.Contracts.Dashboard;
-using Kb.Domain.Constants;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -65,7 +64,7 @@ public sealed class DashboardController(DashboardService dashboard) : Controller
         article.Id,
         article.Title,
         article.Slug,
-        article.Status == ArticleStatuses.Deleted ? "Archived" : article.Status,
+        article.Status,
         article.Category is null ? null : new CategorySummaryResponse(
             article.Category.Id,
             article.Category.Name,

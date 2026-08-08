@@ -4,6 +4,8 @@ public static class ArticleAuditActions
 {
     public const string Created = "ArticleCreated";
     public const string Updated = "ArticleMetadataUpdated";
+    public const string Archived = "ArticleArchived";
+    public const string Unarchived = "ArticleUnarchived";
     public const string Deleted = "ArticleDeleted";
     public const string DraftLockAcquired = "ArticleDraftLockAcquired";
     public const string DraftLockReleased = "ArticleDraftLockReleased";

@@ -5,7 +5,8 @@ namespace Kb.Application.Migrations.HelpJuice;
 public sealed record HelpJuiceQuestion(
     int RowNumber, string Id, string Slug, string Name, string? Description, bool IsPublished,
     DateTime? CreatedAt, DateTime? UpdatedAt, string? CategoryId, IReadOnlyDictionary<string, string> Source);
-public sealed record HelpJuiceAnswer(int RowNumber, string Id, string QuestionId, string Body);
+public sealed record HelpJuiceAnswer(int RowNumber, string Id, string QuestionId, string Body,
+    IReadOnlyDictionary<string, string> Source);
 public sealed record HelpJuiceCategory(int RowNumber, string Id, string? ParentId, string Name, int Depth = 0);
 
 public sealed record HelpJuiceSource(
@@ -15,6 +16,7 @@ public sealed record HelpJuiceSource(
     IReadOnlyDictionary<string, string> CategorizationByQuestionId,
     IReadOnlyList<string> MediaFiles,
     IReadOnlyDictionary<string, string> MediaBySource,
+    IReadOnlyDictionary<string, HelpJuiceHtmlConversion> ConvertedAnswersById,
     IReadOnlyList<MigrationIssueData> Issues,
     HelpJuiceValidationSummary Summary);
 
@@ -80,7 +82,7 @@ public static class HelpJuiceSourceParser
         }
 
         var answers = answersCsv.Rows.Select(row => new HelpJuiceAnswer(row.RowNumber,
-            row["id"].Trim(), row["question_id"].Trim(), row["body"])).ToArray();
+            row["id"].Trim(), row["question_id"].Trim(), row["body"], row.Values)).ToArray();
         AddDuplicateIssues(questions.Select(x => (x.Id, x.RowNumber)), "QUESTION_ID_DUPLICATE", "questions.csv", "Question", issues, Issue);
         AddDuplicateIssues(answers.Select(x => (x.Id, x.RowNumber)), "ANSWER_ID_DUPLICATE", "answers.csv", "Answer", issues, Issue);
         var duplicateSlugs = questions.Where(x => x.Slug.Length > 0).GroupBy(x => x.Slug, StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1).ToArray();
@@ -117,10 +119,15 @@ public static class HelpJuiceSourceParser
         var mediaNames = package.MediaFiles.Select(Path.GetFileName).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var answersByQuestion = answers.GroupBy(x => x.QuestionId, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
         var missingAnswers = questions.Count(q => !answersByQuestion.TryGetValue(q.Id, out var answer) || string.IsNullOrWhiteSpace(answer.Body));
+        foreach (var question in questions.Where(q => !answersByQuestion.TryGetValue(q.Id, out var answer) || string.IsNullOrWhiteSpace(answer.Body)))
+            issues.Add(Issue("Warning", "ANSWER_MISSING", "Question has no answer body and will produce an empty article.",
+                "questions.csv", question.RowNumber, "Question", question.Id));
         var missingMedia = 0;
+        var convertedAnswers = new Dictionary<string, HelpJuiceHtmlConversion>(StringComparer.OrdinalIgnoreCase);
         foreach (var answer in answers.Where(a => questionIds.Contains(a.QuestionId)))
         {
             var conversion = HelpJuiceHtmlConverter.Convert(answer.Body);
+            if (answer.Id.Length > 0) convertedAnswers.TryAdd(answer.Id, conversion);
             if (Encoding.UTF8.GetByteCount(answer.Body) > limits.MaxArticleContentSizeBytes)
                 issues.Add(Issue("Error", "HTML_TOO_LARGE", "Article HTML exceeds the configured content limit.", "answers.csv", answer.RowNumber, "Answer", answer.Id));
             foreach (var source in conversion.MediaSources)
@@ -139,7 +146,8 @@ public static class HelpJuiceSourceParser
             issues.Count(i => i.ErrorCode.EndsWith("_DUPLICATE", StringComparison.Ordinal)), duplicateSlugs.Length,
             issues.Count(i => i.ErrorCode is "ARTICLE_CATEGORY_MISSING" or "CATEGORY_PARENT_MISSING"), missingMedia,
             package.AvailableFiles, missing, package.UnsupportedFiles, issues.Count(i => i.Severity == "Error"), issues.Count(i => i.Severity == "Warning"));
-        return new(questions, answers, categories, categorizations, package.MediaFiles, mediaBySource, issues, summary);
+        return new(questions, answers, categories, categorizations, package.MediaFiles, mediaBySource,
+            convertedAnswers, issues, summary);
     }
 
     public static IReadOnlyList<HelpJuiceCategory> OrderCategories(IReadOnlyList<HelpJuiceCategory> categories, out IReadOnlyList<string> cycleIds)
@@ -198,5 +206,5 @@ public static class HelpJuiceSourceParser
     private static bool ParseBoolean(string value,out bool valid){if(string.IsNullOrWhiteSpace(value)){valid=true;return false;} if(bool.TryParse(value,out var b)){valid=true;return b;} if(value.Trim() is "1" or "yes" or "YES"){valid=true;return true;} if(value.Trim() is "0" or "no" or "NO"){valid=true;return false;} valid=false;return false;}
     private static DateTime? ParseDate(string value,out bool valid){if(string.IsNullOrWhiteSpace(value)){valid=true;return null;} valid=DateTimeOffset.TryParse(value,out var d);return valid?d.UtcDateTime:null;}
     private static string? NullIfEmpty(string value)=>string.IsNullOrWhiteSpace(value)?null:value.Trim(); private static string Limit(string value)=>value.Length<=160?value:value[..157]+"...";
-    private static HelpJuiceSource EmptySummary(PackageContents p,List<MigrationIssueData> issues,IReadOnlyList<string> missing){var s=new HelpJuiceValidationSummary(0,0,0,0,0,0,0,0,0,0,p.AvailableFiles,missing,p.UnsupportedFiles,issues.Count(i=>i.Severity=="Error"),issues.Count(i=>i.Severity=="Warning"));return new([],[],[],new Dictionary<string,string>(),p.MediaFiles,new Dictionary<string,string>(),issues,s);}
+    private static HelpJuiceSource EmptySummary(PackageContents p,List<MigrationIssueData> issues,IReadOnlyList<string> missing){var s=new HelpJuiceValidationSummary(0,0,0,0,0,0,0,0,0,0,p.AvailableFiles,missing,p.UnsupportedFiles,issues.Count(i=>i.Severity=="Error"),issues.Count(i=>i.Severity=="Warning"));return new([],[],[],new Dictionary<string,string>(),p.MediaFiles,new Dictionary<string,string>(),new Dictionary<string,HelpJuiceHtmlConversion>(),issues,s);}
 }

@@ -46,7 +46,7 @@ public sealed class DashboardSliceTests
         var archived = await fixture.Service.GetAsync(
             "Archived", null, "Archived", "position", 1, 100, default);
         var archivedArticle = Assert.Single(archived.Items, item => item.Kind == "article");
-        Assert.Equal(ArticleStatuses.Deleted, archivedArticle.Article!.Status);
+        Assert.Equal(ArticleStatuses.Archived, archivedArticle.Article!.Status);
         Assert.Equal(1, archived.ArticleCount);
         Assert.Equal(0, archived.EverythingArticleCount);
     }
@@ -110,7 +110,7 @@ public sealed class DashboardSliceTests
                 Article(userId, rootId, "First", ArticleStatuses.Draft, 1, now.AddMinutes(-4)),
                 Article(userId, rootId, "Second", ArticleStatuses.Published, 4, now.AddMinutes(-3)),
                 Article(userId, otherRootId, "Review", ArticleStatuses.InReview, 0, now.AddMinutes(-2)),
-                Article(userId, otherRootId, "Archived", ArticleStatuses.Deleted, 1, now.AddMinutes(-1), now));
+                Article(userId, otherRootId, "Archived", ArticleStatuses.Archived, 1, now.AddMinutes(-1)));
             await context.SaveChangesAsync();
             return new(connection, context, rootId);
         }
@@ -138,8 +138,7 @@ public sealed class DashboardSliceTests
             string title,
             string status,
             int position,
-            DateTime updatedAt,
-            DateTime? deletedAt = null) => new()
+            DateTime updatedAt) => new()
         {
             ArticleId = Guid.NewGuid(),
             Title = title,
@@ -149,8 +148,7 @@ public sealed class DashboardSliceTests
             Status = status,
             Position = position,
             CreatedAt = updatedAt,
-            UpdatedAt = updatedAt,
-            DeletedAt = deletedAt
+            UpdatedAt = updatedAt
         };
     }
 }

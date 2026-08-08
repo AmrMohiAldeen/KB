@@ -422,7 +422,7 @@ public sealed class ArticleLifecycleSliceTests
     }
 
     [Fact]
-    public async Task Archive_soft_deletes_with_concurrency_and_audit()
+    public async Task Archive_sets_archived_status_and_queues_search_removal_without_deleting_content()
     {
         await using var f = await Fixture.CreateAsync();
         f.Grant(f.PublisherId, PermissionCodes.ArticlesDelete);
@@ -431,11 +431,92 @@ public sealed class ArticleLifecycleSliceTests
         await f.Service.ArchiveAsync(f.ArticleId, f.RowVersion, default);
 
         var article = await f.Context.Articles.AsNoTracking().SingleAsync();
-        Assert.Equal(ArticleStatuses.Deleted, article.Status);
-        Assert.NotNull(article.DeletedAt);
+        Assert.Equal(ArticleStatuses.Archived, article.Status);
+        Assert.Null(article.DeletedAt);
+        Assert.Equal(ArticleStatuses.Draft,
+            (await f.Context.ArticleDrafts.AsNoTracking().SingleAsync()).Status);
         var audit = await f.Context.ArticleAuditLogs.AsNoTracking().SingleAsync();
-        Assert.Equal(ArticleAuditActions.Deleted, audit.ActionType);
-        Assert.Contains("\"newState\":\"Deleted\"", audit.MetaDataJson);
+        Assert.Equal(ArticleAuditActions.Archived, audit.ActionType);
+        Assert.Contains("\"newState\":\"Archived\"", audit.MetaDataJson);
+        var job = await f.Context.SearchIndexJobs.AsNoTracking().SingleAsync();
+        Assert.Equal(SearchIndexJobTypes.Delete, job.JobType);
+        Assert.Null(job.VersionIdFk);
+    }
+
+    [Fact]
+    public async Task Unarchive_restores_workflow_state_and_published_search_document_without_data_loss()
+    {
+        await using var f = await Fixture.CreatePublishedAsync();
+        f.Grant(f.PublisherId, PermissionCodes.ArticlesDelete);
+        var publishedVersionId = (await f.Context.Articles.AsNoTracking().SingleAsync())
+            .LastPublishedVersionIdFk;
+        var commentId = Guid.NewGuid();
+        var mediaId = Guid.NewGuid();
+        f.Context.ArticleComments.Add(new ArticleComment
+        {
+            CommentId = commentId,
+            ArticleIdFk = f.ArticleId,
+            Body = "Preserve this comment",
+            CurrentDraftIdFk = f.DraftId,
+            OriginDraftIdFk = f.DraftId,
+            AnchorStatus = CommentAnchorStatuses.Attached,
+            Status = CommentThreadStatuses.Open,
+            CreatedByFk = f.PublisherId,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+            RowVersion = Guid.NewGuid().ToByteArray()
+        });
+        f.Context.MediaFiles.Add(new MediaFile
+        {
+            MediaId = mediaId,
+            OriginalFileName = "preserved.png",
+            StoredFileName = "preserved.png",
+            MimeType = "image/png",
+            FileSizeBytes = 42,
+            StoragePath = "media/preserved.png",
+            Status = MediaStatuses.Active,
+            UploadedByFk = f.PublisherId,
+            UploadedAt = DateTime.UtcNow
+        });
+        f.Context.MediaReferences.Add(new MediaReference
+        {
+            ReferenceId = Guid.NewGuid(),
+            MediaIdFk = mediaId,
+            ArticleIdFk = f.ArticleId,
+            ReferenceEntityType = MediaReferenceTypes.Draft,
+            ReferenceEntityId = f.DraftId
+        });
+        await f.Context.SaveChangesAsync();
+        var draftCount = await f.Context.ArticleDrafts.CountAsync();
+        var versionCount = await f.Context.ArticleVersions.CountAsync();
+        var commentCount = await f.Context.ArticleComments.CountAsync();
+        var mediaReferenceCount = await f.Context.MediaReferences.CountAsync();
+
+        await f.Service.ArchiveAsync(f.ArticleId, f.RowVersion, default);
+        await Assert.ThrowsAsync<NotFoundException>(() =>
+            f.Service.GetPublishedVersionAsync(f.ArticleId, default));
+        var restored = await f.Service.UnarchiveAsync(f.ArticleId, default);
+
+        Assert.Equal(ArticleStatuses.Published, restored.Status);
+        var article = await f.Context.Articles.AsNoTracking().SingleAsync();
+        Assert.Equal(ArticleStatuses.Published, article.Status);
+        Assert.Equal(publishedVersionId, article.LastPublishedVersionIdFk);
+        Assert.Equal(draftCount, await f.Context.ArticleDrafts.CountAsync());
+        Assert.Equal(versionCount, await f.Context.ArticleVersions.CountAsync());
+        Assert.Equal(commentCount, await f.Context.ArticleComments.CountAsync());
+        Assert.Equal(mediaReferenceCount, await f.Context.MediaReferences.CountAsync());
+        Assert.True(await f.Context.ArticleComments.AnyAsync(comment => comment.CommentId == commentId));
+        Assert.True(await f.Context.MediaReferences.AnyAsync(reference => reference.MediaIdFk == mediaId));
+        Assert.Equal(
+            [SearchIndexJobTypes.Upsert, SearchIndexJobTypes.Delete, SearchIndexJobTypes.Upsert],
+            await f.Context.SearchIndexJobs.AsNoTracking()
+                .OrderBy(job => job.CreatedAt)
+                .ThenBy(job => job.SearchJobId)
+                .Select(job => job.JobType)
+                .ToArrayAsync());
+        Assert.Contains(await f.Context.ArticleAuditLogs.AsNoTracking().ToArrayAsync(),
+            audit => audit.ActionType == ArticleAuditActions.Unarchived &&
+                     audit.MetaDataJson!.Contains("\"newState\":\"Published\""));
     }
 
     [Fact]

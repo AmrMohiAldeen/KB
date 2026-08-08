@@ -7,3 +7,4 @@ export default async function AuditLogsPage() {
 
   return <AuditActivityFeed accessToken={accessToken} />
 }
+

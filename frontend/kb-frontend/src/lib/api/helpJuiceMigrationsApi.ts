@@ -10,12 +10,56 @@ export type HelpJuiceMigrationOptions = {
   conflictBehavior: HelpJuiceConflictBehavior
 }
 export type MigrationIssue = { id: string; severity: 'Error' | 'Warning'; fileName?: string; rowNumber?: number; externalEntityType?: string; externalId?: string; errorCode: string; message: string; sourceDataSummary?: string; createdAt: string }
+export type HelpJuiceMigrationPreviewArticle = {
+  externalId: string
+  questionRowNumber: number
+  answerExternalId?: string
+  answerRowNumber?: number
+  title: string
+  slug: string
+  description?: string
+  isPublished: boolean
+  createdAt?: string
+  updatedAt?: string
+  categoryExternalId?: string
+  categoryLocation?: string
+  contentHtml: string
+  contentTextLength: number
+  sourceMetadata: Record<string, string>
+  issues: MigrationIssue[]
+}
+export type HelpJuiceMigrationPreviewResponse = {
+  previewLimit: number
+  sourceArticleCount: number
+  sourceCategoryCount: number
+  isLimited: boolean
+  availableFiles: string[]
+  missingRequiredFiles: string[]
+  unsupportedFiles: string[]
+  packageIssues: MigrationIssue[]
+  articles: HelpJuiceMigrationPreviewArticle[]
+}
 export type HelpJuiceValidationSummary = { totalArticles: number; publishedArticles: number; unpublishedArticles: number; categories: number; categoryDepth: number; articlesMissingAnswers: number; duplicateIds: number; duplicateSlugs: number; invalidCategoryReferences: number; missingMedia: number; availableFiles: string[]; missingRequiredFiles: string[]; unsupportedFiles: string[]; blockingErrorCount: number; warningCount: number }
 export type HelpJuiceMigrationResult = { importedItems: number; updatedItems: number; skippedItems: number; failedItems: number; categoryImported: number; categoryUpdated: number; categorySkipped: number; publishedImported: number; draftImported: number; mediaImported: number; mediaReused: number; unresolvedMedia: number; unsupportedData: number; warningCount: number }
 export type HelpJuiceMigrationPhase = { phase: string; status: string; totalItems: number; processedItems: number; importedItems: number; updatedItems: number; skippedItems: number; failedItems: number }
 export type HelpJuiceMigrationResponse = { status: 'ValidationFailed'|'Completed'|'CompletedWithErrors'; originalFileName: string; startedAt: string; completedAt: string; options: HelpJuiceMigrationOptions; validation: HelpJuiceValidationSummary; result?: HelpJuiceMigrationResult; phases: HelpJuiceMigrationPhase[]; issues: MigrationIssue[] }
 
 const parseJson = (value: string): unknown => { try { return value ? JSON.parse(value) : undefined } catch { return undefined } }
+
+export const previewHelpJuiceMigration = async (files: File[], accessToken: string): Promise<HelpJuiceMigrationPreviewResponse> => {
+  const token = normalizeAccessToken(accessToken)
+  if (!token) throw new ApiError(401, { title: 'Unauthorized', detail: 'Authentication is required.' })
+  const form = new FormData()
+  files.forEach(file => form.append('files', file, file.webkitRelativePath || file.name))
+  const response = await fetch(`${getApiBaseUrl()}/api/migrations/helpjuice/preview`, {
+    method: 'POST',
+    headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+    body: form
+  })
+  const body = parseJson(await response.text())
+  if (!response.ok) throw new ApiError(response.status, body as ProblemDetails | undefined)
+  return body as HelpJuiceMigrationPreviewResponse
+}
 
 export const runHelpJuiceMigration = (files: File[], options: HelpJuiceMigrationOptions, accessToken: string,
   onProgress?: (percent: number) => void): { promise: Promise<HelpJuiceMigrationResponse>; cancel: () => void } => {
@@ -42,5 +86,5 @@ export const runHelpJuiceMigration = (files: File[], options: HelpJuiceMigration
   return { promise, cancel: () => request.abort() }
 }
 
-export const helpJuiceMigrationsApi = { run: runHelpJuiceMigration }
+export const helpJuiceMigrationsApi = { preview: previewHelpJuiceMigration, run: runHelpJuiceMigration }
 export type HelpJuiceMigrationsApi = typeof helpJuiceMigrationsApi

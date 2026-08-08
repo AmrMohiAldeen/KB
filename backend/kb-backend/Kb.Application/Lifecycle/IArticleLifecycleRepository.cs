@@ -66,4 +66,10 @@ public interface IArticleLifecycleRepository
         byte[] expectedRowVersion,
         LifecycleAuditData audit,
         CancellationToken cancellationToken);
+
+    Task<LifecycleResultData> UnarchiveAsync(
+        Guid articleId,
+        Guid draftId,
+        LifecycleAuditData audit,
+        CancellationToken cancellationToken);
 }

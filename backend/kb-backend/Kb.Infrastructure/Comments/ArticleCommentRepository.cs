@@ -18,7 +18,8 @@ public sealed class ArticleCommentRepository(KbDbContext dbContext) : IArticleCo
             .Where(article =>
                 article.ArticleId == articleId &&
                 article.DeletedAt == null &&
-                article.Status != ArticleStatuses.Deleted)
+                article.Status != ArticleStatuses.Deleted &&
+                article.Status != ArticleStatuses.Archived)
             .Select(article => new ArticleCommentContextData(article.ArticleId, article.CurrentDraftIdFk))
             .SingleOrDefaultAsync(cancellationToken);
 

@@ -20,6 +20,35 @@ public sealed record MigrationIssueResponse(
     string? SourceDataSummary,
     DateTime CreatedAt);
 
+public sealed record HelpJuiceMigrationPreviewArticleResponse(
+    string ExternalId,
+    int QuestionRowNumber,
+    string? AnswerExternalId,
+    int? AnswerRowNumber,
+    string Title,
+    string Slug,
+    string? Description,
+    bool IsPublished,
+    DateTime? CreatedAt,
+    DateTime? UpdatedAt,
+    string? CategoryExternalId,
+    string? CategoryLocation,
+    string ContentHtml,
+    int ContentTextLength,
+    IReadOnlyDictionary<string, string> SourceMetadata,
+    IReadOnlyList<MigrationIssueResponse> Issues);
+
+public sealed record HelpJuiceMigrationPreviewResponse(
+    int PreviewLimit,
+    int SourceArticleCount,
+    int SourceCategoryCount,
+    bool IsLimited,
+    IReadOnlyList<string> AvailableFiles,
+    IReadOnlyList<string> MissingRequiredFiles,
+    IReadOnlyList<string> UnsupportedFiles,
+    IReadOnlyList<MigrationIssueResponse> PackageIssues,
+    IReadOnlyList<HelpJuiceMigrationPreviewArticleResponse> Articles);
+
 public sealed record HelpJuiceValidationSummaryResponse(
     int TotalArticles,
     int PublishedArticles,

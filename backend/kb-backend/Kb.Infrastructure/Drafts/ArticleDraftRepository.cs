@@ -250,13 +250,15 @@ public sealed class ArticleDraftRepository(KbDbContext dbContext) : IArticleDraf
             draft.RowVersion == expectedRowVersion &&
             draft.ArticleIdFkNavigation.CurrentDraftIdFk == draftId &&
             draft.ArticleIdFkNavigation.DeletedAt == null &&
-            draft.ArticleIdFkNavigation.Status != ArticleStatuses.Deleted);
+            draft.ArticleIdFkNavigation.Status != ArticleStatuses.Deleted &&
+            draft.ArticleIdFkNavigation.Status != ArticleStatuses.Archived);
 
     private IQueryable<ArticleDraft> CurrentDrafts() => dbContext.ArticleDrafts.AsNoTracking()
         .Where(draft =>
             draft.ArticleIdFkNavigation.CurrentDraftIdFk == draft.DraftId &&
             draft.ArticleIdFkNavigation.DeletedAt == null &&
-            draft.ArticleIdFkNavigation.Status != ArticleStatuses.Deleted);
+            draft.ArticleIdFkNavigation.Status != ArticleStatuses.Deleted &&
+            draft.ArticleIdFkNavigation.Status != ArticleStatuses.Archived);
 
     private void AddAudit(Guid articleId, Guid draftId, DraftAuditData audit) =>
         dbContext.ArticleAuditLogs.Add(new ArticleAuditLog

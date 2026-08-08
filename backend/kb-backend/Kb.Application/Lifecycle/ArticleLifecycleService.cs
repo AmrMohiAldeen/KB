@@ -437,8 +437,31 @@ public sealed class ArticleLifecycleService
         EnsureUnlocked(draft);
         var now = timeProvider.GetUtcNow().UtcDateTime;
         await repository.ArchiveAsync(articleId, draft.DraftId, expectedRowVersion,
-            Audit(currentUser.UserId, ArticleAuditActions.Deleted, articleId, draft.DraftId,
-                draft.ArticleStatus, ArticleStatuses.Deleted, null, null, false, now), cancellationToken);
+            Audit(currentUser.UserId, ArticleAuditActions.Archived, articleId, draft.DraftId,
+                draft.ArticleStatus, ArticleStatuses.Archived, null, null, false, now), cancellationToken);
+    }
+
+    public async Task<LifecycleResultData> UnarchiveAsync(
+        Guid articleId,
+        CancellationToken cancellationToken)
+    {
+        EnsureId(articleId, "Article");
+        EnsureAuthenticated();
+        var draft = await repository.GetCurrentAsync(articleId, cancellationToken)
+            ?? throw new NotFoundException("The article or its current draft was not found.");
+        if (draft.IsDeleted)
+            throw new NotFoundException("The article was not found.");
+        if (draft.ArticleStatus != ArticleStatuses.Archived)
+            throw new ConflictException("Only an archived article can be unarchived.");
+        await RequirePermissionAsync(PermissionCodes.ArticlesDelete, cancellationToken);
+        EnsureUnlocked(draft);
+        if (!IsRestorableWorkflowStatus(draft.DraftStatus))
+            throw new ConflictException("The archived article does not have a restorable workflow state.");
+
+        var now = timeProvider.GetUtcNow().UtcDateTime;
+        return await repository.UnarchiveAsync(articleId, draft.DraftId,
+            Audit(currentUser.UserId, ArticleAuditActions.Unarchived, articleId, draft.DraftId,
+                ArticleStatuses.Archived, draft.DraftStatus, null, null, false, now), cancellationToken);
     }
 
     private async Task<LifecycleResultData> AuthorTransitionAsync(
@@ -552,6 +575,8 @@ public sealed class ArticleLifecycleService
             ?? throw new NotFoundException("The article or its current draft was not found.");
         if (draft.IsDeleted)
             throw new NotFoundException("The article was not found.");
+        if (draft.ArticleStatus == ArticleStatuses.Archived)
+            throw new NotFoundException("The article was not found.");
         if (!draft.RowVersion.AsSpan().SequenceEqual(expectedRowVersion))
             throw new ConcurrencyConflictException();
         return draft;
@@ -566,6 +591,8 @@ public sealed class ArticleLifecycleService
         var draft = await repository.GetCurrentAsync(articleId, cancellationToken)
             ?? throw new NotFoundException("The article or its current draft was not found.");
         if (draft.IsDeleted)
+            throw new NotFoundException("The article was not found.");
+        if (draft.ArticleStatus == ArticleStatuses.Archived)
             throw new NotFoundException("The article was not found.");
         return draft;
     }
@@ -818,6 +845,11 @@ public sealed class ArticleLifecycleService
 
     private static bool IsReviewable(string status) =>
         status is ArticleStatuses.SubmittedForReview or ArticleStatuses.InReview or ArticleStatuses.Resubmitted;
+
+    private static bool IsRestorableWorkflowStatus(string status) =>
+        status is ArticleStatuses.Draft or ArticleStatuses.SubmittedForReview or ArticleStatuses.InReview or
+            ArticleStatuses.ChangesRequested or ArticleStatuses.Resubmitted or ArticleStatuses.Approved or
+            ArticleStatuses.Published;
 
     private static string? NotificationType(string action) => action switch
     {

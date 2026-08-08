@@ -208,6 +208,12 @@ public sealed class ArticleLifecycleController(ArticleLifecycleService lifecycle
         return NoContent();
     }
 
+    [HttpPost("unarchive")]
+    public Task<ActionResult<ArticleLifecycleResponse>> Unarchive(
+        Guid articleId,
+        CancellationToken cancellationToken) =>
+        Execute(articleId, lifecycle.UnarchiveAsync(articleId, cancellationToken));
+
     private static async Task<ActionResult<ArticleLifecycleResponse>> Execute(
         Guid articleId,
         Task<LifecycleResultData> operation)

@@ -38,7 +38,8 @@ public sealed class CategoryRepository(KbDbContext dbContext) : ICategoryReposit
                 category.Path,
                 category.Depth,
                 category.Articles.Count(article =>
-                    article.DeletedAt == null && article.Status != ArticleStatuses.Deleted)))
+                    article.DeletedAt == null && article.Status != ArticleStatuses.Deleted &&
+                    article.Status != ArticleStatuses.Archived)))
             .SingleOrDefaultAsync(cancellationToken);
 
     public async Task<IReadOnlyList<CategoryData>> GetAllAsync(CancellationToken cancellationToken) =>
@@ -53,7 +54,8 @@ public sealed class CategoryRepository(KbDbContext dbContext) : ICategoryReposit
                 category.Path,
                 category.Depth,
                 category.Articles.Count(article =>
-                    article.DeletedAt == null && article.Status != ArticleStatuses.Deleted)))
+                    article.DeletedAt == null && article.Status != ArticleStatuses.Deleted &&
+                    article.Status != ArticleStatuses.Archived)))
             .ToListAsync(cancellationToken);
 
     public async Task<IReadOnlyList<CategoryData>> GetDescendantsAsync(string pathPrefix, Guid categoryId, CancellationToken cancellationToken) =>

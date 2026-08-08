@@ -35,6 +35,7 @@ public static class WorkflowStatuses
     public const string Resubmitted = Kb.Domain.Constants.ArticleStatuses.Resubmitted;
     public const string Approved = Kb.Domain.Constants.ArticleStatuses.Approved;
     public const string Published = Kb.Domain.Constants.ArticleStatuses.Published;
+    public const string Archived = Kb.Domain.Constants.ArticleStatuses.Archived;
     public const string Deleted = Kb.Domain.Constants.ArticleStatuses.Deleted;
 }
 

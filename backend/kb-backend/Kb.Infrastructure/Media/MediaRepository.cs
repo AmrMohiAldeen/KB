@@ -102,7 +102,8 @@ public sealed class MediaRepository(KbDbContext dbContext) : IMediaRepository
             .SingleOrDefaultAsync(cancellationToken),
         MediaReferenceTypes.Attachment => dbContext.Articles.AsNoTracking()
             .Where(article => article.ArticleId == entityId && article.DeletedAt == null &&
-                              article.Status != ArticleStatuses.Deleted)
+                              article.Status != ArticleStatuses.Deleted &&
+                              article.Status != ArticleStatuses.Archived)
             .Select(article => new MediaReferenceTargetData(MediaReferenceTypes.Attachment,
                 article.ArticleId, article.ArticleId, article.AuthorIdFk))
             .SingleOrDefaultAsync(cancellationToken),
@@ -114,6 +115,7 @@ public sealed class MediaRepository(KbDbContext dbContext) : IMediaRepository
         dbContext.Articles.AsNoTracking()
             .Where(article => article.ArticleId == articleId && article.DeletedAt == null &&
                               article.Status != ArticleStatuses.Deleted &&
+                              article.Status != ArticleStatuses.Archived &&
                               article.CurrentDraftIdFk != null)
             .Select(article => new MediaReferenceTargetData(MediaReferenceTypes.Draft,
                 article.CurrentDraftIdFk!.Value, article.ArticleId, article.AuthorIdFk))
