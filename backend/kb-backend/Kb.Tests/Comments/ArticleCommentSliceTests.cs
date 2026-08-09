@@ -89,7 +89,7 @@ public sealed class ArticleCommentSliceTests
     }
 
     [Fact]
-    public async Task Anchor_remapping_attaches_only_unique_safe_matches_and_marks_stale_anchors()
+    public async Task Anchor_remapping_attaches_unique_matches_and_detaches_comments_when_content_is_not_safe()
     {
         await using var f = await Fixture.CreateAsync();
         f.Grant(f.AuthorId, PermissionCodes.CommentsCreate);
@@ -109,10 +109,15 @@ public sealed class ArticleCommentSliceTests
 
         Assert.Equal(CommentAnchorStatuses.Attached,
             listed.Comments.Single(comment => comment.CommentId == unique.CommentId).AnchorStatus);
-        Assert.Equal(CommentAnchorStatuses.NeedsReanchoring,
-            listed.Comments.Single(comment => comment.CommentId == ambiguous.CommentId).AnchorStatus);
-        Assert.Equal(CommentAnchorStatuses.Orphaned,
-            listed.Comments.Single(comment => comment.CommentId == missing.CommentId).AnchorStatus);
+        var detached = listed.Comments.Where(comment =>
+            comment.CommentId == ambiguous.CommentId || comment.CommentId == missing.CommentId).ToArray();
+        Assert.All(detached, comment =>
+        {
+            Assert.Null(comment.AnchorType);
+            Assert.Null(comment.AnchorData);
+            Assert.Null(comment.CurrentDraftId);
+            Assert.Equal(CommentAnchorStatuses.Attached, comment.AnchorStatus);
+        });
     }
 
     [Fact]

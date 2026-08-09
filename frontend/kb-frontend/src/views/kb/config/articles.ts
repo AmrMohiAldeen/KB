@@ -11,7 +11,6 @@ export const articleFilterLabels: ArticleFilter[] = [
   'SubmittedForReview',
   'InReview',
   'ChangesRequested',
-  'Resubmitted',
   'Approved'
 ]
 
@@ -20,7 +19,6 @@ export const articleStatuses: ArticleStatus[] = [
   'SubmittedForReview',
   'InReview',
   'ChangesRequested',
-  'Resubmitted',
   'Approved',
   'Published',
   'Archived'
@@ -32,7 +30,6 @@ export const articleStatusColor: Record<ArticleStatus, ChipProps['color']> = {
   SubmittedForReview: 'info',
   InReview: 'warning',
   ChangesRequested: 'warning',
-  Resubmitted: 'info',
   Approved: 'success',
   Archived: 'secondary'
 }
@@ -42,7 +39,6 @@ export const articleStatusLabel: Record<ArticleStatus, string> = {
   SubmittedForReview: 'Submitted for Review',
   InReview: 'In Review',
   ChangesRequested: 'Changes Requested',
-  Resubmitted: 'Resubmitted',
   Approved: 'Approved',
   Published: 'Published',
   Archived: 'Archived'

@@ -19,6 +19,8 @@ public sealed record MarkAllNotificationsReadResponse(int MarkedReadCount, long 
 
 public sealed record ArticleNotificationPreferenceResponse(Guid ArticleId, bool Enabled);
 
+public sealed record NotificationRecipientResponse(Guid UserId, string FullName, string Email);
+
 public sealed class UpdateArticleNotificationPreferenceRequest
 {
     public bool Enabled { get; init; }

@@ -12,10 +12,7 @@ public sealed class ArticleWorkflowTests
     [InlineData(ArticleStatuses.SubmittedForReview, ArticleStatuses.Approved)]
     [InlineData(ArticleStatuses.InReview, ArticleStatuses.ChangesRequested)]
     [InlineData(ArticleStatuses.InReview, ArticleStatuses.Approved)]
-    [InlineData(ArticleStatuses.ChangesRequested, ArticleStatuses.Resubmitted)]
-    [InlineData(ArticleStatuses.Resubmitted, ArticleStatuses.InReview)]
-    [InlineData(ArticleStatuses.Resubmitted, ArticleStatuses.ChangesRequested)]
-    [InlineData(ArticleStatuses.Resubmitted, ArticleStatuses.Approved)]
+    [InlineData(ArticleStatuses.ChangesRequested, ArticleStatuses.SubmittedForReview)]
     [InlineData(ArticleStatuses.Approved, ArticleStatuses.Published)]
     public void Allows_defined_transitions(string from, string to) => Assert.True(ArticleWorkflow.CanTransition(from, to));
 

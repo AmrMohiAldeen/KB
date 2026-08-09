@@ -27,6 +27,13 @@ public sealed class NotificationsController(NotificationService notifications) :
         CancellationToken cancellationToken) =>
         Ok(new UnreadNotificationCountResponse(await notifications.GetUnreadCountAsync(cancellationToken)));
 
+    [HttpGet("recipients")]
+    public async Task<ActionResult<IReadOnlyList<NotificationRecipientResponse>>> Recipients(
+        CancellationToken cancellationToken) =>
+        Ok((await notifications.GetRecipientsAsync(cancellationToken))
+            .Select(value => new NotificationRecipientResponse(value.UserId, value.FullName, value.Email))
+            .ToArray());
+
     [HttpPatch("{notificationId:guid}/read")]
     public async Task<ActionResult<NotificationResponse>> MarkRead(Guid notificationId,
         CancellationToken cancellationToken) =>

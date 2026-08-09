@@ -75,7 +75,7 @@ export default function ArticleVersionDetailsPage({
   return (
     <KbPageShell maxWidth={1000}>
       <KbPageHeader
-        eyebrow='Version history'
+        eyebrow='Versions'
         title={version ? versionLabel(version) : 'Version details'}
         description='Readable snapshot content and provenance. Editor JSON and storage paths are not displayed.'
         actions={

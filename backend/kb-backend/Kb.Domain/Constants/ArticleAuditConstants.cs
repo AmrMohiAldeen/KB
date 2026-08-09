@@ -15,7 +15,6 @@ public static class ArticleAuditActions
     public const string SubmittedForReview = "ArticleSubmittedForReview";
     public const string ReviewStarted = "ArticleReviewStarted";
     public const string ChangesRequested = "ArticleChangesRequested";
-    public const string Resubmitted = "ArticleResubmitted";
     public const string Approved = "ArticleApproved";
     public const string Rejected = "ArticleRejected";
     public const string Published = "ArticlePublished";

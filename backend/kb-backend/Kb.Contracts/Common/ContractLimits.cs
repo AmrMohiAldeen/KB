@@ -4,6 +4,7 @@ public static class ContractLimits
 {
     public const int MaxPermissionCodes = 100;
     public const int MaxNotificationIds = 100;
+    public const int MaxAdditionalNotificationRecipients = 100;
     public const int MaxTiptapJsonBytes = 2 * 1024 * 1024;
     public const int MaxCommentLength = 20_000;
     public const int MaxReviewCommentLength = 10_000;
@@ -20,7 +21,6 @@ public static class WorkflowActions
     public const string SubmitForReview = Kb.Domain.Constants.ReviewActions.SubmitForReview;
     public const string StartReview = Kb.Domain.Constants.ReviewActions.StartReview;
     public const string RequestChanges = Kb.Domain.Constants.ReviewActions.RequestChanges;
-    public const string Resubmit = Kb.Domain.Constants.ReviewActions.Resubmit;
     public const string Approve = Kb.Domain.Constants.ReviewActions.Approve;
     public const string Reject = Kb.Domain.Constants.ReviewActions.Reject;
     public const string Publish = Kb.Domain.Constants.ReviewActions.Publish;
@@ -32,7 +32,6 @@ public static class WorkflowStatuses
     public const string SubmittedForReview = Kb.Domain.Constants.ArticleStatuses.SubmittedForReview;
     public const string InReview = Kb.Domain.Constants.ArticleStatuses.InReview;
     public const string ChangesRequested = Kb.Domain.Constants.ArticleStatuses.ChangesRequested;
-    public const string Resubmitted = Kb.Domain.Constants.ArticleStatuses.Resubmitted;
     public const string Approved = Kb.Domain.Constants.ArticleStatuses.Approved;
     public const string Published = Kb.Domain.Constants.ArticleStatuses.Published;
     public const string Archived = Kb.Domain.Constants.ArticleStatuses.Archived;

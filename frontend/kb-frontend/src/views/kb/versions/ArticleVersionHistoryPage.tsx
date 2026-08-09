@@ -75,7 +75,7 @@ export default function ArticleVersionHistoryPage({
 
   const load = useCallback(async (signal?: AbortSignal) => {
     if (!articleId || !accessToken) {
-      setMessages([!articleId ? 'Select an article before opening version history.' : 'Sign in to view version history.'])
+      setMessages([!articleId ? 'Select an article before opening versions.' : 'Sign in to view versions.'])
       setLoading(false)
       return
     }
@@ -91,7 +91,7 @@ export default function ArticleVersionHistoryPage({
       ])
       if (signal?.aborted) return
       if (!nextPermissions.canViewVersionHistory) {
-        setMessages(['You do not have permission to view this article’s version history.'])
+        setMessages(['You do not have permission to view this article’s versions.'])
         setVersions([])
         return
       }
@@ -244,7 +244,7 @@ export default function ArticleVersionHistoryPage({
     <KbPageShell>
       <KbPageHeader
         eyebrow='Articles'
-        title='Version history'
+        title='Versions'
         description={article
           ? `Immutable snapshots for “${article.title}”. Select two versions to compare their readable content.`
           : 'Browse immutable article snapshots and compare readable content.'}
@@ -275,7 +275,7 @@ export default function ArticleVersionHistoryPage({
       )}
 
       <KbDataTable
-        ariaLabel='Article version history'
+        ariaLabel='Article versions'
         rows={versions}
         columns={columns}
         getRowId={version => version.versionId}

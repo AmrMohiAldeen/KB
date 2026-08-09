@@ -128,8 +128,7 @@ public sealed class ArticleRepository(KbDbContext dbContext) : IArticleRepositor
             article.CreatedAt,
             article.UpdatedAt,
             article.ArticleReviewEvents.Where(review =>
-                    review.ToStatus == ArticleStatuses.SubmittedForReview ||
-                    review.ToStatus == ArticleStatuses.Resubmitted)
+                    review.ToStatus == ArticleStatuses.SubmittedForReview)
                 .Select(review => (DateTime?)review.CreatedAt).Min(),
             article.ArticleReviewEvents.Where(review => review.ToStatus == ArticleStatuses.Approved)
                 .Select(review => (DateTime?)review.CreatedAt).Max(),

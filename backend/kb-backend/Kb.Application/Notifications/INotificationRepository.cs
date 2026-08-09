@@ -15,6 +15,12 @@ public interface INotificationRepository
         CancellationToken cancellationToken);
     Task<IReadOnlyList<Guid>> GetArticleParticipantUserIdsAsync(Guid articleId,
         CancellationToken cancellationToken);
+    Task<IReadOnlyList<Guid>> GetEnabledSubscriberUserIdsAsync(Guid articleId,
+        CancellationToken cancellationToken);
+    Task<IReadOnlyList<Guid>> GetActiveUserIdsAsync(IReadOnlyCollection<Guid> userIds,
+        CancellationToken cancellationToken);
+    Task<IReadOnlyList<NotificationRecipientData>> GetActiveUsersAsync(
+        CancellationToken cancellationToken);
     Task<IReadOnlyList<Guid>> GetCommentThreadParticipantUserIdsAsync(Guid articleId, Guid commentId,
         CancellationToken cancellationToken);
     Task InsertAsync(IReadOnlyCollection<NewNotificationData> notifications,

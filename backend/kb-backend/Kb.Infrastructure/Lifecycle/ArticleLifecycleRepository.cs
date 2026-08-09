@@ -238,6 +238,7 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
         byte[] expectedRowVersion,
         Guid sourceVersionId,
         RestoredDraftContentData content,
+        LifecycleReviewData review,
         LifecycleAuditData audit,
         CancellationToken cancellationToken) =>
         ExecuteAsync(async token =>
@@ -300,6 +301,7 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
             article.CurrentDraftIdFk = content.DraftId;
             article.Status = ArticleStatuses.Draft;
             article.UpdatedAt = audit.CreatedAt;
+            AddReview(articleId, content.DraftId, review);
             AddAudit(articleId, content.DraftId, audit);
             await SaveChangesAsync(token);
             return await ReadResultAsync(articleId, null, null, audit.CreatedAt, token);
@@ -309,6 +311,7 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
         Guid articleId,
         Guid draftId,
         byte[] expectedRowVersion,
+        LifecycleReviewData review,
         LifecycleAuditData audit,
         CancellationToken cancellationToken) =>
         ExecuteAsync(async token =>
@@ -331,6 +334,7 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
                 RetryCount = 0,
                 CreatedAt = audit.CreatedAt
             });
+            AddReview(articleId, draftId, review);
             AddAudit(articleId, draftId, audit);
             await SaveChangesAsync(token);
             return true;
@@ -339,6 +343,7 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
     public Task<LifecycleResultData> UnarchiveAsync(
         Guid articleId,
         Guid draftId,
+        LifecycleReviewData review,
         LifecycleAuditData audit,
         CancellationToken cancellationToken) =>
         ExecuteAsync(async token =>
@@ -373,6 +378,7 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
                     CreatedAt = audit.CreatedAt
                 });
             }
+            AddReview(articleId, draftId, review);
             AddAudit(articleId, draftId, audit);
             await SaveChangesAsync(token);
             return await ReadResultAsync(articleId, null, null, audit.CreatedAt, token);

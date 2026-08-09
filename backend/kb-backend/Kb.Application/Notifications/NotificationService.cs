@@ -39,7 +39,7 @@ public sealed class NotificationService(
         if (articleId == Guid.Empty) throw new BusinessRuleException("Article ID is required.");
         if (await repository.GetArticleContextAsync(articleId, cancellationToken) is null)
             throw new NotFoundException("The article was not found.");
-        return await repository.GetArticlePreferenceAsync(articleId, RequireUser(), cancellationToken) ?? true;
+        return await repository.GetArticlePreferenceAsync(articleId, RequireUser(), cancellationToken) ?? false;
     }
 
     public async Task<bool> SetArticlePreferenceAsync(Guid articleId, bool enabled,
@@ -51,8 +51,15 @@ public sealed class NotificationService(
         return enabled;
     }
 
-    public async Task NotifyWorkflowAsync(Guid articleId, string type, Guid actorId, string? detail,
+    public Task<IReadOnlyList<NotificationRecipientData>> GetRecipientsAsync(
         CancellationToken cancellationToken)
+    {
+        RequireUser();
+        return repository.GetActiveUsersAsync(cancellationToken);
+    }
+
+    public async Task NotifyWorkflowAsync(Guid articleId, string type, Guid actorId, string? detail,
+        IReadOnlyCollection<Guid>? additionalRecipientIds, CancellationToken cancellationToken)
     {
         var article = await repository.GetArticleContextAsync(articleId, cancellationToken);
         if (article is null) return;
@@ -70,9 +77,19 @@ public sealed class NotificationService(
             _ => []
         };
 
+        var subscribers = await repository.GetEnabledSubscriberUserIdsAsync(articleId, cancellationToken);
+        var requestedAdditional = (additionalRecipientIds ?? []).Where(id => id != Guid.Empty).Distinct().ToArray();
+        var additional = requestedAdditional.Length == 0
+            ? []
+            : await repository.GetActiveUserIdsAsync(requestedAdditional, cancellationToken);
         var (title, message) = WorkflowCopy(type, article.Title, detail);
-        await InsertForRecipientsAsync(articleId, type, title, message, recipients, actorId, cancellationToken);
+        await InsertForRecipientsAsync(articleId, type, title, message,
+            recipients.Concat(subscribers), actorId, cancellationToken, additional);
     }
+
+    public Task NotifyWorkflowAsync(Guid articleId, string type, Guid actorId, string? detail,
+        CancellationToken cancellationToken) =>
+        NotifyWorkflowAsync(articleId, type, actorId, detail, null, cancellationToken);
 
     public async Task NotifyCommentAsync(Guid articleId, Guid commentId, Guid actorId, bool isReply,
         CancellationToken cancellationToken)
@@ -112,12 +129,15 @@ public sealed class NotificationService(
     }
 
     private async Task InsertForRecipientsAsync(Guid articleId, string type, string title, string message,
-        IEnumerable<Guid> recipientIds, Guid actorId, CancellationToken cancellationToken)
+        IEnumerable<Guid> recipientIds, Guid actorId, CancellationToken cancellationToken,
+        IEnumerable<Guid>? alwaysNotifyIds = null)
     {
         var now = UtcNow();
-        var recipientArray = recipientIds.Where(id => id != Guid.Empty && id != actorId).Distinct().ToArray();
-        var disabled = await repository.GetDisabledRecipientIdsAsync(articleId, recipientArray, cancellationToken);
-        var notifications = recipientArray.Where(id => !disabled.Contains(id))
+        var explicitIds = (alwaysNotifyIds ?? []).Where(id => id != Guid.Empty && id != actorId).ToHashSet();
+        var preferenceAwareIds = recipientIds.Where(id => id != Guid.Empty && id != actorId).Distinct().ToArray();
+        var disabled = await repository.GetDisabledRecipientIdsAsync(articleId, preferenceAwareIds, cancellationToken);
+        var recipientArray = preferenceAwareIds.Where(id => !disabled.Contains(id)).Concat(explicitIds).Distinct();
+        var notifications = recipientArray
             .Select(userId => new NewNotificationData(Guid.NewGuid(), userId, articleId, type, title, message, now))
             .ToArray();
         if (notifications.Length > 0)
@@ -131,6 +151,8 @@ public sealed class NotificationService(
         {
             NotificationTypes.ArticleSubmittedForReview =>
                 ("Article ready for review", $"“{articleTitle}” was submitted for review.{suffix}"),
+            NotificationTypes.ArticleReviewStarted =>
+                ("Article review started", $"Review started for “{articleTitle}”.{suffix}"),
             NotificationTypes.ArticleApproved =>
                 ("Article approved", $"“{articleTitle}” was approved.{suffix}"),
             NotificationTypes.ArticleRejected =>
@@ -139,6 +161,10 @@ public sealed class NotificationService(
                 ("Changes requested", $"Changes were requested for “{articleTitle}”.{suffix}"),
             NotificationTypes.ArticlePublished =>
                 ("Article published", $"“{articleTitle}” was published.{suffix}"),
+            NotificationTypes.ArticleArchived =>
+                ("Article archived", $"“{articleTitle}” was archived.{suffix}"),
+            NotificationTypes.ArticleWorkflowChanged =>
+                ("Article workflow updated", $"The workflow state for “{articleTitle}” changed.{suffix}"),
             _ => ("Article updated", $"“{articleTitle}” was updated.{suffix}")
         };
     }

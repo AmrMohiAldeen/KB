@@ -19,7 +19,7 @@ public sealed class ArticleService(
     private static readonly string[] Statuses =
     [
         ArticleStatuses.Draft, ArticleStatuses.SubmittedForReview, ArticleStatuses.InReview,
-        ArticleStatuses.ChangesRequested, ArticleStatuses.Resubmitted, ArticleStatuses.Approved,
+        ArticleStatuses.ChangesRequested, ArticleStatuses.Approved,
         ArticleStatuses.Published
     ];
 

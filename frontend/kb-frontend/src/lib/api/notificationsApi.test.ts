@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   getArticleNotificationPreference,
+  getNotificationRecipients,
   notificationsApi,
   setArticleNotificationPreference
 } from './notificationsApi'
@@ -47,5 +48,16 @@ describe('notifications API', () => {
     )
     expect((fetchMock.mock.calls[1][1] as RequestInit).method).toBe('PUT')
     expect((fetchMock.mock.calls[1][1] as RequestInit).body).toBe('{"enabled":false}')
+  })
+
+  it('loads active system users for one-time workflow notifications', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify([{
+      userId: 'user-1', fullName: 'Amr Reviewer', email: 'amr@example.test'
+    }]), { status: 200, headers: { 'content-type': 'application/json' } }))
+
+    const users = await getNotificationRecipients('token')
+
+    expect(String(fetchMock.mock.calls[0][0])).toBe('https://api.example.test/api/notifications/recipients')
+    expect(users[0].fullName).toBe('Amr Reviewer')
   })
 })

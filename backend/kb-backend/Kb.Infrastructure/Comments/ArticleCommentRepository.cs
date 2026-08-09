@@ -201,11 +201,13 @@ public sealed class ArticleCommentRepository(KbDbContext dbContext) : IArticleCo
                 var changed = dbContext.Database.IsSqlServer()
                     ? await query.ExecuteUpdateAsync(setters => setters
                         .SetProperty(comment => comment.CurrentDraftIdFk, update.DraftId)
+                        .SetProperty(comment => comment.AnchorType, update.AnchorType)
                         .SetProperty(comment => comment.AnchorDataJson, update.AnchorDataJson)
                         .SetProperty(comment => comment.AnchorStatus, update.AnchorStatus)
                         .SetProperty(comment => comment.UpdatedAt, updatedAt), cancellationToken)
                     : await query.ExecuteUpdateAsync(setters => setters
                         .SetProperty(comment => comment.CurrentDraftIdFk, update.DraftId)
+                        .SetProperty(comment => comment.AnchorType, update.AnchorType)
                         .SetProperty(comment => comment.AnchorDataJson, update.AnchorDataJson)
                         .SetProperty(comment => comment.AnchorStatus, update.AnchorStatus)
                         .SetProperty(comment => comment.UpdatedAt, updatedAt)

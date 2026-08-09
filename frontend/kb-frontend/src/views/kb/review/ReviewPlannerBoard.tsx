@@ -36,7 +36,7 @@ const columns: Array<{
   tone: 'info' | 'secondary' | 'warning' | 'success'
 }> = [
   { id: 'drafts', title: 'Drafts & changes', statuses: ['Draft', 'ChangesRequested'], icon: <FileClock />, tone: 'secondary' },
-  { id: 'submitted', title: 'Submitted', statuses: ['SubmittedForReview', 'Resubmitted'], icon: <Send />, tone: 'info' },
+  { id: 'submitted', title: 'Submitted', statuses: ['SubmittedForReview'], icon: <Send />, tone: 'info' },
   { id: 'review', title: 'Review & approval', statuses: ['InReview', 'Approved'], icon: <ClipboardList />, tone: 'warning' },
   { id: 'published', title: 'Published', statuses: ['Published'], icon: <FileCheck2 />, tone: 'success' }
 ]

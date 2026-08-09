@@ -20,7 +20,6 @@ const actionPaths: Record<Exclude<ArticleLifecycleAction, 'override' | 'archive'
   submitForReview: 'submit-for-review',
   startReview: 'review/start',
   requestChanges: 'review/request-changes',
-  resubmit: 'resubmit',
   approve: 'review/approve',
   reject: 'review/reject',
   publish: 'publish'
@@ -110,10 +109,15 @@ export const restoreArticleVersion = (
   { method: 'POST', body: JSON.stringify(request) }
 )
 
-export const archiveArticle = (articleId: string, rowVersion: string, accessToken: string) =>
+export const archiveArticle = (
+  articleId: string,
+  rowVersion: string,
+  accessToken: string,
+  additionalRecipientIds: string[] = []
+) =>
   apiRequest<void>(`${articlePath(articleId)}/archive`, accessToken, {
     method: 'POST',
-    body: JSON.stringify({ rowVersion })
+    body: JSON.stringify({ rowVersion, additionalRecipientIds })
   })
 
 export const unarchiveArticle = (articleId: string, accessToken: string) =>

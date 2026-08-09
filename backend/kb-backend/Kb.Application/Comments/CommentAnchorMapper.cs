@@ -18,7 +18,7 @@ public static class CommentAnchorMapper
         {
             "TextRange" => RemapTextRange(source, draftId, anchor, newDocument),
             "Block" => RemapBlock(source, draftId, anchor, newDocument),
-            _ => Changed(source, draftId, null, CommentAnchorStatuses.Orphaned)
+            _ => Detached(source)
         };
     }
 
@@ -29,33 +29,33 @@ public static class CommentAnchorMapper
         JsonElement document)
     {
         if (!TryString(anchor, "selectedText", out var quote) || string.IsNullOrEmpty(quote))
-            return Changed(source, draftId, source.AnchorDataJson, CommentAnchorStatuses.NeedsReanchoring);
+            return Detached(source);
 
         var mapped = FlattenDocument(document);
         var matches = FindAll(mapped.Text, quote);
         if (matches.Count == 0)
-            return Changed(source, draftId, source.AnchorDataJson, CommentAnchorStatuses.Orphaned);
+            return Detached(source);
 
         var contextual = matches.Where(index => ContextMatches(anchor, mapped.Text, index, quote.Length)).ToArray();
         var hasContext = HasNonEmptyString(anchor, "prefix") || HasNonEmptyString(anchor, "suffix");
         if (hasContext && contextual.Length == 0)
-            return Changed(source, draftId, source.AnchorDataJson, CommentAnchorStatuses.NeedsReanchoring);
+            return Detached(source);
         var safeMatches = hasContext ? contextual : matches.ToArray();
         if (safeMatches.Length != 1)
-            return Changed(source, draftId, source.AnchorDataJson, CommentAnchorStatuses.NeedsReanchoring);
+            return Detached(source);
 
         var startIndex = safeMatches[0];
         var endIndex = startIndex + quote.Length - 1;
         if (startIndex >= mapped.Positions.Count || endIndex >= mapped.Positions.Count ||
             mapped.Positions[startIndex] is null || mapped.Positions[endIndex] is null)
-            return Changed(source, draftId, source.AnchorDataJson, CommentAnchorStatuses.NeedsReanchoring);
+            return Detached(source);
 
         var updated = Merge(anchor, new Dictionary<string, object?>
         {
             ["from"] = mapped.Positions[startIndex]!.Value,
             ["to"] = mapped.Positions[endIndex]!.Value + 1
         });
-        return Changed(source, draftId, updated, CommentAnchorStatuses.Attached);
+        return Changed(source, draftId, source.AnchorType, updated, CommentAnchorStatuses.Attached);
     }
 
     private static CommentAnchorUpdate RemapBlock(
@@ -78,20 +78,24 @@ public static class CommentAnchorMapper
         }
 
         if (matches.Length == 0)
-            return Changed(source, draftId, source.AnchorDataJson, CommentAnchorStatuses.Orphaned);
+            return Detached(source);
         if (matches.Length != 1)
-            return Changed(source, draftId, source.AnchorDataJson, CommentAnchorStatuses.NeedsReanchoring);
+            return Detached(source);
 
         var updated = Merge(anchor, new Dictionary<string, object?> { ["position"] = matches[0].Position });
-        return Changed(source, draftId, updated, CommentAnchorStatuses.Attached);
+        return Changed(source, draftId, source.AnchorType, updated, CommentAnchorStatuses.Attached);
     }
 
     private static CommentAnchorUpdate Changed(
         CommentAnchorSource source,
-        Guid draftId,
+        Guid? draftId,
+        string? anchorType,
         string? anchorDataJson,
         string status) =>
-        new(source.CommentId, draftId, anchorDataJson, status, source.AnchorStatus);
+        new(source.CommentId, draftId, anchorType, anchorDataJson, status, source.AnchorStatus);
+
+    private static CommentAnchorUpdate Detached(CommentAnchorSource source) =>
+        Changed(source, null, null, null, CommentAnchorStatuses.Attached);
 
     private static bool ContextMatches(JsonElement anchor, string text, int index, int length)
     {

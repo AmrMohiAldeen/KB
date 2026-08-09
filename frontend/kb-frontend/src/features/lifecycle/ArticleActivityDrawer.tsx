@@ -9,8 +9,9 @@ import IconButton from '@mui/material/IconButton'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import { Activity, X } from 'lucide-react'
-import { describeAuditLogApiError, getAuditLogs } from '@/lib/api/auditLogsApi'
-import type { ArticleAuditLogResponse } from '@/types/apps/auditLogTypes'
+import { describeLifecycleError, getArticleReviewHistory } from '@/lib/api/articleLifecycleApi'
+import type { ArticleReviewEventResponse } from '@/types/apps/articleLifecycleTypes'
+import { articleStatusLabel } from '@/views/kb/config/articles'
 
 type ArticleActivityDrawerProps = {
   articleId: string
@@ -33,7 +34,7 @@ export default function ArticleActivityDrawer({
   onClose,
   locale = 'en'
 }: ArticleActivityDrawerProps) {
-  const [items, setItems] = useState<ArticleAuditLogResponse[]>([])
+  const [items, setItems] = useState<ArticleReviewEventResponse[]>([])
   const [loading, setLoading] = useState(false)
   const [errors, setErrors] = useState<string[]>([])
 
@@ -43,11 +44,11 @@ export default function ArticleActivityDrawer({
     const timer = window.setTimeout(() => {
       setLoading(true)
       setErrors([])
-      getAuditLogs({ articleId, page: 1, pageSize: 50, sortDirection: 'desc' }, accessToken, controller.signal)
-        .then(result => setItems(result.items))
+      getArticleReviewHistory(articleId, accessToken, controller.signal)
+        .then(result => setItems([...result].sort((left, right) => right.createdAt.localeCompare(left.createdAt))))
         .catch(error => {
           if (error instanceof DOMException && error.name === 'AbortError') return
-          setErrors(describeAuditLogApiError(error))
+          setErrors(describeLifecycleError(error))
         })
         .finally(() => {
           if (!controller.signal.aborted) setLoading(false)
@@ -75,8 +76,8 @@ export default function ArticleActivityDrawer({
         <Stack direction='row' spacing={2} sx={{ alignItems: 'center', px: 3, py: 2.5, borderBottom: 1, borderColor: 'divider' }}>
           <Activity size={20} />
           <Box sx={{ flex: 1 }}>
-            <Typography variant='h6'>Article activity</Typography>
-            <Typography variant='caption' color='text.secondary'>Audit history for this article</Typography>
+            <Typography variant='h6'>Revision history</Typography>
+            <Typography variant='caption' color='text.secondary'>Article lifecycle and state transitions</Typography>
           </Box>
           <IconButton aria-label='Close activity' onClick={onClose}><X size={19} /></IconButton>
         </Stack>
@@ -89,19 +90,19 @@ export default function ArticleActivityDrawer({
           )}
           {errors.length > 0 && <Alert severity='warning'>{errors.join(' ')}</Alert>}
           {!loading && errors.length === 0 && items.length === 0 && (
-            <Typography variant='body2' color='text.secondary'>No activity has been recorded.</Typography>
+            <Typography variant='body2' color='text.secondary'>No lifecycle transitions have been recorded.</Typography>
           )}
           <Stack spacing={0}>
             {items.map(item => (
-              <Box key={item.auditLogId} sx={{ position: 'relative', pb: 3, pl: 3, '&:not(:last-child)::before': {
+              <Box key={item.reviewEventId} sx={{ position: 'relative', pb: 3, pl: 3, '&:not(:last-child)::before': {
                 content: '""', position: 'absolute', insetInlineStart: 5, insetBlockStart: 14, insetBlockEnd: -2,
                 borderInlineStart: 1, borderColor: 'divider'
               } }}>
                 <Box sx={{ position: 'absolute', insetInlineStart: 0, insetBlockStart: 6, inlineSize: 11, blockSize: 11, borderRadius: '50%', bgcolor: 'primary.main', boxShadow: theme => `0 0 0 4px ${theme.palette.background.paper}` }} />
                 <Typography variant='body2' sx={{ fontWeight: 700 }}>
-                  {item.actor?.fullName ?? 'System'}
+                  {item.fromStatus ? articleStatusLabel[item.fromStatus] : 'Started'} → {articleStatusLabel[item.toStatus]}
                 </Typography>
-                <Typography variant='body2'>{humanize(item.actionType)}</Typography>
+                <Typography variant='body2'>{humanize(item.action)} by {item.actor.fullName}</Typography>
                 <Typography variant='caption' color='text.secondary'>{formatter.format(new Date(item.createdAt))}</Typography>
               </Box>
             ))}

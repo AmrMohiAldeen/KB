@@ -34,14 +34,18 @@ describe('article lifecycle API', () => {
     const result = await transitionArticle(
       'article-id',
       'submitForReview',
-      { rowVersion: 'current-version', comment: null },
+      { rowVersion: 'current-version', comment: null, additionalRecipientIds: ['user-2'] },
       'access-token'
     )
     const [url, init] = fetchMock.mock.calls[0]
 
     expect(url).toBe('https://api.example.test/api/articles/article-id/submit-for-review')
     expect(init?.method).toBe('POST')
-    expect(JSON.parse(String(init?.body))).toEqual({ rowVersion: 'current-version', comment: null })
+    expect(JSON.parse(String(init?.body))).toEqual({
+      rowVersion: 'current-version',
+      comment: null,
+      additionalRecipientIds: ['user-2']
+    })
     expect(result.status).toBe('SubmittedForReview')
     expect(result.rowVersion).toBe('fresh-version')
   })

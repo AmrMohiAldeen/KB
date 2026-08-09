@@ -6,7 +6,6 @@ public static class ArticleStatuses
     public const string SubmittedForReview = "SubmittedForReview";
     public const string InReview = "InReview";
     public const string ChangesRequested = "ChangesRequested";
-    public const string Resubmitted = "Resubmitted";
     public const string Approved = "Approved";
     public const string Published = "Published";
 
@@ -25,20 +24,25 @@ public static class ReviewActions
     public const string SubmitForReview = "SubmitForReview";
     public const string StartReview = "StartReview";
     public const string RequestChanges = "RequestChanges";
-    public const string Resubmit = "Resubmit";
     public const string Approve = "Approve";
     public const string Reject = "Reject";
     public const string Publish = "Publish";
     public const string Override = "Override";
+    public const string Restore = "Restore";
+    public const string Archive = "Archive";
+    public const string Unarchive = "Unarchive";
 }
 
 public static class NotificationTypes
 {
     public const string ArticleSubmittedForReview = "ArticleSubmittedForReview";
+    public const string ArticleReviewStarted = "ArticleReviewStarted";
     public const string ArticleApproved = "ArticleApproved";
     public const string ArticleRejected = "ArticleRejected";
     public const string ArticleChangesRequested = "ArticleChangesRequested";
     public const string ArticlePublished = "ArticlePublished";
+    public const string ArticleArchived = "ArticleArchived";
+    public const string ArticleWorkflowChanged = "ArticleWorkflowChanged";
     public const string ArticleCommented = "ArticleCommented";
     public const string ArticleLockAcquired = "ArticleLockAcquired";
     public const string ArticleLockReleased = "ArticleLockReleased";
@@ -48,13 +52,12 @@ public static class NotificationTypes
 public static class ArticleSnapshotReasons
 {
     public const string SubmittedForReview = "SubmittedForReview";
-    public const string ResubmittedForReview = "ResubmittedForReview";
     public const string Approved = "Approved";
     public const string Published = "Published";
 
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
-        SubmittedForReview, ResubmittedForReview, Approved, Published
+        SubmittedForReview, Approved, Published
     };
 }
 

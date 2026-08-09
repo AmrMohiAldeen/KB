@@ -43,9 +43,7 @@ type ArticleCommentsPanelProps = {
 }
 
 const anchorLabel = (comment: ArticleComment) => {
-  if (!comment.anchorType) return 'Article'
-  if (comment.anchorStatus === 'NeedsReanchoring') return 'Needs reanchoring'
-  if (comment.anchorStatus === 'Orphaned') return 'Orphaned'
+  if (!comment.anchorType || comment.anchorStatus !== 'Attached') return 'Article'
   return comment.anchorType === 'TextRange' ? 'Inline' : 'Block'
 }
 
@@ -304,12 +302,6 @@ export default function ArticleCommentsPanel({
             </Box>
           )}
 
-          {threads.some(thread => thread.anchorType && thread.anchorStatus !== 'Attached') && (
-            <Alert severity='warning'>
-              Some comments are no longer safely attached. They remain in this panel and are never moved to uncertain text.
-            </Alert>
-          )}
-
           {threads.length > 0 && (
             <Box>
               {orderedThreads.map((thread, index) => {
@@ -320,7 +312,7 @@ export default function ArticleCommentsPanel({
                 <Button
                   key={thread.commentId}
                   variant={thread.commentId === activeThreadId ? 'tonal' : 'text'}
-                  color={thread.anchorStatus === 'Attached' ? 'primary' : 'warning'}
+                  color='primary'
                   onClick={() => onActiveThreadChange(thread.commentId)}
                   sx={{
                     display: 'flex', inlineSize: '100%', justifyContent: 'flex-start', textAlign: 'start', py: 1.25,
@@ -335,7 +327,7 @@ export default function ArticleCommentsPanel({
                       <Chip
                         size='small'
                         label={anchorLabel(thread)}
-                        color={thread.anchorStatus === 'Attached' ? 'default' : 'warning'}
+                        color='default'
                       />
                     </Stack>
                     <Typography variant='body2' noWrap sx={{ mt: 0.5 }}>
@@ -354,13 +346,6 @@ export default function ArticleCommentsPanel({
             <>
               <Divider />
               <Stack spacing={2.5} sx={{ maxHeight: 500, overflowY: 'auto', pr: 0.5 }}>
-                {active.anchorStatus !== 'Attached' && active.anchorType && (
-                  <Alert severity='warning'>
-                    {active.anchorStatus === 'Orphaned'
-                      ? 'The originally commented content was deleted. This thread is preserved as unanchored.'
-                      : 'The original text is ambiguous after an edit. Reanchoring is required.'}
-                  </Alert>
-                )}
                 <CommentEntry comment={active} state={state} locale={locale} />
                 {active.replies.map(item => (
                   <Box key={item.commentId} sx={{ pl: 2, borderInlineStart: theme => `2px solid ${theme.palette.divider}` }}>

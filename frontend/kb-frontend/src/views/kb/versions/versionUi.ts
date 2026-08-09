@@ -2,7 +2,6 @@ import type { ArticleVersionSummaryResponse } from '@/types/apps/articleLifecycl
 
 export const snapshotReasonLabel: Record<ArticleVersionSummaryResponse['snapshotReason'], string> = {
   SubmittedForReview: 'Submitted for review',
-  ResubmittedForReview: 'Resubmitted for review',
   Approved: 'Approved',
   Published: 'Published'
 }

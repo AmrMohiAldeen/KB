@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ArticlePermissionsResponse } from '@/types/apps/articleLifecycleTypes'
-import { getVisibleLifecycleActions } from './lifecycleActions'
+import { getVisibleLifecycleActions, lifecycleTargetActionLabel } from './lifecycleActions'
 
 const permissions = (
   overrides: Partial<ArticlePermissionsResponse> = {}
@@ -24,11 +24,11 @@ const permissions = (
 })
 
 describe('lifecycle action visibility', () => {
-  it('shows author submission and resubmission only in their backend-authorized states', () => {
+  it('uses the same submit action for new and changes-requested drafts', () => {
     const allowed = permissions({ canSubmitForReview: true })
 
     expect(getVisibleLifecycleActions('Draft', allowed)).toEqual(['submitForReview'])
-    expect(getVisibleLifecycleActions('ChangesRequested', allowed)).toEqual(['resubmit'])
+    expect(getVisibleLifecycleActions('ChangesRequested', allowed)).toEqual(['submitForReview'])
     expect(getVisibleLifecycleActions('InReview', allowed)).toEqual([])
   })
 
@@ -57,5 +57,12 @@ describe('lifecycle action visibility', () => {
       canOverrideWorkflow: true,
       workflowOverrideTargets: ['Draft']
     }))).toEqual(['publish', 'override'])
+  })
+
+  it('uses concise user-facing labels for backend-authorized status targets', () => {
+    expect(lifecycleTargetActionLabel.ChangesRequested).toBe('Request changes')
+    expect(lifecycleTargetActionLabel.Approved).toBe('Approve')
+    expect(lifecycleTargetActionLabel.InReview).toBe('Submit for review')
+    expect(Object.values(lifecycleTargetActionLabel).some(label => label.startsWith('Move to'))).toBe(false)
   })
 })

@@ -159,6 +159,13 @@ public sealed record RestoredDraftContentData(
     Guid SourceVersionId,
     int SourceVersionNumber);
 
-public sealed record LifecycleCommand(byte[] RowVersion, string? Comment = null);
-public sealed record WorkflowOverrideCommand(string TargetStatus, string Reason, byte[] RowVersion);
+public sealed record LifecycleCommand(
+    byte[] RowVersion,
+    string? Comment = null,
+    IReadOnlyCollection<Guid>? AdditionalRecipientIds = null);
+public sealed record WorkflowOverrideCommand(
+    string TargetStatus,
+    string Reason,
+    byte[] RowVersion,
+    IReadOnlyCollection<Guid>? AdditionalRecipientIds = null);
 public sealed record RestoreArticleVersionCommand(byte[] RowVersion);

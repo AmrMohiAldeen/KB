@@ -172,7 +172,7 @@ describe('ArticleVersionHistoryPage', () => {
     expect(document.body.textContent).toContain('Approved')
     expect(document.body.textContent).toContain('Article Author')
     expect(document.body.textContent).toContain('Published snapshot')
-    expect(document.querySelector('table[aria-label="Article version history"]')).not.toBeNull()
+    expect(document.querySelector('table[aria-label="Article versions"]')).not.toBeNull()
   })
 
   it('selects two versions and opens the comparison view', async () => {

@@ -92,7 +92,7 @@ export default function ArticleVersionComparisonPage({
   return (
     <KbPageShell maxWidth={1200}>
       <KbPageHeader
-        eyebrow='Version history'
+        eyebrow='Versions'
         title='Compare article versions'
         description={comparison
           ? `${versionLabel(comparison.baseVersion)} (${snapshotReasonLabel[comparison.baseVersion.snapshotReason]}) ` +

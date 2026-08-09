@@ -12,10 +12,7 @@ public static class ArticleWorkflow
         (ArticleStatuses.SubmittedForReview, ArticleStatuses.Approved),
         (ArticleStatuses.InReview, ArticleStatuses.ChangesRequested),
         (ArticleStatuses.InReview, ArticleStatuses.Approved),
-        (ArticleStatuses.ChangesRequested, ArticleStatuses.Resubmitted),
-        (ArticleStatuses.Resubmitted, ArticleStatuses.InReview),
-        (ArticleStatuses.Resubmitted, ArticleStatuses.ChangesRequested),
-        (ArticleStatuses.Resubmitted, ArticleStatuses.Approved),
+        (ArticleStatuses.ChangesRequested, ArticleStatuses.SubmittedForReview),
         (ArticleStatuses.Approved, ArticleStatuses.Published)
     };
 

@@ -3,7 +3,6 @@ export type ArticleStatus =
   | 'SubmittedForReview'
   | 'InReview'
   | 'ChangesRequested'
-  | 'Resubmitted'
   | 'Approved'
   | 'Published'
   | 'Archived'

@@ -9,10 +9,10 @@ export const getVisibleLifecycleActions = (
   permissions: ArticlePermissionsResponse
 ): ArticleLifecycleAction[] => {
   const actions: ArticleLifecycleAction[] = []
-  const reviewable = status === 'SubmittedForReview' || status === 'InReview' || status === 'Resubmitted'
+  const reviewable = status === 'SubmittedForReview' || status === 'InReview'
 
-  if (status === 'Draft' && permissions.canSubmitForReview) actions.push('submitForReview')
-  if (status === 'ChangesRequested' && permissions.canSubmitForReview) actions.push('resubmit')
+  if ((status === 'Draft' || status === 'ChangesRequested') && permissions.canSubmitForReview)
+    actions.push('submitForReview')
   if (reviewable && permissions.canRequestChanges) actions.push('requestChanges')
   if (reviewable && permissions.canApprove) actions.push('approve')
   if (status === 'Approved' && permissions.canPublish) actions.push('publish')
@@ -25,10 +25,19 @@ export const lifecycleActionLabels: Record<ArticleLifecycleAction, string> = {
   submitForReview: 'Submit for review',
   startReview: 'Start review',
   requestChanges: 'Request changes',
-  resubmit: 'Resubmit for review',
   approve: 'Approve',
   reject: 'Reject',
   publish: 'Publish',
   override: 'Change status',
   archive: 'Archive'
+}
+
+export const lifecycleTargetActionLabel: Record<ArticleStatus, string> = {
+  Draft: 'Return to draft',
+  SubmittedForReview: 'Submit for review',
+  InReview: 'Submit for review',
+  ChangesRequested: 'Request changes',
+  Approved: 'Approve',
+  Published: 'Publish',
+  Archived: 'Archive'
 }

@@ -131,7 +131,7 @@ public sealed class ArticleLifecycleController(ArticleLifecycleService lifecycle
         SubmitForReviewRequest request,
         CancellationToken cancellationToken) =>
         Execute(articleId, lifecycle.SubmitAsync(articleId,
-            new(Decode(request.RowVersion), request.Comment), cancellationToken));
+            new(Decode(request.RowVersion), request.Comment, request.AdditionalRecipientIds), cancellationToken));
 
     [HttpPost("review/start")]
     public Task<ActionResult<ArticleLifecycleResponse>> StartReview(
@@ -139,7 +139,7 @@ public sealed class ArticleLifecycleController(ArticleLifecycleService lifecycle
         StartReviewRequest request,
         CancellationToken cancellationToken) =>
         Execute(articleId, lifecycle.StartReviewAsync(articleId,
-            new(Decode(request.RowVersion), request.Comment), cancellationToken));
+            new(Decode(request.RowVersion), request.Comment, request.AdditionalRecipientIds), cancellationToken));
 
     [HttpPost("review/request-changes")]
     public Task<ActionResult<ArticleLifecycleResponse>> RequestChanges(
@@ -147,15 +147,7 @@ public sealed class ArticleLifecycleController(ArticleLifecycleService lifecycle
         RequestChangesRequest request,
         CancellationToken cancellationToken) =>
         Execute(articleId, lifecycle.RequestChangesAsync(articleId,
-            new(Decode(request.RowVersion), request.Comment), cancellationToken));
-
-    [HttpPost("resubmit")]
-    public Task<ActionResult<ArticleLifecycleResponse>> Resubmit(
-        Guid articleId,
-        ResubmitForReviewRequest request,
-        CancellationToken cancellationToken) =>
-        Execute(articleId, lifecycle.ResubmitAsync(articleId,
-            new(Decode(request.RowVersion), request.Comment), cancellationToken));
+            new(Decode(request.RowVersion), request.Comment, request.AdditionalRecipientIds), cancellationToken));
 
     [HttpPost("review/approve")]
     public Task<ActionResult<ArticleLifecycleResponse>> Approve(
@@ -163,7 +155,7 @@ public sealed class ArticleLifecycleController(ArticleLifecycleService lifecycle
         ApproveArticleRequest request,
         CancellationToken cancellationToken) =>
         Execute(articleId, lifecycle.ApproveAsync(articleId,
-            new(Decode(request.RowVersion), request.Comment), cancellationToken));
+            new(Decode(request.RowVersion), request.Comment, request.AdditionalRecipientIds), cancellationToken));
 
     [HttpPost("review/reject")]
     public Task<ActionResult<ArticleLifecycleResponse>> Reject(
@@ -171,7 +163,7 @@ public sealed class ArticleLifecycleController(ArticleLifecycleService lifecycle
         RejectArticleRequest request,
         CancellationToken cancellationToken) =>
         Execute(articleId, lifecycle.RejectAsync(articleId,
-            new(Decode(request.RowVersion), request.Comment), cancellationToken));
+            new(Decode(request.RowVersion), request.Comment, request.AdditionalRecipientIds), cancellationToken));
 
     [HttpPost("publish")]
     public Task<ActionResult<ArticleLifecycleResponse>> Publish(
@@ -179,7 +171,7 @@ public sealed class ArticleLifecycleController(ArticleLifecycleService lifecycle
         PublishArticleRequest request,
         CancellationToken cancellationToken) =>
         Execute(articleId, lifecycle.PublishAsync(articleId,
-            new(Decode(request.RowVersion), request.Comment), cancellationToken));
+            new(Decode(request.RowVersion), request.Comment, request.AdditionalRecipientIds), cancellationToken));
 
     [HttpPost("workflow/override")]
     public Task<ActionResult<ArticleLifecycleResponse>> Override(
@@ -187,7 +179,7 @@ public sealed class ArticleLifecycleController(ArticleLifecycleService lifecycle
         WorkflowOverrideRequest request,
         CancellationToken cancellationToken) =>
         Execute(articleId, lifecycle.OverrideAsync(articleId,
-            new(request.TargetStatus, request.Reason, Decode(request.RowVersion)), cancellationToken));
+            new(request.TargetStatus, request.Reason, Decode(request.RowVersion), request.AdditionalRecipientIds), cancellationToken));
 
     [HttpPost("versions/{versionId:guid}/restore")]
     public Task<ActionResult<ArticleLifecycleResponse>> Restore(
@@ -201,10 +193,11 @@ public sealed class ArticleLifecycleController(ArticleLifecycleService lifecycle
     [HttpPost("archive")]
     public async Task<IActionResult> Archive(
         Guid articleId,
-        DraftConcurrencyRequest request,
+        ArchiveArticleRequest request,
         CancellationToken cancellationToken)
     {
-        await lifecycle.ArchiveAsync(articleId, Decode(request.RowVersion), cancellationToken);
+        await lifecycle.ArchiveAsync(articleId, Decode(request.RowVersion), request.AdditionalRecipientIds,
+            cancellationToken);
         return NoContent();
     }
 

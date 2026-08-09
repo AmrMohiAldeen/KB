@@ -78,6 +78,25 @@ public sealed class NotificationRepository(KbDbContext dbContext) : INotificatio
         return await reviewers.Concat(commenters).Distinct().ToArrayAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<Guid>> GetEnabledSubscriberUserIdsAsync(Guid articleId,
+        CancellationToken cancellationToken) =>
+        await dbContext.ArticleNotificationPreferences.AsNoTracking()
+            .Where(value => value.ArticleIdFk == articleId && value.IsEnabled && value.UserIdFkNavigation.IsActive)
+            .Select(value => value.UserIdFk).Distinct().ToArrayAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<Guid>> GetActiveUserIdsAsync(IReadOnlyCollection<Guid> userIds,
+        CancellationToken cancellationToken) =>
+        await dbContext.Users.AsNoTracking()
+            .Where(user => user.IsActive && userIds.Contains(user.UserId))
+            .Select(user => user.UserId).ToArrayAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<NotificationRecipientData>> GetActiveUsersAsync(
+        CancellationToken cancellationToken) =>
+        await dbContext.Users.AsNoTracking().Where(user => user.IsActive)
+            .OrderBy(user => user.FullName).ThenBy(user => user.Email)
+            .Select(user => new NotificationRecipientData(user.UserId, user.FullName, user.Email))
+            .ToArrayAsync(cancellationToken);
+
     public async Task<IReadOnlyList<Guid>> GetCommentThreadParticipantUserIdsAsync(Guid articleId,
         Guid commentId, CancellationToken cancellationToken)
     {

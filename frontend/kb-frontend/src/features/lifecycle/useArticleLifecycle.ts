@@ -139,7 +139,7 @@ export function useArticleLifecycle({
 
   const run = useCallback(async (
     action: ArticleLifecycleAction,
-    options: { comment?: string; targetStatus?: ArticleStatus } = {}
+    options: { comment?: string; targetStatus?: ArticleStatus; additionalRecipientIds?: string[] } = {}
   ): Promise<ArticleLifecycleResponse | null> => {
     if (pendingAction) return null
     if ((action === 'requestChanges' || action === 'reject') && !options.comment?.trim()) {
@@ -166,7 +166,7 @@ export function useArticleLifecycle({
       }
 
       if (action === 'archive') {
-        await api.archive(articleId, rowVersion, accessToken)
+        await api.archive(articleId, rowVersion, accessToken, options.additionalRecipientIds ?? [])
         setSuccessMessage('The article was archived.')
         onArchived?.()
         onChanged?.()
@@ -177,11 +177,13 @@ export function useArticleLifecycle({
         ? await api.override(articleId, {
             targetStatus: options.targetStatus!,
             reason: options.comment!.trim(),
-            rowVersion
+            rowVersion,
+            additionalRecipientIds: options.additionalRecipientIds ?? []
           }, accessToken)
         : await api.transition(articleId, action, {
             rowVersion,
-            comment: options.comment?.trim() || null
+            comment: options.comment?.trim() || null,
+            additionalRecipientIds: options.additionalRecipientIds ?? []
           }, accessToken)
 
       setSuccessMessage('The article lifecycle was updated.')

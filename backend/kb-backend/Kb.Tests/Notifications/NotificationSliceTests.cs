@@ -97,7 +97,7 @@ public sealed class NotificationSliceTests
         await fixture.Context.SaveChangesAsync();
 
         fixture.Current.UserId = fixture.OtherUserId;
-        Assert.True(await fixture.Service.GetArticlePreferenceAsync(fixture.ArticleId, default));
+        Assert.False(await fixture.Service.GetArticlePreferenceAsync(fixture.ArticleId, default));
         Assert.False(await fixture.Service.SetArticlePreferenceAsync(fixture.ArticleId, false, default));
         Assert.False(await fixture.Service.GetArticlePreferenceAsync(fixture.ArticleId, default));
 
@@ -106,6 +106,33 @@ public sealed class NotificationSliceTests
             NotificationTypes.ArticleSubmittedForReview, fixture.UserId, null, default);
 
         Assert.Empty(await fixture.Context.Notifications.AsNoTracking().ToArrayAsync());
+    }
+
+    [Fact]
+    public async Task Workflow_delivery_includes_enabled_subscribers_and_one_time_active_recipients()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Current.UserId = fixture.OtherUserId;
+        Assert.True(await fixture.Service.SetArticlePreferenceAsync(fixture.ArticleId, true, default));
+
+        fixture.Current.UserId = fixture.UserId;
+        await fixture.Service.NotifyWorkflowAsync(fixture.ArticleId,
+            NotificationTypes.ArticleApproved, fixture.UserId, null, default);
+        Assert.Single(await fixture.Context.Notifications.AsNoTracking().ToArrayAsync(), value =>
+            value.UserIdFk == fixture.OtherUserId && value.Type == NotificationTypes.ArticleApproved);
+
+        fixture.Context.Notifications.RemoveRange(fixture.Context.Notifications);
+        await fixture.Context.SaveChangesAsync();
+        fixture.Current.UserId = fixture.OtherUserId;
+        Assert.False(await fixture.Service.SetArticlePreferenceAsync(fixture.ArticleId, false, default));
+
+        fixture.Current.UserId = fixture.UserId;
+        await fixture.Service.NotifyWorkflowAsync(fixture.ArticleId,
+            NotificationTypes.ArticleArchived, fixture.UserId, null, [fixture.OtherUserId], default);
+        Assert.Single(await fixture.Context.Notifications.AsNoTracking().ToArrayAsync(), value =>
+            value.UserIdFk == fixture.OtherUserId && value.Type == NotificationTypes.ArticleArchived);
+        fixture.Current.UserId = fixture.OtherUserId;
+        Assert.False(await fixture.Service.GetArticlePreferenceAsync(fixture.ArticleId, default));
     }
 
     private static Notification Notification(Guid userId, Guid articleId, string title, DateTime createdAt) => new()

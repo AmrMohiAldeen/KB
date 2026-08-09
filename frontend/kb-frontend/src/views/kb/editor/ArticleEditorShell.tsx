@@ -300,7 +300,7 @@ const ArticleEditorShell = ({
           saveLabel={editor.phase === 'loading' ? 'Loading' : saveLabel[editor.saveState.status]}
           onSaveDraft={() => void editor.retrySave()}
           saveDisabled={saveButtonDisabled}
-          onRevisionHistory={() => void editor.leave(() => router.push(versionHistoryUrl))}
+          onVersions={() => void editor.leave(() => router.push(versionHistoryUrl))}
           onDuplicate={() => void duplicateArticle()}
           onDiscard={editor.reload}
           secondaryBusy={secondaryBusy}

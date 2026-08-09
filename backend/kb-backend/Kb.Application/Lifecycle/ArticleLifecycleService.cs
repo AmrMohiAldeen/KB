@@ -22,7 +22,6 @@ public sealed class ArticleLifecycleService
         ArticleStatuses.SubmittedForReview,
         ArticleStatuses.InReview,
         ArticleStatuses.ChangesRequested,
-        ArticleStatuses.Resubmitted,
         ArticleStatuses.Approved
     };
 
@@ -93,11 +92,11 @@ public sealed class ArticleLifecycleService
         var canSubmit = isOwner && unlocked &&
                         granted.Contains(PermissionCodes.ArticlesSubmitForReview) &&
                         draft.DraftStatus == ArticleStatuses.Draft;
-        var canResubmit = isOwner && unlocked &&
+        var canSubmitChanges = isOwner && unlocked &&
                           granted.Contains(PermissionCodes.ArticlesSubmitForReview) &&
                           draft.DraftStatus == ArticleStatuses.ChangesRequested;
         var canReview = unlocked && hasReviewPermission &&
-                        draft.DraftStatus is ArticleStatuses.SubmittedForReview or ArticleStatuses.Resubmitted;
+                        draft.DraftStatus == ArticleStatuses.SubmittedForReview;
         var canRequestChanges = unlocked && hasReviewPermission && reviewable;
         var canApprove = canRequestChanges && (!isOwner || isAdmin);
         var canPublish = unlocked && hasPublishPermission &&
@@ -112,8 +111,7 @@ public sealed class ArticleLifecycleService
             if (isAdmin || granted.Contains(PermissionCodes.ArticlesSubmitForReview))
                 overrideTargets.AddRange([
                     ArticleStatuses.Draft,
-                    ArticleStatuses.SubmittedForReview,
-                    ArticleStatuses.Resubmitted
+                    ArticleStatuses.SubmittedForReview
                 ]);
             if (hasReviewPermission)
                 overrideTargets.AddRange([
@@ -127,7 +125,7 @@ public sealed class ArticleLifecycleService
 
         return new(
             editable && canEditPermission,
-            canSubmit || canResubmit,
+            canSubmit || canSubmitChanges,
             canReview,
             canRequestChanges,
             canApprove,
@@ -220,24 +218,17 @@ public sealed class ArticleLifecycleService
         Guid articleId,
         LifecycleCommand command,
         CancellationToken cancellationToken) =>
-        AuthorTransitionAsync(articleId, command, ArticleStatuses.Draft, ArticleStatuses.SubmittedForReview,
+        AuthorTransitionAsync(articleId, command,
+            [ArticleStatuses.Draft, ArticleStatuses.ChangesRequested], ArticleStatuses.SubmittedForReview,
             ReviewActions.SubmitForReview, ArticleAuditActions.SubmittedForReview,
             ArticleSnapshotReasons.SubmittedForReview, cancellationToken);
-
-    public Task<LifecycleResultData> ResubmitAsync(
-        Guid articleId,
-        LifecycleCommand command,
-        CancellationToken cancellationToken) =>
-        AuthorTransitionAsync(articleId, command, ArticleStatuses.ChangesRequested, ArticleStatuses.Resubmitted,
-            ReviewActions.Resubmit, ArticleAuditActions.Resubmitted,
-            ArticleSnapshotReasons.ResubmittedForReview, cancellationToken);
 
     public Task<LifecycleResultData> StartReviewAsync(
         Guid articleId,
         LifecycleCommand command,
         CancellationToken cancellationToken) =>
         ReviewerTransitionAsync(articleId, command,
-            [ArticleStatuses.SubmittedForReview, ArticleStatuses.Resubmitted],
+            [ArticleStatuses.SubmittedForReview],
             ArticleStatuses.InReview, ReviewActions.StartReview, ArticleAuditActions.ReviewStarted,
             preventSelfApproval: false, snapshotReason: null, cancellationToken);
 
@@ -249,7 +240,7 @@ public sealed class ArticleLifecycleService
         if (string.IsNullOrWhiteSpace(command.Comment))
             throw new BusinessRuleException("A reason is required when requesting changes.");
         return ReviewerTransitionAsync(articleId, command,
-            [ArticleStatuses.SubmittedForReview, ArticleStatuses.InReview, ArticleStatuses.Resubmitted],
+            [ArticleStatuses.SubmittedForReview, ArticleStatuses.InReview],
             ArticleStatuses.ChangesRequested, ReviewActions.RequestChanges, ArticleAuditActions.ChangesRequested,
             preventSelfApproval: false, snapshotReason: null, cancellationToken);
     }
@@ -259,7 +250,7 @@ public sealed class ArticleLifecycleService
         LifecycleCommand command,
         CancellationToken cancellationToken) =>
         ReviewerTransitionAsync(articleId, command,
-            [ArticleStatuses.SubmittedForReview, ArticleStatuses.InReview, ArticleStatuses.Resubmitted],
+            [ArticleStatuses.SubmittedForReview, ArticleStatuses.InReview],
             ArticleStatuses.Approved, ReviewActions.Approve, ArticleAuditActions.Approved,
             preventSelfApproval: true, snapshotReason: ArticleSnapshotReasons.Approved, cancellationToken);
 
@@ -271,7 +262,7 @@ public sealed class ArticleLifecycleService
         if (string.IsNullOrWhiteSpace(command.Comment))
             throw new BusinessRuleException("A reason is required when rejecting an article.");
         return ReviewerTransitionAsync(articleId, command,
-            [ArticleStatuses.SubmittedForReview, ArticleStatuses.InReview, ArticleStatuses.Resubmitted],
+            [ArticleStatuses.SubmittedForReview, ArticleStatuses.InReview],
             ArticleStatuses.ChangesRequested, ReviewActions.Reject, ArticleAuditActions.Rejected,
             preventSelfApproval: true, snapshotReason: null, cancellationToken);
     }
@@ -320,7 +311,7 @@ public sealed class ArticleLifecycleService
                 cancellationToken);
             if (notificationService is not null)
                 await notificationService.NotifyWorkflowAsync(articleId, NotificationTypes.ArticlePublished,
-                    actorId, command.Comment, cancellationToken);
+                    actorId, command.Comment, command.AdditionalRecipientIds, cancellationToken);
             return result;
         }
         catch
@@ -356,12 +347,16 @@ public sealed class ArticleLifecycleService
 
         var actorId = currentUser.UserId;
         var now = timeProvider.GetUtcNow().UtcDateTime;
-        return await repository.TransitionAsync(articleId, draft.DraftId, command.RowVersion,
+        var result = await repository.TransitionAsync(articleId, draft.DraftId, command.RowVersion,
             draft.DraftStatus, target,
             Review(actorId, ReviewActions.Override, command.Reason, draft.DraftStatus, target, now),
             Audit(actorId, ArticleAuditActions.WorkflowOverridden, articleId, draft.DraftId,
                 draft.DraftStatus, target, command.Reason, null, true, now),
             snapshot: null, snapshotAudit: null, isOverride: true, cancellationToken);
+        if (notificationService is not null)
+            await notificationService.NotifyWorkflowAsync(articleId, NotificationTypes.ArticleWorkflowChanged,
+                actorId, command.Reason, command.AdditionalRecipientIds, cancellationToken);
+        return result;
     }
 
     public async Task<LifecycleResultData> RestoreAsync(
@@ -413,12 +408,17 @@ public sealed class ArticleLifecycleService
         {
             var actorId = currentUser.UserId;
             var now = timeProvider.GetUtcNow().UtcDateTime;
-            return await repository.RestoreAsync(articleId, current.DraftId, command.RowVersion,
+            var result = await repository.RestoreAsync(articleId, current.DraftId, command.RowVersion,
                 versionId, staged,
+                Review(actorId, ReviewActions.Restore, null, current.DraftStatus, ArticleStatuses.Draft, now),
                 Audit(actorId, ArticleAuditActions.Restored, articleId, newDraftId,
                     current.DraftStatus, ArticleStatuses.Draft, null,
                     new { sourceVersionId = versionId, sourceVersionNumber = version.VersionNumber }, false, now),
                 cancellationToken);
+            if (notificationService is not null)
+                await notificationService.NotifyWorkflowAsync(articleId, NotificationTypes.ArticleWorkflowChanged,
+                    actorId, null, cancellationToken);
+            return result;
         }
         catch
         {
@@ -430,6 +430,7 @@ public sealed class ArticleLifecycleService
     public async Task ArchiveAsync(
         Guid articleId,
         byte[] expectedRowVersion,
+        IReadOnlyCollection<Guid>? additionalRecipientIds,
         CancellationToken cancellationToken)
     {
         var draft = await LoadAndValidateAsync(articleId, expectedRowVersion, cancellationToken);
@@ -437,9 +438,16 @@ public sealed class ArticleLifecycleService
         EnsureUnlocked(draft);
         var now = timeProvider.GetUtcNow().UtcDateTime;
         await repository.ArchiveAsync(articleId, draft.DraftId, expectedRowVersion,
+            Review(currentUser.UserId, ReviewActions.Archive, null, draft.DraftStatus, ArticleStatuses.Archived, now),
             Audit(currentUser.UserId, ArticleAuditActions.Archived, articleId, draft.DraftId,
                 draft.ArticleStatus, ArticleStatuses.Archived, null, null, false, now), cancellationToken);
+        if (notificationService is not null)
+            await notificationService.NotifyWorkflowAsync(articleId, NotificationTypes.ArticleArchived,
+                currentUser.UserId, null, additionalRecipientIds, cancellationToken);
     }
+
+    public Task ArchiveAsync(Guid articleId, byte[] expectedRowVersion, CancellationToken cancellationToken) =>
+        ArchiveAsync(articleId, expectedRowVersion, null, cancellationToken);
 
     public async Task<LifecycleResultData> UnarchiveAsync(
         Guid articleId,
@@ -459,15 +467,20 @@ public sealed class ArticleLifecycleService
             throw new ConflictException("The archived article does not have a restorable workflow state.");
 
         var now = timeProvider.GetUtcNow().UtcDateTime;
-        return await repository.UnarchiveAsync(articleId, draft.DraftId,
+        var result = await repository.UnarchiveAsync(articleId, draft.DraftId,
+            Review(currentUser.UserId, ReviewActions.Unarchive, null, ArticleStatuses.Archived, draft.DraftStatus, now),
             Audit(currentUser.UserId, ArticleAuditActions.Unarchived, articleId, draft.DraftId,
                 ArticleStatuses.Archived, draft.DraftStatus, null, null, false, now), cancellationToken);
+        if (notificationService is not null)
+            await notificationService.NotifyWorkflowAsync(articleId, NotificationTypes.ArticleWorkflowChanged,
+                currentUser.UserId, null, cancellationToken);
+        return result;
     }
 
     private async Task<LifecycleResultData> AuthorTransitionAsync(
         Guid articleId,
         LifecycleCommand command,
-        string expectedStatus,
+        IReadOnlyCollection<string> allowedFrom,
         string newStatus,
         string action,
         string auditAction,
@@ -478,7 +491,7 @@ public sealed class ArticleLifecycleService
         await RequirePermissionAsync(PermissionCodes.ArticlesSubmitForReview, cancellationToken);
         if (draft.ArticleOwnerId != currentUser.UserId)
             throw new ForbiddenException("Only the article author can submit this draft.");
-        if (draft.DraftStatus != expectedStatus)
+        if (!allowedFrom.Contains(draft.DraftStatus, StringComparer.Ordinal))
             throw InvalidTransition(draft.DraftStatus, newStatus);
         EnsureTransition(draft.DraftStatus, newStatus);
         EnsureUnlocked(draft);
@@ -542,7 +555,7 @@ public sealed class ArticleLifecycleService
                 isOverride, cancellationToken);
             if (notificationService is not null && NotificationType(action) is { } notificationType)
                 await notificationService.NotifyWorkflowAsync(articleId, notificationType, actorId,
-                    command.Comment, cancellationToken);
+                    command.Comment, command.AdditionalRecipientIds, cancellationToken);
             return result;
         }
         catch (OperationCanceledException)
@@ -833,7 +846,7 @@ public sealed class ArticleLifecycleService
 
     private static string TargetPermission(string target) => target switch
     {
-        ArticleStatuses.Draft or ArticleStatuses.SubmittedForReview or ArticleStatuses.Resubmitted =>
+        ArticleStatuses.Draft or ArticleStatuses.SubmittedForReview =>
             PermissionCodes.ArticlesSubmitForReview,
         ArticleStatuses.InReview or ArticleStatuses.ChangesRequested or ArticleStatuses.Approved =>
             PermissionCodes.ArticlesReview,
@@ -844,17 +857,18 @@ public sealed class ArticleLifecycleService
         status is ArticleStatuses.Published or ArticleStatuses.Draft or ArticleStatuses.ChangesRequested;
 
     private static bool IsReviewable(string status) =>
-        status is ArticleStatuses.SubmittedForReview or ArticleStatuses.InReview or ArticleStatuses.Resubmitted;
+        status is ArticleStatuses.SubmittedForReview or ArticleStatuses.InReview;
 
     private static bool IsRestorableWorkflowStatus(string status) =>
         status is ArticleStatuses.Draft or ArticleStatuses.SubmittedForReview or ArticleStatuses.InReview or
-            ArticleStatuses.ChangesRequested or ArticleStatuses.Resubmitted or ArticleStatuses.Approved or
+            ArticleStatuses.ChangesRequested or ArticleStatuses.Approved or
             ArticleStatuses.Published;
 
     private static string? NotificationType(string action) => action switch
     {
-        ReviewActions.SubmitForReview or ReviewActions.Resubmit =>
+        ReviewActions.SubmitForReview =>
             NotificationTypes.ArticleSubmittedForReview,
+        ReviewActions.StartReview => NotificationTypes.ArticleReviewStarted,
         ReviewActions.RequestChanges => NotificationTypes.ArticleChangesRequested,
         ReviewActions.Approve => NotificationTypes.ArticleApproved,
         ReviewActions.Reject => NotificationTypes.ArticleRejected,

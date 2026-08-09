@@ -46,11 +46,11 @@ public sealed class ArticleLifecycleSliceTests
         var changes = await f.Service.RequestChangesAsync(f.ArticleId,
             new(started.RowVersion, "Add an example"), default);
         f.Current.UserId = f.AuthorId;
-        var resubmitted = await f.Service.ResubmitAsync(f.ArticleId,
+        var secondSubmission = await f.Service.SubmitAsync(f.ArticleId,
             new(changes.RowVersion, "Added"), default);
         f.Current.UserId = f.ReviewerId;
         var restarted = await f.Service.StartReviewAsync(f.ArticleId,
-            new(resubmitted.RowVersion), default);
+            new(secondSubmission.RowVersion), default);
         var approved = await f.Service.ApproveAsync(f.ArticleId,
             new(restarted.RowVersion, "Approved"), default);
         f.Current.UserId = f.PublisherId;
@@ -69,7 +69,7 @@ public sealed class ArticleLifecycleSliceTests
         Assert.Equal(
             [
                 ArticleSnapshotReasons.SubmittedForReview,
-                ArticleSnapshotReasons.ResubmittedForReview,
+                ArticleSnapshotReasons.SubmittedForReview,
                 ArticleSnapshotReasons.Approved,
                 ArticleSnapshotReasons.Published
             ],
@@ -505,6 +505,13 @@ public sealed class ArticleLifecycleSliceTests
         Assert.Equal(versionCount, await f.Context.ArticleVersions.CountAsync());
         Assert.Equal(commentCount, await f.Context.ArticleComments.CountAsync());
         Assert.Equal(mediaReferenceCount, await f.Context.MediaReferences.CountAsync());
+        Assert.Equal(
+            [ReviewActions.Archive, ReviewActions.Unarchive],
+            await f.Context.ArticleReviewEvents.AsNoTracking()
+                .Where(value => value.Action == ReviewActions.Archive || value.Action == ReviewActions.Unarchive)
+                .OrderBy(value => value.CreatedAt)
+                .Select(value => value.Action)
+                .ToArrayAsync());
         Assert.True(await f.Context.ArticleComments.AnyAsync(comment => comment.CommentId == commentId));
         Assert.True(await f.Context.MediaReferences.AnyAsync(reference => reference.MediaIdFk == mediaId));
         Assert.Equal(

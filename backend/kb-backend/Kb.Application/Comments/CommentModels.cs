@@ -60,7 +60,8 @@ public sealed record CommentAuditData(
 
 public sealed record CommentAnchorUpdate(
     Guid CommentId,
-    Guid DraftId,
+    Guid? DraftId,
+    string? AnchorType,
     string? AnchorDataJson,
     string AnchorStatus,
     string PreviousAnchorStatus);

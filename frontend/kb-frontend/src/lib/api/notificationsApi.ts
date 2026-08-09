@@ -2,6 +2,7 @@ import type {
   ArticleNotificationPreferenceResponse,
   MarkAllNotificationsReadResponse,
   NotificationListResponse,
+  NotificationRecipientResponse,
   NotificationResponse,
   UnreadNotificationCountResponse
 } from '@/types/apps/notificationTypes'
@@ -46,3 +47,6 @@ export const setArticleNotificationPreference = (
   `/api/notifications/articles/${encodeURIComponent(articleId)}/preference`, accessToken,
   { method: 'PUT', body: JSON.stringify({ enabled }) }
 )
+
+export const getNotificationRecipients = (accessToken: string, signal?: AbortSignal) =>
+  apiRequest<NotificationRecipientResponse[]>('/api/notifications/recipients', accessToken, { signal })

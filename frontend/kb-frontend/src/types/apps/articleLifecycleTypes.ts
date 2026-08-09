@@ -5,7 +5,6 @@ export type ArticleLifecycleAction =
   | 'submitForReview'
   | 'startReview'
   | 'requestChanges'
-  | 'resubmit'
   | 'approve'
   | 'reject'
   | 'publish'
@@ -60,7 +59,7 @@ export type ArticleVersionSummaryResponse = {
   contentSizeBytes: number
   sourceDraftId: string | null
   sourceDraftNumber: number | null
-  snapshotReason: 'SubmittedForReview' | 'ResubmittedForReview' | 'Approved' | 'Published'
+  snapshotReason: 'SubmittedForReview' | 'Approved' | 'Published'
   isPublished: boolean
   createdBy: UserSummaryResponse
   createdAt: string
@@ -116,12 +115,14 @@ export type ArticleVersionListQuery = {
 export type LifecycleCommentRequest = {
   rowVersion: string
   comment?: string | null
+  additionalRecipientIds?: string[]
 }
 
 export type WorkflowOverrideRequest = {
   targetStatus: ArticleStatus
   reason: string
   rowVersion: string
+  additionalRecipientIds?: string[]
 }
 
 export type RestoreArticleVersionRequest = {
