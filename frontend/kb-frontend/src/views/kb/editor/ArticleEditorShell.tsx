@@ -4,15 +4,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import Alert from '@mui/material/Alert'
+import Avatar from '@mui/material/Avatar'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Card from '@mui/material/Card'
 import CardContent from '@mui/material/CardContent'
-import Chip from '@mui/material/Chip'
 import CircularProgress from '@mui/material/CircularProgress'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
-import { ArrowLeft, History, RefreshCw, Save } from 'lucide-react'
+import { ArrowLeft } from 'lucide-react'
 import type { KnowledgeBaseEditorProps } from '@/features/editor/core/KnowledgeBaseEditor'
 import {
   useArticleDraftEditor,
@@ -21,8 +21,6 @@ import {
 import { getLocalizedUrl } from '@/utils/i18n'
 import { KbPageShell } from '@/views/shared'
 import KbValidationSummary from '@/views/shared/forms/KbValidationSummary'
-import PageHeader from '../shared/components/PageHeader'
-import StatusChip from '../shared/components/StatusChip'
 import {
   mediaLibraryApi,
   type MediaLibraryApi
@@ -34,6 +32,9 @@ import ArticleCommentsPanel, {
 } from '@/features/comments/ArticleCommentsPanel'
 import { useArticleComments } from '@/features/comments/useArticleComments'
 import type { ArticleCommentsApi } from '@/lib/api/articleCommentsApi'
+import { createArticle, getArticleById } from '@/lib/api/articlesApi'
+import { getArticleDraft, saveArticleDraftContent } from '@/lib/api/articleDraftsApi'
+import { describeApiError } from '@/lib/api/http'
 
 const EditorCanvas = dynamic<KnowledgeBaseEditorProps>(() => import('@/features/editor/core/KnowledgeBaseEditor'), {
   ssr: false
@@ -72,6 +73,9 @@ const ArticleEditorShell = ({
   const [mediaMessages, setMediaMessages] = useState<string[]>([])
   const [activeCommentThreadId, setActiveCommentThreadId] = useState<string | null>(null)
   const [pendingCommentAnchor, setPendingCommentAnchor] = useState<PendingCommentAnchor | null>(null)
+  const [commentAnchorPositions, setCommentAnchorPositions] = useState<Record<string, number>>({})
+  const [secondaryBusy, setSecondaryBusy] = useState(false)
+  const [secondaryMessages, setSecondaryMessages] = useState<string[]>([])
   const [workflowActionsTarget, setWorkflowActionsTarget] = useState<HTMLElement | null>(null)
   const handleWorkflowActionsTarget = useCallback((node: HTMLElement | null) => {
     setWorkflowActionsTarget(node)
@@ -122,15 +126,6 @@ const ArticleEditorShell = ({
     void comments.query.refetch()
   }, [comments.query, editor.saveState.rowVersion, editor.saveState.status])
 
-  const pageState = useMemo(() => {
-    if (editor.phase === 'loading') return 'Loading'
-    if (editor.phase === 'acquiring') return 'Acquiring lock'
-    if (editor.phase === 'locked') return 'Locked by another user'
-    if (editor.phase === 'readonly') return 'Read-only'
-    if (editor.phase === 'error') return 'Read-only'
-    return saveLabel[editor.saveState.status]
-  }, [editor.phase, editor.saveState.status])
-
   useEffect(() => {
     if (!editor.draft?.isLockOwner) return
 
@@ -152,65 +147,59 @@ const ArticleEditorShell = ({
     return () => document.removeEventListener('click', interceptNavigation, true)
   }, [editor, router])
 
-  const lockOwner = editor.draft?.lock.lockedBy
-  const lockedAt = editor.draft?.lock.lockedAt
-  const lockTime = lockedAt
-    ? new Intl.DateTimeFormat(lang, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(lockedAt))
-    : null
   const showRetry = editor.saveState.status === 'failed'
-  const showReload = editor.phase === 'error' || editor.saveState.status === 'conflict'
   const saveButtonDisabled = !editor.editable || editor.saveState.status === 'saving' ||
     editor.saveState.status === 'conflict' || (!editor.saveState.dirty && !showRetry)
 
-  return (
-    <KbPageShell maxWidth={1720} spacing={4}>
-      <PageHeader
-        title='Edit article'
-        subtitle={articleId
-          ? 'Write, collaborate, and move this article through its publishing workflow.'
-          : 'Open an article from the dashboard to begin editing.'}
-        actions={
-          <>
-            <Button
-              variant='text'
-              startIcon={<ArrowLeft size={18} />}
-              onClick={() => void editor.leave(() => router.push(dashboardUrl))}
-            >
-              Dashboard
-            </Button>
-            <StatusChip label={pageState} color={editor.saveState.status === 'conflict' || editor.saveState.status === 'failed' ? 'error' : undefined} />
-            <Button
-              variant='outlined'
-              startIcon={<Save size={18} />}
-              disabled={saveButtonDisabled}
-              onClick={() => void editor.retrySave()}
-            >
-              {showRetry ? 'Retry save' : 'Save now'}
-            </Button>
-            {showReload && (
-              <Button variant='outlined' startIcon={<RefreshCw size={18} />} onClick={editor.reload}>
-                Reload server draft
-              </Button>
-            )}
-            {articleId && (
-              <Button
-                variant='outlined'
-                startIcon={<History size={18} />}
-                onClick={() => void editor.leave(() => router.push(versionHistoryUrl))}
-              >
-                Version history
-              </Button>
-            )}
-            <Box
-              component='span'
-              ref={handleWorkflowActionsTarget}
-              sx={{ display: 'contents' }}
-            />
-          </>
-        }
-      />
+  const duplicateArticle = useCallback(async () => {
+    if (secondaryBusy) return
+    setSecondaryBusy(true)
+    setSecondaryMessages([])
+    try {
+      if (!await editor.prepareForWorkflow()) return
+      const [details, sourceDraft] = await Promise.all([
+        getArticleById(articleId, accessToken),
+        getArticleDraft(articleId, accessToken)
+      ])
+      if (!details.category) throw new Error('The article must belong to a category before it can be duplicated.')
+      const created = await createArticle({
+        title: `${details.title} copy`,
+        slug: null,
+        categoryId: details.category.categoryId
+      }, accessToken)
+      if (!created.currentDraft?.rowVersion) throw new Error('The duplicate article draft could not be initialized.')
+      await saveArticleDraftContent(created.articleId, {
+        content: sourceDraft.content,
+        rowVersion: created.currentDraft.rowVersion
+      }, accessToken)
+      router.push(getLocalizedUrl(`/editor?articleId=${encodeURIComponent(created.articleId)}`, lang))
+    } catch (error) {
+      setSecondaryMessages(describeApiError(error))
+      editor.reload()
+    } finally {
+      setSecondaryBusy(false)
+    }
+  }, [accessToken, articleId, editor, lang, router, secondaryBusy])
 
-      <KbValidationSummary title='Draft editor' errors={[...editor.messages, ...mediaMessages]} />
+  return (
+    <Box data-dashboard-full-width>
+      <KbPageShell maxWidth='none' spacing={3}>
+      <Stack direction='row' spacing={1.5} sx={{ alignItems: 'center' }}>
+        <Button variant='text' startIcon={<ArrowLeft size={18} />} onClick={() => void editor.leave(() => router.push(dashboardUrl))}>
+          Dashboard
+        </Button>
+        <Typography variant='h5' sx={{ fontWeight: 750 }}>Edit article</Typography>
+      </Stack>
+
+      <Card variant='outlined' sx={{ borderRadius: 2, boxShadow: 'none' }}>
+        <CardContent sx={{ px: { xs: 2, md: 2.5 }, py: 1.5, '&:last-child': { pb: 1.5 } }}>
+          <Box ref={handleWorkflowActionsTarget} sx={{ minBlockSize: 40, display: 'flex', alignItems: 'center' }}>
+            {!workflowActionsTarget && <Avatar sx={{ inlineSize: 36, blockSize: 36 }} />}
+          </Box>
+        </CardContent>
+      </Card>
+
+      <KbValidationSummary title='Draft editor' errors={[...editor.messages, ...mediaMessages, ...secondaryMessages]} />
 
       {restoredFromVersion && (
         <Alert severity='success'>
@@ -237,41 +226,7 @@ const ArticleEditorShell = ({
       )}
 
       {editor.draft && (
-        <Stack spacing={4}>
-          <Card variant='outlined' sx={{ borderRadius: 2, boxShadow: 'none' }}>
-            <CardContent sx={{ p: 4, '&:last-child': { pb: 4 } }}>
-              <Stack
-                direction={{ xs: 'column', md: 'row' }}
-                spacing={3}
-                sx={{ alignItems: { md: 'center' }, justifyContent: 'space-between' }}
-              >
-                <Stack spacing={1}>
-                  <Stack direction='row' spacing={2} useFlexGap sx={{ flexWrap: 'wrap' }}>
-                    <StatusChip label={editor.draft.status} />
-                    <Chip size='small' variant='tonal' label={pageState} />
-                  </Stack>
-                  {editor.phase === 'acquiring' && (
-                    <Typography variant='body2' color='text.secondary'>Acquiring the edit lock. The editor is disabled until this succeeds.</Typography>
-                  )}
-                  {lockOwner && (
-                    <Typography variant='body2' color='text.secondary'>
-                      Locked by {lockOwner.fullName}{lockTime ? ` at ${lockTime}` : ''}
-                    </Typography>
-                  )}
-                </Stack>
-                <Typography variant='body2' color={editor.saveState.dirty ? 'warning.main' : 'text.secondary'}>
-                  {saveLabel[editor.saveState.status]}
-                </Typography>
-              </Stack>
-            </CardContent>
-          </Card>
-
-          {editor.phase === 'locked' && (
-            <Alert severity='warning'>
-              {lockOwner ? `${lockOwner.fullName} owns this lock${lockTime ? ` since ${lockTime}` : ''}.` : 'Another user owns this lock.'} The content is read-only.
-            </Alert>
-          )}
-          {editor.phase === 'readonly' && <Alert severity='info'>This draft is open read-only.</Alert>}
+        <Stack spacing={3}>
           {editor.saveState.status === 'failed' && (
             <Alert severity='error'>The save failed. Your unsaved content is still in this editor. Retry when the service is available.</Alert>
           )}
@@ -286,15 +241,14 @@ const ArticleEditorShell = ({
               <Box
                 sx={{
                   display: 'grid',
-                  gridTemplateColumns: { xs: 'minmax(0, 1fr)', xl: 'minmax(0, 1120px) 340px' },
+                  gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: 'minmax(0, 1fr) minmax(290px, 23vw)' },
                   alignItems: 'flex-start',
-                  justifyContent: 'center',
-                  gap: { xs: 3, md: 4 },
-                  p: { xs: 2, sm: 3, md: 4 },
+                  gap: { xs: 2, md: 3 },
+                  p: { xs: 1.5, sm: 2, md: 2.5 },
                   bgcolor: 'background.default'
                 }}
               >
-                <Box sx={{ inlineSize: '100%', maxInlineSize: 1120, minInlineSize: 0 }}>
+                <Box sx={{ inlineSize: '100%', minInlineSize: 0 }}>
                   <EditorCanvas
                     key={editor.editorKey}
                     content={editor.draft.content}
@@ -310,6 +264,7 @@ const ArticleEditorShell = ({
                     commentAnchors={comments.query.data?.threads ?? []}
                     activeCommentThreadId={activeCommentThreadId}
                     onSelectCommentThread={setActiveCommentThreadId}
+                    onCommentAnchorPositionsChange={setCommentAnchorPositions}
                     canComment={Boolean(comments.query.data?.canComment)}
                     currentDraftId={editor.draft.draftId}
                     onAddCommentAnchor={(anchorType, anchorData) => {
@@ -326,6 +281,7 @@ const ArticleEditorShell = ({
                   pendingAnchor={pendingCommentAnchor}
                   onClearPendingAnchor={() => setPendingCommentAnchor(null)}
                   locale={lang}
+                  anchorPositions={commentAnchorPositions}
                 />
               </Box>
             </CardContent>
@@ -340,7 +296,15 @@ const ArticleEditorShell = ({
           beforeAction={editor.prepareForWorkflow}
           onChanged={editor.reload}
           actionsTarget={workflowActionsTarget}
-          actionsInHeader
+          savedAt={editor.lastSavedAt ?? editor.draft?.updatedAt}
+          saveLabel={editor.phase === 'loading' ? 'Loading' : saveLabel[editor.saveState.status]}
+          onSaveDraft={() => void editor.retrySave()}
+          saveDisabled={saveButtonDisabled}
+          onRevisionHistory={() => void editor.leave(() => router.push(versionHistoryUrl))}
+          onDuplicate={() => void duplicateArticle()}
+          onDiscard={editor.reload}
+          secondaryBusy={secondaryBusy}
+          locale={lang}
           actionsDisabled={Boolean(
             editor.draft?.lock.isLocked && !editor.draft.isLockOwner ||
             editor.saveState.status === 'conflict' ||
@@ -357,7 +321,8 @@ const ArticleEditorShell = ({
           }
         />
       )}
-    </KbPageShell>
+      </KbPageShell>
+    </Box>
   )
 }
 

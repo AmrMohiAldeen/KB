@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { getDashboardItems } from './dashboardApi'
+import { getDashboardItems, reorderDashboardItem } from './dashboardApi'
 
 describe('dashboard API', () => {
   beforeEach(() => {
@@ -91,5 +91,25 @@ describe('dashboard API', () => {
     expect(result.articleCount).toBe(1)
     expect(result.everythingArticleCount).toBe(4)
     expect(result.filterCounts.Archived).toBe(2)
+  })
+
+  it('persists relative ordering through the group-specific endpoint', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 204 }))
+
+    await reorderDashboardItem({
+      accessToken: 'access-token',
+      kind: 'article',
+      id: 'article/id',
+      targetId: 'target-id',
+      placement: 'after'
+    })
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      'https://api.example.test/api/dashboard/articles/article%2Fid/position'
+    )
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: 'PATCH',
+      body: JSON.stringify({ targetId: 'target-id', placement: 'after' })
+    })
   })
 })

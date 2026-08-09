@@ -1142,14 +1142,15 @@ export default function EditorToolbar({
 
         <YoutubeControl editor={editor} />
 
-        <ImageControl editor={editor}/>
-        {mediaUploadController && mediaLibraryApi && mediaAccessToken && (
+        {mediaUploadController && mediaLibraryApi && mediaAccessToken ? (
           <MediaControls
             editor={editor}
             controller={mediaUploadController}
             api={mediaLibraryApi}
             accessToken={mediaAccessToken}
           />
+        ) : (
+          <ImageControl editor={editor}/>
         )}
         <div className="ml-auto text-xs text-muted-foreground">
           {toolbarState.wordCount} words

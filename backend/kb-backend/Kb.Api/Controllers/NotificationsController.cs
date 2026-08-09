@@ -40,6 +40,18 @@ public sealed class NotificationsController(NotificationService notifications) :
         return Ok(new MarkAllNotificationsReadResponse(result.MarkedReadCount, result.UnreadCount));
     }
 
+    [HttpGet("articles/{articleId:guid}/preference")]
+    public async Task<ActionResult<ArticleNotificationPreferenceResponse>> GetArticlePreference(
+        Guid articleId, CancellationToken cancellationToken) =>
+        Ok(new ArticleNotificationPreferenceResponse(articleId,
+            await notifications.GetArticlePreferenceAsync(articleId, cancellationToken)));
+
+    [HttpPut("articles/{articleId:guid}/preference")]
+    public async Task<ActionResult<ArticleNotificationPreferenceResponse>> SetArticlePreference(
+        Guid articleId, UpdateArticleNotificationPreferenceRequest request, CancellationToken cancellationToken) =>
+        Ok(new ArticleNotificationPreferenceResponse(articleId,
+            await notifications.SetArticlePreferenceAsync(articleId, request.Enabled, cancellationToken)));
+
     private static NotificationResponse ToResponse(NotificationData value) => new(
         value.NotificationId, value.ArticleId, value.Type, value.Title, value.Message,
         value.IsRead, value.CreatedAt, value.ReadAt);

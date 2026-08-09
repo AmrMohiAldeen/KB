@@ -114,6 +114,7 @@ public static class MediaReferenceTypes
 public static class MediaAuditActions
 {
     public const string Uploaded = "MediaUploaded";
+    public const string Replaced = "MediaReplaced";
     public const string Archived = "MediaArchived";
     public const string Restored = "MediaRestored";
     public const string Deleted = "MediaDeleted";
@@ -188,6 +189,7 @@ public static class CategoryAuditActions
     public const string Deleted = "CategoryDeleted";
     public const string Archived = "CategoryArchived";
     public const string Unarchived = "CategoryUnarchived";
+    public const string Reordered = "CategoryReordered";
 }
 
 public static class AuditEntityTypes

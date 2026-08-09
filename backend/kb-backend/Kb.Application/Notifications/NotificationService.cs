@@ -34,6 +34,23 @@ public sealed class NotificationService(
     public Task<MarkAllNotificationsReadData> MarkAllReadAsync(CancellationToken cancellationToken) =>
         repository.MarkAllReadAsync(RequireUser(), UtcNow(), cancellationToken);
 
+    public async Task<bool> GetArticlePreferenceAsync(Guid articleId, CancellationToken cancellationToken)
+    {
+        if (articleId == Guid.Empty) throw new BusinessRuleException("Article ID is required.");
+        if (await repository.GetArticleContextAsync(articleId, cancellationToken) is null)
+            throw new NotFoundException("The article was not found.");
+        return await repository.GetArticlePreferenceAsync(articleId, RequireUser(), cancellationToken) ?? true;
+    }
+
+    public async Task<bool> SetArticlePreferenceAsync(Guid articleId, bool enabled,
+        CancellationToken cancellationToken)
+    {
+        if (articleId == Guid.Empty) throw new BusinessRuleException("Article ID is required.");
+        if (!await repository.SetArticlePreferenceAsync(articleId, RequireUser(), enabled, UtcNow(), cancellationToken))
+            throw new NotFoundException("The article was not found.");
+        return enabled;
+    }
+
     public async Task NotifyWorkflowAsync(Guid articleId, string type, Guid actorId, string? detail,
         CancellationToken cancellationToken)
     {
@@ -98,7 +115,9 @@ public sealed class NotificationService(
         IEnumerable<Guid> recipientIds, Guid actorId, CancellationToken cancellationToken)
     {
         var now = UtcNow();
-        var notifications = recipientIds.Where(id => id != Guid.Empty && id != actorId).Distinct()
+        var recipientArray = recipientIds.Where(id => id != Guid.Empty && id != actorId).Distinct().ToArray();
+        var disabled = await repository.GetDisabledRecipientIdsAsync(articleId, recipientArray, cancellationToken);
+        var notifications = recipientArray.Where(id => !disabled.Contains(id))
             .Select(userId => new NewNotificationData(Guid.NewGuid(), userId, articleId, type, title, message, now))
             .ToArray();
         if (notifications.Length > 0)

@@ -2,10 +2,13 @@ import { Editor, type JSONContent } from '@tiptap/core';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type React from 'react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { MediaLibraryApi } from '@/lib/api/mediaApi';
+import type { EditorMediaUploadController } from '../../media/mediaTypes';
 import { getEditorExtensions } from '../../extensions';
 import EditorToolbar from './EditorToolbar';
 import { ImageControl } from './ImageControl';
+import { MediaControls } from './MediaControls';
 import { YoutubeControl } from './YoutubeControl';
 
 describe('editor media controls and word count', () => {
@@ -159,6 +162,67 @@ describe('editor media controls and word count', () => {
       'Enter a valid YouTube link',
     );
     expect(findNode(editor!.getJSON(), 'youtube')).toBeNull();
+  });
+
+  it('offers device upload and an image-only Media Library picker', async () => {
+    createEditor();
+    const image = {
+      mediaId: 'media-1',
+      originalFileName: 'lesson.png',
+      mimeType: 'image/png',
+      fileExtension: '.png',
+      fileSizeBytes: 42,
+      url: '/api/media/media-1/content',
+      status: 'Active' as const,
+      uploadedBy: { userId: 'user-1', fullName: 'Author' },
+      uploadedAt: '2026-08-09T08:00:00Z',
+      referenceCount: 1,
+    };
+    const getList = vi.fn().mockImplementation(
+      (query: { mediaType?: string }) => Promise.resolve({
+        items: query.mediaType === 'image' ? [image] : [],
+        page: 1,
+        pageSize: 100,
+        totalCount: query.mediaType === 'image' ? 1 : 0,
+      }),
+    );
+    const api = {
+      getList,
+      getContent: vi.fn().mockResolvedValue(new Blob(['image'])),
+    } as unknown as MediaLibraryApi;
+    const controller = {
+      insertMedia: vi.fn().mockReturnValue(true),
+      uploadFiles: vi.fn(),
+    } as unknown as EditorMediaUploadController;
+
+    await render(createElement(MediaControls, {
+      editor: editor!,
+      controller,
+      accessToken: 'token',
+      api,
+    }));
+    await click(document.querySelector('button[aria-label="Insert or attach media"]'));
+
+    expect(document.body.textContent).toContain('Upload from device');
+    expect(document.body.textContent).toContain('Choose from Media Library');
+    await click(Array.from(document.querySelectorAll('button')).find(
+      button => button.textContent?.includes('Choose from Media Library'),
+    ) ?? null);
+
+    expect(getList).toHaveBeenCalledWith(
+      expect.objectContaining({ mediaType: 'image', status: 'Active' }),
+      'token',
+      expect.any(AbortSignal),
+    );
+    expect(getList).toHaveBeenCalledWith(
+      expect.objectContaining({ mediaType: 'gif', status: 'Active' }),
+      'token',
+      expect.any(AbortSignal),
+    );
+    await click(Array.from(document.querySelectorAll('button')).find(
+      button => button.textContent?.includes('lesson.png'),
+    ) ?? null);
+    expect(controller.insertMedia).toHaveBeenCalledWith(editor, image);
   });
 
   it('updates the toolbar word count as editor content changes', async () => {

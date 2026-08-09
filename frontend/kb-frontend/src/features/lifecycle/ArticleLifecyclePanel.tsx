@@ -1,46 +1,52 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import Alert from '@mui/material/Alert'
+import Avatar from '@mui/material/Avatar'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
-import Card from '@mui/material/Card'
-import CardContent from '@mui/material/CardContent'
 import CircularProgress from '@mui/material/CircularProgress'
 import Divider from '@mui/material/Divider'
+import IconButton from '@mui/material/IconButton'
+import ListItemIcon from '@mui/material/ListItemIcon'
+import ListItemText from '@mui/material/ListItemText'
+import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import Stack from '@mui/material/Stack'
-import Table from '@mui/material/Table'
-import TableBody from '@mui/material/TableBody'
-import TableCell from '@mui/material/TableCell'
-import TableHead from '@mui/material/TableHead'
-import TableRow from '@mui/material/TableRow'
+import Switch from '@mui/material/Switch'
+import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import {
+  Activity,
   Archive,
+  Bell,
+  BellOff,
   Check,
-  History,
-  Play,
-  RefreshCw,
+  ChevronDown,
+  Copy,
+  FileClock,
+  FilePlus2,
+  MoreVertical,
   RotateCcw,
+  Save,
   Send,
-  ShieldAlert,
+  Trash2,
   Upload
 } from 'lucide-react'
 import CustomTextField from '@core/components/mui/TextField'
 import KbConfirmDialog from '@/views/shared/dialogs/KbConfirmDialog'
 import KbFormDialog from '@/views/shared/dialogs/KbFormDialog'
 import KbValidationSummary from '@/views/shared/forms/KbValidationSummary'
-import StatusChip from '@/views/kb/shared/components/StatusChip'
-import { articleStatusColor, articleStatusLabel } from '@/views/kb/config/articles'
-import { formatDate } from '@/views/kb/shared/utils/formatDate'
+import { articleStatusLabel } from '@/views/kb/config/articles'
 import type { ArticleLifecycleAction } from '@/types/apps/articleLifecycleTypes'
 import type { ArticleStatus } from '@/types/apps/articleTypes'
 import { getVisibleLifecycleActions, lifecycleActionLabels } from './lifecycleActions'
 import { useArticleLifecycle, type ArticleLifecycleApi } from './useArticleLifecycle'
+import ArticleActivityDrawer from './ArticleActivityDrawer'
+import { getArticleNotificationPreference, setArticleNotificationPreference } from '@/lib/api/notificationsApi'
 
-type DialogKind = 'requestChanges' | 'reject' | 'publish' | 'override' | 'archive' | null
+type DialogKind = 'requestChanges' | 'publish' | 'override' | 'archive' | null
 
 type ArticleLifecyclePanelProps = {
   articleId: string
@@ -51,22 +57,27 @@ type ArticleLifecyclePanelProps = {
   onChanged?: () => void
   actionsDisabled?: boolean
   actionsDisabledReason?: string
-  compact?: boolean
   actionsTarget?: HTMLElement | null
-  actionsInHeader?: boolean
+  savedAt?: string | null
+  saveLabel?: string
+  onSaveDraft?: () => void
+  saveDisabled?: boolean
+  onRevisionHistory?: () => void
+  onDuplicate?: () => void
+  onDiscard?: () => void
+  secondaryBusy?: boolean
+  locale?: string
 }
 
-const actionIcons: Record<ArticleLifecycleAction, typeof Send> = {
+const actionIcons: Partial<Record<ArticleLifecycleAction, typeof Send>> = {
   submitForReview: Send,
-  startReview: Play,
   requestChanges: RotateCcw,
   resubmit: Send,
   approve: Check,
-  reject: ShieldAlert,
-  publish: Upload,
-  override: ShieldAlert,
-  archive: Archive
+  publish: Upload
 }
+
+const initials = (name: string) => name.trim().split(/\s+/).filter(Boolean).map(part => part[0]).slice(0, 2).join('').toUpperCase()
 
 export default function ArticleLifecyclePanel({
   articleId,
@@ -77,22 +88,40 @@ export default function ArticleLifecyclePanel({
   onChanged,
   actionsDisabled = false,
   actionsDisabledReason,
-  compact = false,
   actionsTarget,
-  actionsInHeader = false
+  savedAt,
+  saveLabel = 'Saved',
+  onSaveDraft,
+  saveDisabled = false,
+  onRevisionHistory,
+  onDuplicate,
+  onDiscard,
+  secondaryBusy = false,
+  locale = 'en'
 }: ArticleLifecyclePanelProps) {
   const lifecycle = useArticleLifecycle({ articleId, accessToken, api, beforeAction, onArchived, onChanged })
   const [dialog, setDialog] = useState<DialogKind>(null)
   const [reason, setReason] = useState('')
   const [targetStatus, setTargetStatus] = useState<ArticleStatus | ''>('')
   const [localError, setLocalError] = useState('')
-  const busy = lifecycle.pendingAction !== null
+  const [statusAnchor, setStatusAnchor] = useState<HTMLElement | null>(null)
+  const [moreAnchor, setMoreAnchor] = useState<HTMLElement | null>(null)
+  const [notificationAnchor, setNotificationAnchor] = useState<HTMLElement | null>(null)
+  const [activityOpen, setActivityOpen] = useState(false)
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true)
+  const [notificationSaving, setNotificationSaving] = useState(false)
+  const [notificationError, setNotificationError] = useState('')
+  const busy = lifecycle.pendingAction !== null || secondaryBusy
   const visibleActions = useMemo(
     () => lifecycle.article && lifecycle.permissions
       ? getVisibleLifecycleActions(lifecycle.article.status, lifecycle.permissions)
       : [],
     [lifecycle.article, lifecycle.permissions]
   )
+  const directActions = visibleActions.filter(action => action !== 'override')
+  const overrideTargets = visibleActions.includes('override')
+    ? lifecycle.permissions?.workflowOverrideTargets ?? []
+    : []
 
   const resetDialog = () => {
     if (busy) return
@@ -103,7 +132,8 @@ export default function ArticleLifecyclePanel({
   }
 
   const runAction = (action: ArticleLifecycleAction) => {
-    if (action === 'requestChanges' || action === 'reject' || action === 'publish' || action === 'override' || action === 'archive') {
+    setStatusAnchor(null)
+    if (action === 'requestChanges' || action === 'publish') {
       setDialog(action)
       setLocalError('')
       return
@@ -111,16 +141,20 @@ export default function ArticleLifecyclePanel({
     void lifecycle.run(action)
   }
 
+  const chooseOverrideTarget = (status: ArticleStatus) => {
+    setStatusAnchor(null)
+    setTargetStatus(status)
+    setReason('')
+    setLocalError('')
+    setDialog('override')
+  }
+
   const confirmDialog = async () => {
     if (!dialog) return
-    if ((dialog === 'requestChanges' || dialog === 'reject' || dialog === 'override') && !reason.trim()) {
+    if ((dialog === 'requestChanges' || dialog === 'override') && !reason.trim()) {
       setLocalError(dialog === 'requestChanges'
         ? 'A reason is required when requesting changes.'
-        : dialog === 'reject' ? 'A reason is required when rejecting an article.' : 'An override reason is required.')
-      return
-    }
-    if (dialog === 'override' && !targetStatus) {
-      setLocalError('Select the target lifecycle status.')
+        : 'A reason is required for this workflow change.')
       return
     }
     const result = await lifecycle.run(dialog, {
@@ -130,261 +164,192 @@ export default function ArticleLifecyclePanel({
     if (result || dialog === 'archive') resetDialog()
   }
 
-  if (lifecycle.loading && !lifecycle.article) {
-    return (
-      <Card variant='outlined'>
-        <CardContent>
-          <Stack direction='row' spacing={2} sx={{ alignItems: 'center' }}>
-            <CircularProgress size={20} />
-            <Typography>Loading lifecycle…</Typography>
-          </Stack>
-        </CardContent>
-      </Card>
-    )
+  useEffect(() => {
+    const controller = new AbortController()
+    getArticleNotificationPreference(articleId, accessToken, controller.signal)
+      .then(result => setNotificationsEnabled(result.enabled))
+      .catch(error => {
+        if (!(error instanceof DOMException && error.name === 'AbortError'))
+          setNotificationError('Notification preference could not be loaded.')
+      })
+    return () => controller.abort()
+  }, [accessToken, articleId])
+
+  const toggleNotifications = async () => {
+    const next = !notificationsEnabled
+    setNotificationSaving(true)
+    setNotificationError('')
+    try {
+      const result = await setArticleNotificationPreference(articleId, next, accessToken)
+      setNotificationsEnabled(result.enabled)
+    } catch {
+      setNotificationError('Notification preference could not be saved.')
+    } finally {
+      setNotificationSaving(false)
+    }
   }
 
   const article = lifecycle.article
-  const publishedAlongsideDraft = article?.currentPublishedVersion && article.status !== 'Published'
-  const actionButtons = visibleActions.map(action => {
-    const Icon = actionIcons[action]
+  const status = article?.status
+  const ownerName = article?.owner.fullName ?? 'Article author'
+  const formattedSavedAt = savedAt
+    ? new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(savedAt))
+    : null
 
-    return (
+  const toolbar = (
+    <Stack
+      direction='row'
+      spacing={1.25}
+      useFlexGap
+      sx={{ inlineSize: '100%', alignItems: 'center', flexWrap: 'wrap' }}
+    >
+      <Tooltip title={`Author: ${ownerName}`}>
+        <Avatar sx={{ inlineSize: 36, blockSize: 36, fontSize: 13, fontWeight: 700, bgcolor: 'primary.main' }}>
+          {initials(ownerName)}
+        </Avatar>
+      </Tooltip>
+
       <Button
-        key={action}
-        size={compact ? 'small' : 'medium'}
-        variant={action === 'submitForReview' || action === 'approve' || action === 'publish' ? 'contained' : 'outlined'}
-        color={action === 'archive' || action === 'reject' ? 'error' : action === 'requestChanges' ? 'warning' : 'primary'}
-        startIcon={<Icon size={17} />}
-        loading={lifecycle.pendingAction === action}
-        disabled={busy || actionsDisabled}
-        onClick={() => runAction(action)}
+        variant='outlined'
+        color='inherit'
+        endIcon={lifecycle.loading ? <CircularProgress size={14} /> : <ChevronDown size={15} />}
+        disabled={!status || busy || actionsDisabled}
+        onClick={event => setStatusAnchor(event.currentTarget)}
+        sx={{ minInlineSize: 150, justifyContent: 'space-between', textTransform: 'none', fontWeight: 700 }}
       >
-        {lifecycleActionLabels[action]}
+        {status ? articleStatusLabel[status] : 'Loading status'}
       </Button>
-    )
-  })
+      <Menu anchorEl={statusAnchor} open={Boolean(statusAnchor)} onClose={() => setStatusAnchor(null)}>
+        <MenuItem disabled sx={{ opacity: '1 !important' }}>
+          <ListItemText primary='Available transitions' secondary={`Current: ${status ? articleStatusLabel[status] : ''}`} />
+        </MenuItem>
+        <Divider />
+        {directActions.map(action => {
+          const Icon = actionIcons[action]
+          return (
+            <MenuItem key={action} onClick={() => runAction(action)}>
+              {Icon && <ListItemIcon><Icon size={17} /></ListItemIcon>}
+              <ListItemText>{lifecycleActionLabels[action]}</ListItemText>
+            </MenuItem>
+          )
+        })}
+        {overrideTargets.map(target => (
+          <MenuItem key={target} onClick={() => chooseOverrideTarget(target)}>
+            <ListItemIcon><RotateCcw size={17} /></ListItemIcon>
+            <ListItemText>Move to {articleStatusLabel[target]}</ListItemText>
+          </MenuItem>
+        ))}
+        {directActions.length === 0 && overrideTargets.length === 0 && (
+          <MenuItem disabled>No transitions available</MenuItem>
+        )}
+      </Menu>
+
+      <Tooltip title='More actions'>
+        <IconButton aria-label='More actions' onClick={event => setMoreAnchor(event.currentTarget)}>
+          <MoreVertical size={20} />
+        </IconButton>
+      </Tooltip>
+      <Menu anchorEl={moreAnchor} open={Boolean(moreAnchor)} onClose={() => setMoreAnchor(null)}>
+        <MenuItem disabled={saveDisabled || busy} onClick={() => { setMoreAnchor(null); onSaveDraft?.() }}>
+          <ListItemIcon><Save size={17} /></ListItemIcon><ListItemText>Save draft</ListItemText>
+        </MenuItem>
+        <Tooltip title='Template creation is not exposed by the current KB API.' placement='left'>
+          <span><MenuItem disabled><ListItemIcon><FilePlus2 size={17} /></ListItemIcon><ListItemText>Save as template</ListItemText></MenuItem></span>
+        </Tooltip>
+        {lifecycle.permissions?.canDelete && (
+          <MenuItem onClick={() => { setMoreAnchor(null); setDialog('archive') }}>
+            <ListItemIcon><Archive size={17} /></ListItemIcon><ListItemText>Archive article</ListItemText>
+          </MenuItem>
+        )}
+        {lifecycle.permissions?.canViewVersionHistory && onRevisionHistory && (
+          <MenuItem onClick={() => { setMoreAnchor(null); onRevisionHistory() }}>
+            <ListItemIcon><FileClock size={17} /></ListItemIcon><ListItemText>Revision history</ListItemText>
+          </MenuItem>
+        )}
+        {onDuplicate && (
+          <MenuItem onClick={() => { setMoreAnchor(null); onDuplicate() }}>
+            <ListItemIcon><Copy size={17} /></ListItemIcon><ListItemText>Duplicate</ListItemText>
+          </MenuItem>
+        )}
+        {onDiscard && (
+          <MenuItem disabled={saveDisabled || busy} onClick={() => { setMoreAnchor(null); onDiscard() }}>
+            <ListItemIcon><Trash2 size={17} /></ListItemIcon><ListItemText>Discard local changes</ListItemText>
+          </MenuItem>
+        )}
+      </Menu>
+
+      <Box sx={{ flex: 1, minInlineSize: { xs: '100%', sm: 24 } }} />
+      <Box sx={{ textAlign: { xs: 'start', sm: 'end' }, minInlineSize: 130 }}>
+        <Typography variant='caption' color='text.secondary' sx={{ display: 'block', lineHeight: 1.2 }}>Last saved</Typography>
+        <Typography variant='body2' sx={{ fontWeight: 600 }}>
+          {saveLabel === 'Saved' && formattedSavedAt ? formattedSavedAt : saveLabel}
+        </Typography>
+      </Box>
+
+      <Tooltip title={notificationsEnabled ? 'Article notifications on' : 'Article notifications off'}>
+        <IconButton aria-label='Article notifications' color={notificationsEnabled ? 'primary' : 'default'} onClick={event => setNotificationAnchor(event.currentTarget)}>
+          {notificationsEnabled ? <Bell size={19} /> : <BellOff size={19} />}
+        </IconButton>
+      </Tooltip>
+      <Menu anchorEl={notificationAnchor} open={Boolean(notificationAnchor)} onClose={() => setNotificationAnchor(null)}>
+        <MenuItem disabled={notificationSaving} onClick={() => void toggleNotifications()}>
+          <ListItemIcon>{notificationsEnabled ? <Bell size={17} /> : <BellOff size={17} />}</ListItemIcon>
+          <ListItemText primary='Article notifications' secondary={notificationsEnabled ? 'Enabled for this article' : 'Disabled for this article'} />
+          <Switch edge='end' checked={notificationsEnabled} tabIndex={-1} />
+        </MenuItem>
+        {notificationError && <MenuItem disabled><ListItemText secondary={notificationError} /></MenuItem>}
+      </Menu>
+
+      <Tooltip title='Activity'>
+        <IconButton aria-label='Article activity' onClick={() => setActivityOpen(true)}><Activity size={19} /></IconButton>
+      </Tooltip>
+    </Stack>
+  )
 
   return (
-    <Card variant='outlined' sx={{ borderRadius: 2, boxShadow: 'none' }}>
-      <CardContent sx={{ p: compact ? 3 : 4, '&:last-child': { pb: compact ? 3 : 4 } }}>
-        <Stack spacing={3}>
-          <Stack
-            direction={{ xs: 'column', sm: 'row' }}
-            spacing={2}
-            sx={{ alignItems: { sm: 'center' }, justifyContent: 'space-between' }}
-          >
-            <Stack direction='row' spacing={2} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
-              <Typography variant={compact ? 'subtitle1' : 'h6'} sx={{ fontWeight: 700 }}>
-                Lifecycle
-              </Typography>
-              {article && (
-                <StatusChip
-                  label={articleStatusLabel[article.status]}
-                  color={articleStatusColor[article.status]}
-                />
-              )}
-            </Stack>
-            <Button
-              size='small'
-              variant='text'
-              startIcon={<RefreshCw size={16} />}
-              disabled={busy}
-              onClick={lifecycle.reload}
-            >
-              Reload
-            </Button>
-          </Stack>
-
+    <>
+      {actionsTarget ? createPortal(toolbar, actionsTarget) : toolbar}
+      {(lifecycle.messages.length > 0 || lifecycle.conflict || (actionsDisabled && actionsDisabledReason)) && (
+        <Stack spacing={1.5}>
           <KbValidationSummary title='Lifecycle action could not be completed' errors={lifecycle.messages} />
-          {lifecycle.conflict && (
-            <Alert
-              severity='warning'
-              action={<Button color='inherit' size='small' onClick={lifecycle.reload}>Reload article</Button>}
-            >
-              The article changed after it was loaded. Reload the current article and workflow state before retrying.
-            </Alert>
-          )}
-          {lifecycle.successMessage && <Alert severity='success'>{lifecycle.successMessage}</Alert>}
-          {publishedAlongsideDraft && (
-            <Alert severity='info'>
-              Published version {article.currentPublishedVersion!.versionNumber} remains visible to readers while the newer
-              {' '}{articleStatusLabel[article.status].toLowerCase()} draft moves through review.
-            </Alert>
-          )}
+          {lifecycle.conflict && <Alert severity='warning'>The article changed. Reload it before retrying the transition.</Alert>}
           {actionsDisabled && actionsDisabledReason && <Alert severity='info'>{actionsDisabledReason}</Alert>}
-
-          {!actionsInHeader && visibleActions.length > 0 ? (
-            <Stack direction='row' spacing={1.5} useFlexGap sx={{ flexWrap: 'wrap' }}>
-              {actionButtons}
-            </Stack>
-          ) : !actionsInHeader && (
-            <Typography variant='body2' color='text.secondary'>
-              No lifecycle actions are currently available to you.
-            </Typography>
-          )}
-
-          {!compact && (
-            <>
-              <Divider />
-              <Box>
-                <Stack direction='row' spacing={1.5} sx={{ alignItems: 'center', mb: 2 }}>
-                  <History size={18} />
-                  <Typography variant='subtitle1' sx={{ fontWeight: 700 }}>Review history</Typography>
-                </Stack>
-                {lifecycle.reviewHistory.length ? (
-                  <Stack spacing={2}>
-                    {lifecycle.reviewHistory.map(event => (
-                      <Box key={event.reviewEventId}>
-                        <Typography variant='body2' color='text.primary' sx={{ fontWeight: 600 }}>
-                          {event.actor.fullName} · {event.action}
-                        </Typography>
-                        <Typography variant='caption' color='text.secondary'>
-                          {event.fromStatus ? `${articleStatusLabel[event.fromStatus]} → ` : ''}
-                          {articleStatusLabel[event.toStatus]} · {formatDate(event.createdAt)}
-                        </Typography>
-                        {event.comment && (
-                          <Typography variant='body2' sx={{ mt: 0.75, whiteSpace: 'pre-wrap' }}>
-                            {event.comment}
-                          </Typography>
-                        )}
-                      </Box>
-                    ))}
-                  </Stack>
-                ) : (
-                  <Typography variant='body2' color='text.secondary'>No review actions have been recorded.</Typography>
-                )}
-              </Box>
-
-              {lifecycle.permissions?.canViewVersionHistory && (
-                <>
-                  <Divider />
-                  <Box>
-                    <Typography variant='subtitle1' sx={{ fontWeight: 700, mb: 2 }}>Version history</Typography>
-                    {lifecycle.versions.length ? (
-                      <Box sx={{ overflowX: 'auto' }}>
-                        <Table size='small' aria-label='Article version history'>
-                          <TableHead>
-                            <TableRow>
-                              <TableCell>Version</TableCell>
-                              <TableCell>Reason</TableCell>
-                              <TableCell>Author</TableCell>
-                              <TableCell>Created</TableCell>
-                              <TableCell>Status</TableCell>
-                            </TableRow>
-                          </TableHead>
-                          <TableBody>
-                            {lifecycle.versions.map(version => (
-                              <TableRow key={version.versionId}>
-                                <TableCell>v{version.versionNumber}</TableCell>
-                                <TableCell>{version.snapshotReason}</TableCell>
-                                <TableCell>{version.createdBy.fullName}</TableCell>
-                                <TableCell>{formatDate(version.createdAt)}</TableCell>
-                                <TableCell>{version.isPublished ? 'Published snapshot' : 'Workflow snapshot'}</TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </Box>
-                    ) : (
-                      <Typography variant='body2' color='text.secondary'>No version snapshots exist yet.</Typography>
-                    )}
-                  </Box>
-                </>
-              )}
-            </>
-          )}
         </Stack>
-      </CardContent>
+      )}
 
       <KbFormDialog
-        open={dialog === 'requestChanges' || dialog === 'reject'}
-        title={dialog === 'reject' ? 'Reject article' : 'Request changes'}
-        description={dialog === 'reject'
-          ? 'Explain why this article is being rejected. It will return to changes requested.'
-          : 'Explain what must change before this article can be approved.'}
-        submitLabel={dialog === 'reject' ? 'Reject article' : 'Request changes'}
+        open={dialog === 'requestChanges'}
+        title='Request changes'
+        description='Explain what must change before this article can be approved.'
+        submitLabel='Request changes'
         submitting={busy}
         onClose={resetDialog}
         onSubmit={() => void confirmDialog()}
       >
         <Stack spacing={2}>
           {localError && <Alert severity='error'>{localError}</Alert>}
-          <CustomTextField
-            fullWidth
-            multiline
-            minRows={4}
-            label='Required reason'
-            value={reason}
-            error={Boolean(localError)}
-            onChange={event => {
-              setReason(event.target.value)
-              setLocalError('')
-            }}
-          />
+          <CustomTextField fullWidth multiline minRows={4} label='Required reason' value={reason} onChange={event => { setReason(event.target.value); setLocalError('') }} />
         </Stack>
       </KbFormDialog>
 
       <KbFormDialog
         open={dialog === 'override'}
-        title='Confirm admin workflow override'
-        description='This bypasses the normal transition path. Select a backend-authorized target and record why.'
-        submitLabel='Apply override'
+        title={`Move article to ${targetStatus ? articleStatusLabel[targetStatus] : 'selected status'}`}
+        description='This transition is available through your existing workflow permissions. Record why the state is changing.'
+        submitLabel={`Move to ${targetStatus ? articleStatusLabel[targetStatus] : 'status'}`}
         submitting={busy}
         onClose={resetDialog}
         onSubmit={() => void confirmDialog()}
       >
-        <Stack spacing={3}>
+        <Stack spacing={2}>
           {localError && <Alert severity='error'>{localError}</Alert>}
-          <CustomTextField
-            select
-            fullWidth
-            label='Target status'
-            value={targetStatus}
-            onChange={event => {
-              setTargetStatus(event.target.value as ArticleStatus)
-              setLocalError('')
-            }}
-          >
-            {lifecycle.permissions?.workflowOverrideTargets.map(status => (
-              <MenuItem key={status} value={status}>{articleStatusLabel[status]}</MenuItem>
-            ))}
-          </CustomTextField>
-          <CustomTextField
-            fullWidth
-            multiline
-            minRows={3}
-            label='Required reason'
-            value={reason}
-            onChange={event => {
-              setReason(event.target.value)
-              setLocalError('')
-            }}
-          />
+          <CustomTextField fullWidth multiline minRows={3} label='Required reason' value={reason} onChange={event => { setReason(event.target.value); setLocalError('') }} />
         </Stack>
       </KbFormDialog>
 
-      <KbConfirmDialog
-        open={dialog === 'publish'}
-        title='Publish approved article?'
-        description='The approved draft will become a new immutable published version visible to readers.'
-        confirmLabel='Publish'
-        submitting={busy}
-        onClose={resetDialog}
-        onConfirm={() => void confirmDialog()}
-      />
-      <KbConfirmDialog
-        open={dialog === 'archive'}
-        title='Archive article?'
-        description='The article will be removed from active results. This action uses the current row version.'
-        confirmLabel='Archive'
-        confirmColor='error'
-        submitting={busy}
-        onClose={resetDialog}
-        onConfirm={() => void confirmDialog()}
-      />
-      {actionsInHeader && actionsTarget && actionButtons.length > 0
-        ? createPortal(<>{actionButtons}</>, actionsTarget)
-        : null}
-    </Card>
+      <KbConfirmDialog open={dialog === 'publish'} title='Publish approved article?' description='The approved draft will become a new immutable published version visible to readers.' confirmLabel='Publish' submitting={busy} onClose={resetDialog} onConfirm={() => void confirmDialog()} />
+      <KbConfirmDialog open={dialog === 'archive'} title='Archive article?' description='The article will be removed from active results.' confirmLabel='Archive' confirmColor='error' submitting={busy} onClose={resetDialog} onConfirm={() => void confirmDialog()} />
+      <ArticleActivityDrawer articleId={articleId} accessToken={accessToken} open={activityOpen} onClose={() => setActivityOpen(false)} locale={locale} />
+    </>
   )
 }

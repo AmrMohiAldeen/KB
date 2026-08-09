@@ -95,3 +95,24 @@ export const getDashboardPermissionContext = async (
     throw error
   }
 }
+
+export const reorderDashboardItem = ({
+  accessToken,
+  kind,
+  id,
+  targetId,
+  placement
+}: {
+  accessToken: string
+  kind: 'category' | 'article'
+  id: string
+  targetId: string
+  placement: 'before' | 'after'
+}) => apiRequest<void>(
+  `/api/dashboard/${kind === 'category' ? 'categories' : 'articles'}/${encodeURIComponent(id)}/position`,
+  accessToken,
+  {
+    method: 'PATCH',
+    body: JSON.stringify({ targetId, placement })
+  }
+)

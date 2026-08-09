@@ -14,6 +14,7 @@ import {
   Archive,
   Download,
   ExternalLink,
+  ImageUp,
   RotateCcw,
   Trash2,
   Upload
@@ -37,6 +38,8 @@ import KbTableToolbar from '@/views/shared/tables/KbTableToolbar'
 import PageHeader from '../shared/components/PageHeader'
 import StatusChip from '../shared/components/StatusChip'
 import MediaPreview from './MediaPreview'
+import MediaReferencesDialog from './MediaReferencesDialog'
+import MediaReplaceDialog from './MediaReplaceDialog'
 import MediaUploadDialog from './MediaUploadDialog'
 import {
   MEDIA_KIND_OPTIONS,
@@ -105,6 +108,8 @@ const MediaLibraryPage = ({
   const [successMessage, setSuccessMessage] = useState('')
   const [uploadOpen, setUploadOpen] = useState(false)
   const [confirmAction, setConfirmAction] = useState<ConfirmAction>()
+  const [referencesFile, setReferencesFile] = useState<MediaListItemResponse>()
+  const [replaceFile, setReplaceFile] = useState<MediaListItemResponse>()
   const [mutating, setMutating] = useState(false)
   const [downloadingId, setDownloadingId] = useState('')
   const [refreshKey, setRefreshKey] = useState(0)
@@ -287,6 +292,8 @@ const MediaLibraryPage = ({
     }
   }
 
+  const protectedActionsDisabled = !authenticated || unauthorized
+
   const columns = useMemo<Array<KbDataTableColumn<MediaListItemResponse>>>(
     () => [
       {
@@ -345,11 +352,18 @@ const MediaLibraryPage = ({
         render: file => (
           <Stack spacing={1} sx={{ alignItems: 'flex-start', minInlineSize: 120 }}>
             <StatusChip label={file.status} color={statusColor[file.status]} />
-            <Typography variant='caption' color='text.secondary'>
-              {file.referenceCount
-                ? `${file.referenceCount} reference${file.referenceCount === 1 ? '' : 's'}`
-                : 'No references'}
-            </Typography>
+            {file.referenceCount ? (
+              <Button
+                size='small'
+                variant='text'
+                sx={{ minInlineSize: 0, p: 0, fontSize: 'caption.fontSize' }}
+                onClick={() => setReferencesFile(file)}
+              >
+                {file.referenceCount} reference{file.referenceCount === 1 ? '' : 's'}
+              </Button>
+            ) : (
+              <Typography variant='caption' color='text.secondary'>No references</Typography>
+            )}
           </Stack>
         )
       },
@@ -388,6 +402,21 @@ const MediaLibraryPage = ({
                   </IconButton>
                 </span>
               </Tooltip>
+              {available && ['image', 'gif'].includes(mediaKindFromMimeType(file.mimeType)) && (
+                <Tooltip title='Replace image'>
+                  <IconButton
+                    size='small'
+                    aria-label={`Replace ${file.originalFileName}`}
+                    disabled={busy || protectedActionsDisabled}
+                    onClick={() => {
+                      setActionErrors([])
+                      setReplaceFile(file)
+                    }}
+                  >
+                    <ImageUp size={18} />
+                  </IconButton>
+                </Tooltip>
+              )}
               {file.status === 'Active' && (
                 <Tooltip title='Archive'>
                   <IconButton
@@ -444,14 +473,13 @@ const MediaLibraryPage = ({
       handleDownload,
       handleOpen,
       mutating,
+      protectedActionsDisabled,
       restoreFile
     ]
   )
 
   const hasFilters = Boolean(debouncedSearch || mediaType || status)
   const loadFailed = loadErrors.length > 0 && !unauthorized
-  const protectedActionsDisabled = !authenticated || unauthorized
-
   return (
     <KbPageShell>
       <PageHeader
@@ -592,6 +620,28 @@ const MediaLibraryPage = ({
         onUploaded={count => {
           setSuccessMessage(`${count} file${count === 1 ? '' : 's'} added to the media library.`)
           setPage(0)
+          refresh()
+        }}
+      />
+
+      <MediaReferencesDialog
+        open={Boolean(referencesFile)}
+        file={referencesFile}
+        accessToken={accessToken}
+        lang={locale}
+        api={api}
+        onClose={() => setReferencesFile(undefined)}
+      />
+
+      <MediaReplaceDialog
+        open={Boolean(replaceFile)}
+        file={replaceFile}
+        accessToken={accessToken}
+        api={api}
+        onClose={() => setReplaceFile(undefined)}
+        onReplaced={replacementName => {
+          setSuccessMessage(`${replacementName} now replaces the previous image everywhere it is referenced.`)
+          setReplaceFile(undefined)
           refresh()
         }}
       />

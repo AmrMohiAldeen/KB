@@ -42,6 +42,14 @@ public sealed class MediaController(MediaService media) : ControllerBase
         CancellationToken cancellationToken) =>
         Ok(ToDetailsResponse(await media.GetAsync(id, cancellationToken)));
 
+    [HttpGet("{id:guid}/references")]
+    [ProducesResponseType<IReadOnlyList<MediaReferenceDetailsResponse>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<IReadOnlyList<MediaReferenceDetailsResponse>>> GetReferences(Guid id,
+        CancellationToken cancellationToken) =>
+        Ok((await media.GetReferencesAsync(id, cancellationToken)).Select(ToReferenceDetailsResponse));
+
     [HttpPost]
     [Authorize(Policy = UploadPolicy)]
     [Consumes("multipart/form-data")]
@@ -59,6 +67,24 @@ public sealed class MediaController(MediaService media) : ControllerBase
         return CreatedAtAction(nameof(GetById), new { id = uploaded.Id }, ToUploadResponse(uploaded));
     }
 
+    [HttpPost("{id:guid}/replace")]
+    [Authorize(Policy = ManagePolicy)]
+    [Consumes("multipart/form-data")]
+    [ProducesResponseType<MediaDetailsResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult<MediaDetailsResponse>> Replace(Guid id, [FromForm] IFormFile file,
+        CancellationToken cancellationToken)
+    {
+        await using var stream = file.OpenReadStream();
+        return Ok(ToDetailsResponse(await media.ReplaceAsync(id,
+            new(file.FileName, file.ContentType, file.Length, stream), cancellationToken)));
+    }
+
     [HttpGet("{id:guid}/content")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -67,6 +93,7 @@ public sealed class MediaController(MediaService media) : ControllerBase
     public async Task<IActionResult> Stream(Guid id, CancellationToken cancellationToken)
     {
         var result = await media.DownloadAsync(id, cancellationToken);
+        Response.Headers.CacheControl = "no-store";
         return File(result.Content, result.ContentType, enableRangeProcessing: true);
     }
 
@@ -162,6 +189,10 @@ public sealed class MediaController(MediaService media) : ControllerBase
 
     internal static MediaReferenceResponse ToReferenceResponse(MediaReferenceData item) => new(
         item.Id, item.MediaId, item.ArticleId, item.EntityType, item.EntityId);
+
+    private static MediaReferenceDetailsResponse ToReferenceDetailsResponse(MediaReferenceDetailsData item) =>
+        new(item.Id, item.MediaId, item.ArticleId, item.ArticleTitle, item.ArticleSlug,
+            item.ArticleStatus, item.EntityType, item.EntityId, item.VersionNumber);
 
     private static UserSummaryResponse ToUser(MediaUserData user) => new(user.Id, user.Name);
     private static string DownloadUrl(Guid id) => $"/api/media/{id:D}/content";

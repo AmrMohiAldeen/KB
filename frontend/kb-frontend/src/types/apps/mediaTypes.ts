@@ -20,6 +20,18 @@ export type MediaDetailsResponse = MediaListItemResponse
 
 export type MediaUploadResponse = Omit<MediaListItemResponse, 'uploadedBy' | 'referenceCount'>
 
+export type MediaReferenceDetailsResponse = {
+  referenceId: string
+  mediaId: string
+  articleId: string | null
+  articleTitle: string | null
+  articleSlug: string | null
+  articleStatus: string | null
+  referenceEntityType: 'Draft' | 'Version' | 'ReusableBlock' | 'Comment' | 'Attachment'
+  referenceEntityId: string
+  versionNumber: number | null
+}
+
 export type MediaListQuery = {
   search?: string
   mediaType?: MediaKind

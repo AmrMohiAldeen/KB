@@ -84,6 +84,30 @@ public sealed class NotificationSliceTests
             value.Type == NotificationTypes.ArticleSubmittedForReview);
     }
 
+    [Fact]
+    public async Task Article_preference_is_user_scoped_and_suppresses_existing_notification_delivery()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var roleId = Guid.NewGuid();
+        fixture.Context.Roles.Add(new Role { RoleId = roleId, RoleName = "Reviewer" });
+        fixture.Context.RolePermissions.Add(new RolePermission
+            { RoleIdFk = roleId, PermissionCode = PermissionCodes.ArticlesReview });
+        fixture.Context.UserRoles.Add(new UserRole
+            { UserId = fixture.OtherUserId, RoleId = roleId, AssignedAt = DateTime.UtcNow });
+        await fixture.Context.SaveChangesAsync();
+
+        fixture.Current.UserId = fixture.OtherUserId;
+        Assert.True(await fixture.Service.GetArticlePreferenceAsync(fixture.ArticleId, default));
+        Assert.False(await fixture.Service.SetArticlePreferenceAsync(fixture.ArticleId, false, default));
+        Assert.False(await fixture.Service.GetArticlePreferenceAsync(fixture.ArticleId, default));
+
+        fixture.Current.UserId = fixture.UserId;
+        await fixture.Service.NotifyWorkflowAsync(fixture.ArticleId,
+            NotificationTypes.ArticleSubmittedForReview, fixture.UserId, null, default);
+
+        Assert.Empty(await fixture.Context.Notifications.AsNoTracking().ToArrayAsync());
+    }
+
     private static Notification Notification(Guid userId, Guid articleId, string title, DateTime createdAt) => new()
     {
         NotificationId = Guid.NewGuid(), UserIdFk = userId, ArticleIdFk = articleId,

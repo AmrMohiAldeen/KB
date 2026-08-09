@@ -5,6 +5,7 @@ import { formatAuditAction, formatAuditDetails, toUtcIso } from './auditEvents'
 describe('audit event presentation', () => {
   it('uses human-readable labels for known and future action names', () => {
     expect(formatAuditAction('ArticleDraftLockForceReleased')).toBe('Draft force-unlocked')
+    expect(formatAuditAction('MediaReplaced')).toBe('Media replaced')
     expect(formatAuditAction('ArticleCustomAction')).toBe('Custom Action')
   })
 

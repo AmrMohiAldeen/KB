@@ -1,3 +1,7 @@
+using System.Reflection;
+using Kb.Api.Controllers;
+using Kb.Application.Abstractions;
+using Kb.Application.Authorization;
 using Kb.Application.Dashboard;
 using Kb.Application.Exceptions;
 using Kb.Domain.Constants;
@@ -5,6 +9,7 @@ using Kb.Infrastructure.Dashboard;
 using Kb.Infrastructure.Data;
 using Kb.Infrastructure.Data.Entities;
 using Microsoft.Data.Sqlite;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 
 namespace Kb.Tests.Dashboard;
@@ -64,6 +69,44 @@ public sealed class DashboardSliceTests
             null, null, "Everything", "unknown", 1, 100, default));
     }
 
+    [Fact]
+    public async Task Reorder_persists_within_each_group_and_audits_changes()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var child = await fixture.Context.Categories.SingleAsync(category => category.Name == "Child");
+        var sibling = Fixture.CreateCategory(Guid.NewGuid(), fixture.RootCategoryId, "Sibling", 8, 1);
+        fixture.Context.Categories.Add(sibling);
+        await fixture.Context.SaveChangesAsync();
+        var first = await fixture.Context.Articles.SingleAsync(article => article.Title == "First");
+        var second = await fixture.Context.Articles.SingleAsync(article => article.Title == "Second");
+
+        await fixture.Service.ReorderCategoryAsync(sibling.CategoryId, child.CategoryId, "before", default);
+        await fixture.Service.ReorderArticleAsync(second.ArticleId, first.ArticleId, "before", default);
+        fixture.Context.ChangeTracker.Clear();
+
+        var result = await fixture.Service.GetAsync(
+            null, fixture.RootCategoryId, "Everything", "position", 1, 100, default);
+        Assert.Equal(
+            new[] { "category:Sibling", "category:Child", "article:Second", "article:First" },
+            result.Items.Select(item => $"{item.Kind}:{item.Title}"));
+        Assert.Contains(await fixture.Context.ArticleAuditLogs.ToListAsync(),
+            audit => audit.ActionType == CategoryAuditActions.Reordered);
+        Assert.Contains(await fixture.Context.ArticleAuditLogs.ToListAsync(),
+            audit => audit.ActionType == ArticleAuditActions.Reordered);
+    }
+
+    [Fact]
+    public void Reorder_endpoints_require_group_management_permissions()
+    {
+        var category = typeof(DashboardController).GetMethod("ReorderCategory")!
+            .GetCustomAttribute<AuthorizeAttribute>();
+        var article = typeof(DashboardController).GetMethod("ReorderArticle")!
+            .GetCustomAttribute<AuthorizeAttribute>();
+
+        Assert.Equal(PermissionPolicy.For(PermissionCodes.CategoriesManage), category!.Policy);
+        Assert.Equal(PermissionPolicy.For(PermissionCodes.ArticlesEditAnyDraft), article!.Policy);
+    }
+
     private sealed class Fixture : IAsyncDisposable
     {
         private readonly SqliteConnection connection;
@@ -71,12 +114,12 @@ public sealed class DashboardSliceTests
         public DashboardService Service { get; }
         public Guid RootCategoryId { get; }
 
-        private Fixture(SqliteConnection connection, KbDbContext context, Guid rootCategoryId)
+        private Fixture(SqliteConnection connection, KbDbContext context, Guid rootCategoryId, Guid userId)
         {
             this.connection = connection;
             Context = context;
             RootCategoryId = rootCategoryId;
-            Service = new DashboardService(new DashboardRepository(context));
+            Service = new DashboardService(new DashboardRepository(context), new CurrentUser(userId), TimeProvider.System);
         }
 
         public static async Task<Fixture> CreateAsync()
@@ -102,17 +145,17 @@ public sealed class DashboardSliceTests
                 CreatedAt = now
             });
             context.Categories.AddRange(
-                Category(rootId, null, "Root", 0, 0),
-                Category(childId, rootId, "Child", 2, 1),
-                Category(grandchildId, childId, "Grandchild", 0, 2),
-                Category(otherRootId, null, "Other", 3, 0));
+                CreateCategory(rootId, null, "Root", 0, 0),
+                CreateCategory(childId, rootId, "Child", 2, 1),
+                CreateCategory(grandchildId, childId, "Grandchild", 0, 2),
+                CreateCategory(otherRootId, null, "Other", 3, 0));
             context.Articles.AddRange(
                 Article(userId, rootId, "First", ArticleStatuses.Draft, 1, now.AddMinutes(-4)),
                 Article(userId, rootId, "Second", ArticleStatuses.Published, 4, now.AddMinutes(-3)),
                 Article(userId, otherRootId, "Review", ArticleStatuses.InReview, 0, now.AddMinutes(-2)),
                 Article(userId, otherRootId, "Archived", ArticleStatuses.Archived, 1, now.AddMinutes(-1)));
             await context.SaveChangesAsync();
-            return new(connection, context, rootId);
+            return new(connection, context, rootId, userId);
         }
 
         public async ValueTask DisposeAsync()
@@ -121,7 +164,7 @@ public sealed class DashboardSliceTests
             await connection.DisposeAsync();
         }
 
-        private static Category Category(Guid id, Guid? parentId, string name, int sortOrder, int depth) => new()
+        public static Category CreateCategory(Guid id, Guid? parentId, string name, int sortOrder, int depth) => new()
         {
             CategoryId = id,
             ParentCategoryIdFk = parentId,
@@ -150,5 +193,12 @@ public sealed class DashboardSliceTests
             CreatedAt = updatedAt,
             UpdatedAt = updatedAt
         };
+
+        private sealed class CurrentUser(Guid userId) : ICurrentUser
+        {
+            public bool IsAuthenticated => true;
+            public Guid UserId => userId;
+            public string? Email => "dashboard@example.test";
+        }
     }
 }

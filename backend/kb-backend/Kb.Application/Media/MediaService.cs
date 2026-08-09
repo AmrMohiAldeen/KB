@@ -40,6 +40,15 @@ public sealed class MediaService(
             ?? throw new NotFoundException("The media file was not found.");
     }
 
+    public async Task<IReadOnlyList<MediaReferenceDetailsData>> GetReferencesAsync(Guid id,
+        CancellationToken cancellationToken)
+    {
+        RequireAuthenticated();
+        _ = await repository.GetByIdAsync(id, cancellationToken)
+            ?? throw new NotFoundException("The media file was not found.");
+        return await repository.GetReferencesAsync(id, cancellationToken);
+    }
+
     public async Task<MediaFileData> UploadAsync(MediaUploadCommand command, CancellationToken cancellationToken)
     {
         var actorId = await RequirePermissionAsync(PermissionCodes.ArticlesCreate, cancellationToken);
@@ -85,6 +94,88 @@ public sealed class MediaService(
                     contentType = newMedia.MimeType,
                     fileSizeBytes = newMedia.FileSizeBytes
                 }, uploadedAt), cancellationToken);
+        }
+        catch
+        {
+            await DeleteBestEffortAsync(storedPath);
+            throw;
+        }
+    }
+
+    public async Task<MediaFileData> ReplaceAsync(Guid id, MediaUploadCommand command,
+        CancellationToken cancellationToken)
+    {
+        var actorId = await RequirePermissionAsync(PermissionCodes.ArticlesDelete, cancellationToken);
+        if (!await repository.ActiveUserExistsAsync(actorId, cancellationToken))
+            throw new NotFoundException("The authenticated internal user was not found or is inactive.");
+
+        var current = await GetExistingForMutationAsync(id, cancellationToken);
+        if (current.Status != MediaStatuses.Active)
+            throw new ConflictException("Only active media can be replaced.");
+        if (!IsImage(MediaFileInspector.KindFromMimeType(current.MimeType)))
+            throw new BusinessRuleException("Only image media can be replaced with this action.");
+
+        var inspected = await MediaFileInspector.InspectAsync(command, options.MaxFileSizeBytes,
+            cancellationToken);
+        if (!IsImage(inspected.Kind))
+            throw new BusinessRuleException("The replacement file must be an image or GIF.");
+
+        var replacementObjectId = Guid.NewGuid();
+        var storedFileName = $"{id:N}-{replacementObjectId:N}{inspected.Extension}";
+        var objectName = $"{timeProvider.GetUtcNow():yyyy/MM}/{storedFileName}";
+        EnsureSafeObjectName(objectName);
+
+        string storedPath;
+        try
+        {
+            storedPath = await storage.UploadAsync(options.ContainerName, objectName, inspected.UploadStream,
+                inspected.ContentType, cancellationToken);
+            EnsureSafeObjectName(storedPath);
+            if (!string.Equals(storedPath, objectName, StringComparison.Ordinal))
+                throw new InvalidOperationException("Object storage returned an unexpected object identifier.");
+        }
+        catch (OperationCanceledException)
+        {
+            await DeleteBestEffortAsync(objectName);
+            throw;
+        }
+        catch (Exception exception)
+        {
+            await DeleteBestEffortAsync(objectName);
+            throw new ExternalServiceException("The replacement image could not be stored.", exception);
+        }
+
+        var replacedAt = timeProvider.GetUtcNow().UtcDateTime;
+        var replacement = new ReplacementMediaData(command.OriginalFileName.Trim(), storedFileName,
+            inspected.ContentType, inspected.Extension, command.FileSizeBytes, storedPath, actorId, replacedAt);
+        try
+        {
+            return await repository.ReplaceWithAuditAsync(id, current.StoragePath, replacement,
+                Audit(actorId, MediaAuditActions.Replaced, new
+                {
+                    mediaId = id,
+                    previous = new
+                    {
+                        current.OriginalFileName,
+                        current.StoredFileName,
+                        current.MimeType,
+                        current.FileExtension,
+                        current.FileSizeBytes,
+                        current.StoragePath,
+                        current.UploadedAt
+                    },
+                    replacement = new
+                    {
+                        replacement.OriginalFileName,
+                        replacement.StoredFileName,
+                        replacement.MimeType,
+                        replacement.FileExtension,
+                        replacement.FileSizeBytes,
+                        replacement.StoragePath,
+                        replacement.UploadedAt
+                    },
+                    historicalBinaryPreserved = true
+                }, replacedAt), cancellationToken);
         }
         catch
         {
@@ -320,6 +411,8 @@ public sealed class MediaService(
                    item.Equals(value.Trim(), StringComparison.OrdinalIgnoreCase))
                ?? throw new BusinessRuleException("The media reference entity type is invalid.");
     }
+
+    private static bool IsImage(MediaKind kind) => kind is MediaKind.Image or MediaKind.Gif;
 
     private static MediaOptions ValidateOptions(MediaOptions value)
     {

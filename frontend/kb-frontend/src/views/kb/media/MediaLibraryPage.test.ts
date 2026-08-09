@@ -44,6 +44,8 @@ const createApi = (overrides: Partial<MediaLibraryApi> = {}): MediaLibraryApi =>
     status: 'Active',
     uploadedAt: '2026-07-27T10:00:00Z'
   }),
+  replace: vi.fn().mockResolvedValue(mediaFile()),
+  getReferences: vi.fn().mockResolvedValue([]),
   getContent: vi.fn().mockResolvedValue(new Blob(['content'])),
   download: vi.fn().mockResolvedValue(new Blob(['content'])),
   archive: vi.fn().mockResolvedValue(mediaFile({ status: 'Archived' })),
@@ -127,6 +129,7 @@ describe('MediaLibraryPage', () => {
 
     await renderPage(api)
     await click(document.querySelector('button[aria-label="Go to next page"]'))
+    await settle(25)
 
     expect(getList).toHaveBeenLastCalledWith(
       expect.objectContaining({ page: 2, pageSize: 10 }),
@@ -240,6 +243,69 @@ describe('MediaLibraryPage', () => {
     expect(document.querySelector('[role="dialog"]')).not.toBeNull()
   })
 
+  it('loads exact MediaReferences and links each referenced article', async () => {
+    const getReferences = vi.fn().mockResolvedValue([
+      {
+        referenceId: 'reference-1',
+        mediaId: 'media-1',
+        articleId: 'article-1',
+        articleTitle: 'Installing the desktop app',
+        articleSlug: 'installing-the-desktop-app',
+        articleStatus: 'Draft',
+        referenceEntityType: 'Draft',
+        referenceEntityId: 'draft-1',
+        versionNumber: null
+      },
+      {
+        referenceId: 'reference-2',
+        mediaId: 'media-1',
+        articleId: 'article-1',
+        articleTitle: 'Installing the desktop app',
+        articleSlug: 'installing-the-desktop-app',
+        articleStatus: 'Draft',
+        referenceEntityType: 'Comment',
+        referenceEntityId: 'comment-1',
+        versionNumber: null
+      }
+    ])
+    const api = createApi({
+      getList: vi.fn().mockResolvedValue(response([mediaFile({ referenceCount: 2 })])),
+      getReferences
+    })
+
+    await renderPage(api)
+    await click(buttonByText('2 references'))
+
+    expect(getReferences).toHaveBeenCalledWith('media-1', 'token', expect.any(AbortSignal))
+    expect(document.body.textContent).toContain('Installing the desktop app')
+    expect(document.body.textContent).toContain('Current draft')
+    expect(document.body.textContent).toContain('Article comment')
+    expect(document.querySelector<HTMLAnchorElement>('a[href="/en/editor?articleId=article-1"]')).not.toBeNull()
+  })
+
+  it('replaces an active image while keeping the media item in place', async () => {
+    const replace = vi.fn().mockResolvedValue(mediaFile({ originalFileName: 'after.png' }))
+    const getList = vi.fn().mockResolvedValue(response([
+      mediaFile({ originalFileName: 'before.png', mimeType: 'image/png', fileExtension: '.png' })
+    ]))
+    const api = createApi({ getList, replace })
+
+    await renderPage(api)
+    await click(document.querySelector('button[aria-label="Replace before.png"]'))
+    const input = document.querySelector<HTMLInputElement>('input[type="file"][accept*=".png"]')
+    const replacement = new File(['replacement'], 'after.png', { type: 'image/png' })
+    Object.defineProperty(input!, 'files', { configurable: true, value: [replacement] })
+    await act(async () => {
+      input!.dispatchEvent(new Event('change', { bubbles: true }))
+      await Promise.resolve()
+    })
+    await click(buttonByText('Replace image'))
+
+    expect(replace).toHaveBeenCalledWith('media-1', replacement, 'token', expect.any(Function))
+    expect(document.body.textContent).toContain('now replaces the previous image everywhere it is referenced')
+    expect(getList.mock.calls.length).toBeGreaterThan(1)
+  })
+
   it('shows a dedicated unauthorized state and does not call the backend without a token', async () => {
     const api = createApi()
 
@@ -271,6 +337,8 @@ describe('MediaLibraryPage', () => {
     const api = createApi({ getList: vi.fn().mockResolvedValue(response([mediaFile()])) })
 
     await act(async () => {
+      // createElement requires this provider's required children prop in a non-TSX test file.
+      // eslint-disable-next-line react/no-children-prop
       root.render(createElement(
         AccessTokenProvider,
         {

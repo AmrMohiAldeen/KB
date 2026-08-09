@@ -9,6 +9,10 @@ public interface IMediaRepository
         CancellationToken cancellationToken);
     Task<MediaFileData> SetStatusWithAuditAsync(Guid id, string expectedStatus, string newStatus,
         MediaAuditData audit, CancellationToken cancellationToken);
+    Task<MediaFileData> ReplaceWithAuditAsync(Guid id, string expectedStoragePath,
+        ReplacementMediaData replacement, MediaAuditData audit, CancellationToken cancellationToken);
+    Task<IReadOnlyList<MediaReferenceDetailsData>> GetReferencesAsync(Guid mediaId,
+        CancellationToken cancellationToken);
     Task<MediaReferenceTargetData?> ResolveReferenceTargetAsync(string entityType, Guid entityId,
         CancellationToken cancellationToken);
     Task<MediaReferenceTargetData?> GetCurrentDraftTargetAsync(Guid articleId,

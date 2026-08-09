@@ -2,6 +2,8 @@ using Kb.Contracts.Articles;
 
 namespace Kb.Contracts.Dashboard;
 
+public sealed record DashboardReorderRequest(Guid TargetId, string Placement);
+
 public sealed record DashboardCategoryResponse(
     Guid Id,
     Guid? ParentId,

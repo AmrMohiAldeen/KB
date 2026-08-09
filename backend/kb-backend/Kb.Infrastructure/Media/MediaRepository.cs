@@ -77,6 +77,61 @@ public sealed class MediaRepository(KbDbContext dbContext) : IMediaRepository
             ?? throw new ConflictException("The changed media metadata could not be read back.");
     }
 
+    public async Task<MediaFileData> ReplaceWithAuditAsync(Guid id, string expectedStoragePath,
+        ReplacementMediaData replacement, MediaAuditData audit, CancellationToken cancellationToken)
+    {
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(
+            IsolationLevel.Serializable, cancellationToken);
+        var entity = await dbContext.MediaFiles.SingleOrDefaultAsync(media => media.MediaId == id,
+            cancellationToken) ?? throw new NotFoundException("The media file was not found.");
+        if (!string.Equals(entity.Status, MediaStatuses.Active, StringComparison.Ordinal))
+            throw new ConflictException("Only active media can be replaced.");
+        if (!string.Equals(entity.StoragePath, expectedStoragePath, StringComparison.Ordinal))
+            throw new ConflictException("The media file changed while the replacement was in progress.");
+
+        entity.OriginalFileName = replacement.OriginalFileName;
+        entity.StoredFileName = replacement.StoredFileName;
+        entity.MimeType = replacement.MimeType;
+        entity.FileExtension = replacement.FileExtension;
+        entity.FileSizeBytes = replacement.FileSizeBytes;
+        entity.StoragePath = replacement.StoragePath;
+        entity.AccessUrl = null;
+        entity.UploadedByFk = replacement.UploadedBy;
+        entity.UploadedAt = replacement.UploadedAt;
+        AddAudit(id, audit);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        dbContext.ChangeTracker.Clear();
+        return await GetByIdAsync(id, cancellationToken)
+            ?? throw new ConflictException("The replaced media metadata could not be read back.");
+    }
+
+    public async Task<IReadOnlyList<MediaReferenceDetailsData>> GetReferencesAsync(Guid mediaId,
+        CancellationToken cancellationToken) =>
+        await dbContext.MediaReferences.AsNoTracking()
+            .Where(reference => reference.MediaIdFk == mediaId)
+            .OrderBy(reference => reference.ArticleIdFkNavigation == null
+                ? string.Empty
+                : reference.ArticleIdFkNavigation.Title)
+            .ThenBy(reference => reference.ReferenceEntityType)
+            .ThenBy(reference => reference.ReferenceEntityId)
+            .Select(reference => new MediaReferenceDetailsData(
+                reference.ReferenceId,
+                reference.MediaIdFk,
+                reference.ArticleIdFk,
+                reference.ArticleIdFkNavigation == null ? null : reference.ArticleIdFkNavigation.Title,
+                reference.ArticleIdFkNavigation == null ? null : reference.ArticleIdFkNavigation.Slug,
+                reference.ArticleIdFkNavigation == null ? null : reference.ArticleIdFkNavigation.Status,
+                reference.ReferenceEntityType,
+                reference.ReferenceEntityId,
+                reference.ReferenceEntityType == MediaReferenceTypes.Version
+                    ? dbContext.ArticleVersions
+                        .Where(version => version.VersionId == reference.ReferenceEntityId)
+                        .Select(version => (int?)version.VersionNumber)
+                        .SingleOrDefault()
+                    : null))
+            .ToListAsync(cancellationToken);
+
     public Task<MediaReferenceTargetData?> ResolveReferenceTargetAsync(string entityType, Guid entityId,
         CancellationToken cancellationToken) => entityType switch
     {

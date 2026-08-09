@@ -25,6 +25,8 @@ public partial class User
 
     public virtual ICollection<ArticleComment> ArticleCommentResolvedByFkNavigations { get; set; } = new List<ArticleComment>();
 
+    public virtual ICollection<ArticleNotificationPreference> ArticleNotificationPreferences { get; set; } = new List<ArticleNotificationPreference>();
+
     public virtual ICollection<ArticleDraft> ArticleDraftCreatedByFkNavigations { get; set; } = new List<ArticleDraft>();
 
     public virtual ICollection<ArticleDraft> ArticleDraftLockedByFkNavigations { get; set; } = new List<ArticleDraft>();

@@ -96,6 +96,9 @@ public sealed class MediaSliceTests
         Assert.Equal(PermissionPolicy.For(PermissionCodes.ArticlesDelete),
             typeof(MediaController).GetMethod(nameof(MediaController.Delete))!
                 .GetCustomAttribute<AuthorizeAttribute>()!.Policy);
+        Assert.Equal(PermissionPolicy.For(PermissionCodes.ArticlesDelete),
+            typeof(MediaController).GetMethod(nameof(MediaController.Replace))!
+                .GetCustomAttribute<AuthorizeAttribute>()!.Policy);
     }
 
     [Fact]
@@ -219,8 +222,108 @@ public sealed class MediaSliceTests
         Assert.Single(await fixture.Context.MediaReferences.AsNoTracking().ToListAsync());
     }
 
+    [Fact]
+    public async Task Reference_details_come_from_media_references_and_include_article_navigation_data()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Grant(PermissionCodes.ArticlesCreate, PermissionCodes.ArticlesEditOwnDraft);
+        var uploaded = await fixture.UploadAsync("diagram.png", "image/png", Png("diagram"));
+        _ = await fixture.Service.CreateReferenceAsync(uploaded.Id,
+            new(fixture.ArticleId, MediaReferenceTypes.Attachment, fixture.ArticleId), default);
+
+        var references = await fixture.Service.GetReferencesAsync(uploaded.Id, default);
+
+        var reference = Assert.Single(references);
+        Assert.Equal(fixture.ArticleId, reference.ArticleId);
+        Assert.Equal("Media Article", reference.ArticleTitle);
+        Assert.StartsWith("media-", reference.ArticleSlug);
+        Assert.Equal(ArticleStatuses.Draft, reference.ArticleStatus);
+        Assert.Equal(MediaReferenceTypes.Attachment, reference.EntityType);
+    }
+
+    [Fact]
+    public async Task Replacing_an_image_preserves_identity_references_history_binary_and_audits()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Grant(PermissionCodes.ArticlesCreate, PermissionCodes.ArticlesDelete,
+            PermissionCodes.ArticlesEditOwnDraft);
+        var originalBytes = Png("original");
+        var uploaded = await fixture.UploadAsync("before.png", "image/png", originalBytes);
+        var versionId = Guid.NewGuid();
+        fixture.Context.ArticleVersions.Add(new ArticleVersion
+        {
+            VersionId = versionId,
+            ArticleIdFk = fixture.ArticleId,
+            VersionNumber = 1,
+            SnapshotReason = ArticleSnapshotReasons.Published,
+            ContentJsonStoragePath = "articles/version/content.json",
+            ContentSizeBytes = 1,
+            CreatedAt = fixture.Time.GetUtcNow().UtcDateTime,
+            CreatedByFk = fixture.UserId
+        });
+        fixture.Context.MediaReferences.Add(new MediaReference
+        {
+            ReferenceId = Guid.NewGuid(),
+            MediaIdFk = uploaded.Id,
+            ArticleIdFk = fixture.ArticleId,
+            ReferenceEntityType = MediaReferenceTypes.Version,
+            ReferenceEntityId = versionId
+        });
+        await fixture.Context.SaveChangesAsync();
+        _ = await fixture.Service.CreateReferenceAsync(uploaded.Id,
+            new(fixture.ArticleId, MediaReferenceTypes.Attachment, fixture.ArticleId), default);
+        fixture.Time.Advance(TimeSpan.FromMinutes(1));
+        var replacementBytes = Jpeg("replacement");
+
+        var replaced = await fixture.Service.ReplaceAsync(uploaded.Id,
+            new("after.jpg", "image/jpeg", replacementBytes.LongLength,
+                new MemoryStream(replacementBytes, writable: false)), default);
+
+        Assert.Equal(uploaded.Id, replaced.Id);
+        Assert.Equal("after.jpg", replaced.OriginalFileName);
+        Assert.Equal("image/jpeg", replaced.MimeType);
+        Assert.NotEqual(uploaded.StoragePath, replaced.StoragePath);
+        Assert.Equal(originalBytes, fixture.Storage.Objects[uploaded.StoragePath]);
+        Assert.Equal(replacementBytes, fixture.Storage.Objects[replaced.StoragePath]);
+        Assert.DoesNotContain(uploaded.StoragePath, fixture.Storage.DeletedPaths);
+        var references = await fixture.Context.MediaReferences.AsNoTracking().ToArrayAsync();
+        Assert.Equal(2, references.Length);
+        Assert.All(references, reference => Assert.Equal(uploaded.Id, reference.MediaIdFk));
+        Assert.Equal("articles/version/content.json",
+            (await fixture.Context.ArticleVersions.AsNoTracking().SingleAsync()).ContentJsonStoragePath);
+        var audit = await fixture.Context.ArticleAuditLogs.AsNoTracking()
+            .SingleAsync(log => log.ActionType == MediaAuditActions.Replaced);
+        Assert.Contains(uploaded.StoragePath, audit.MetaDataJson);
+        Assert.Contains("\"historicalBinaryPreserved\":true", audit.MetaDataJson);
+        Assert.Contains(await fixture.Context.ArticleAuditLogs.AsNoTracking().ToArrayAsync(),
+            log => log.ActionType == MediaAuditActions.Uploaded);
+    }
+
+    [Fact]
+    public async Task Replacing_requires_manage_permission_and_an_image_replacement()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Grant(PermissionCodes.ArticlesCreate);
+        var uploaded = await fixture.UploadAsync("before.png", "image/png", Png("before"));
+
+        await Assert.ThrowsAsync<ForbiddenException>(() => fixture.Service.ReplaceAsync(uploaded.Id,
+            new("after.png", "image/png", Png("after").LongLength,
+                new MemoryStream(Png("after"), writable: false)), default));
+
+        fixture.Grant(PermissionCodes.ArticlesDelete);
+        var text = Encoding.UTF8.GetBytes("not an image");
+        await Assert.ThrowsAsync<BusinessRuleException>(() => fixture.Service.ReplaceAsync(uploaded.Id,
+            new("notes.txt", "text/plain", text.LongLength,
+                new MemoryStream(text, writable: false)), default));
+        Assert.Equal(uploaded.StoragePath,
+            (await fixture.Context.MediaFiles.AsNoTracking().SingleAsync()).StoragePath);
+    }
+
     private static byte[] Png(string suffix) =>
         [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, .. Encoding.UTF8.GetBytes(suffix)];
+
+    private static byte[] Jpeg(string suffix) =>
+        [0xff, 0xd8, 0xff, .. Encoding.UTF8.GetBytes(suffix)];
 
     private static byte[] Pdf(string suffix) => Encoding.ASCII.GetBytes($"%PDF-1.7\n{suffix}");
 

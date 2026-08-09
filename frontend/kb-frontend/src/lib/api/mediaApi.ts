@@ -2,6 +2,7 @@ import type {
   MediaDetailsResponse,
   MediaListQuery,
   MediaListResponse,
+  MediaReferenceDetailsResponse,
   MediaUploadProgress,
   MediaUploadResponse
 } from '@/types/apps/mediaTypes'
@@ -38,11 +39,12 @@ const parseJson = (value: string): unknown => {
   }
 }
 
-export const uploadMedia = (
+const sendMediaFile = <TResponse>(
+  path: string,
   file: File,
   accessToken: string,
   onProgress?: (progress: MediaUploadProgress) => void
-): Promise<MediaUploadResponse> => {
+): Promise<TResponse> => {
   const token = normalizeAccessToken(accessToken)
 
   if (!token)
@@ -57,7 +59,7 @@ export const uploadMedia = (
     const formData = new FormData()
 
     formData.append('file', file, file.name)
-    request.open('POST', `${getApiBaseUrl()}/api/media`)
+    request.open('POST', `${getApiBaseUrl()}${path}`)
     request.setRequestHeader('Accept', 'application/json')
     request.setRequestHeader('Authorization', `Bearer ${token}`)
 
@@ -75,7 +77,7 @@ export const uploadMedia = (
 
       if (request.status >= 200 && request.status < 300) {
         onProgress?.({ loaded: file.size, total: file.size, percent: 100 })
-        resolve(body as MediaUploadResponse)
+        resolve(body as TResponse)
         return
       }
 
@@ -94,6 +96,26 @@ export const uploadMedia = (
     request.send(formData)
   })
 }
+
+export const uploadMedia = (
+  file: File,
+  accessToken: string,
+  onProgress?: (progress: MediaUploadProgress) => void
+) => sendMediaFile<MediaUploadResponse>('/api/media', file, accessToken, onProgress)
+
+export const replaceMedia = (
+  id: string,
+  file: File,
+  accessToken: string,
+  onProgress?: (progress: MediaUploadProgress) => void
+) => sendMediaFile<MediaDetailsResponse>(
+  `/api/media/${encodeURIComponent(id)}/replace`, file, accessToken, onProgress
+)
+
+export const getMediaReferences = (id: string, accessToken: string, signal?: AbortSignal) =>
+  apiRequest<MediaReferenceDetailsResponse[]>(
+    `/api/media/${encodeURIComponent(id)}/references`, accessToken, { signal }
+  )
 
 export const getMediaContent = (id: string, accessToken: string, signal?: AbortSignal) =>
   apiBlobRequest(`/api/media/${encodeURIComponent(id)}/content`, accessToken, signal)
@@ -132,6 +154,8 @@ export const describeMediaApiError = (error: unknown): string[] => {
 export const mediaLibraryApi = {
   getList: getMedia,
   upload: uploadMedia,
+  replace: replaceMedia,
+  getReferences: getMediaReferences,
   getContent: getMediaContent,
   download: downloadMedia,
   archive: archiveMedia,

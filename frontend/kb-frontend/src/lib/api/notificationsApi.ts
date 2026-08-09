@@ -1,4 +1,5 @@
 import type {
+  ArticleNotificationPreferenceResponse,
   MarkAllNotificationsReadResponse,
   NotificationListResponse,
   NotificationResponse,
@@ -28,3 +29,20 @@ export const notificationsApi: NotificationsApi = {
   markAllRead: accessToken =>
     apiRequest<MarkAllNotificationsReadResponse>('/api/notifications/read-all', accessToken, { method: 'PATCH' })
 }
+
+export const getArticleNotificationPreference = (
+  articleId: string,
+  accessToken: string,
+  signal?: AbortSignal
+) => apiRequest<ArticleNotificationPreferenceResponse>(
+  `/api/notifications/articles/${encodeURIComponent(articleId)}/preference`, accessToken, { signal }
+)
+
+export const setArticleNotificationPreference = (
+  articleId: string,
+  enabled: boolean,
+  accessToken: string
+) => apiRequest<ArticleNotificationPreferenceResponse>(
+  `/api/notifications/articles/${encodeURIComponent(articleId)}/preference`, accessToken,
+  { method: 'PUT', body: JSON.stringify({ enabled }) }
+)

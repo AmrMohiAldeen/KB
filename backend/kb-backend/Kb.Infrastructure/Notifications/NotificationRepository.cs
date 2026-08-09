@@ -110,6 +110,36 @@ public sealed class NotificationRepository(KbDbContext dbContext) : INotificatio
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 
+    public Task<bool?> GetArticlePreferenceAsync(Guid articleId, Guid userId, CancellationToken cancellationToken) =>
+        dbContext.ArticleNotificationPreferences.AsNoTracking()
+            .Where(value => value.ArticleIdFk == articleId && value.UserIdFk == userId)
+            .Select(value => (bool?)value.IsEnabled).SingleOrDefaultAsync(cancellationToken);
+
+    public async Task<bool> SetArticlePreferenceAsync(Guid articleId, Guid userId, bool enabled,
+        DateTime updatedAt, CancellationToken cancellationToken)
+    {
+        if (!await dbContext.Articles.AsNoTracking().AnyAsync(value => value.ArticleId == articleId, cancellationToken))
+            return false;
+        var preference = await dbContext.ArticleNotificationPreferences.SingleOrDefaultAsync(value =>
+            value.ArticleIdFk == articleId && value.UserIdFk == userId, cancellationToken);
+        if (preference is null)
+            dbContext.ArticleNotificationPreferences.Add(new ArticleNotificationPreference
+                { ArticleIdFk = articleId, UserIdFk = userId, IsEnabled = enabled, UpdatedAt = updatedAt });
+        else
+        {
+            preference.IsEnabled = enabled;
+            preference.UpdatedAt = updatedAt;
+        }
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
+    public async Task<IReadOnlySet<Guid>> GetDisabledRecipientIdsAsync(Guid articleId,
+        IReadOnlyCollection<Guid> userIds, CancellationToken cancellationToken) =>
+        (await dbContext.ArticleNotificationPreferences.AsNoTracking().Where(value =>
+            value.ArticleIdFk == articleId && !value.IsEnabled && userIds.Contains(value.UserIdFk))
+            .Select(value => value.UserIdFk).ToArrayAsync(cancellationToken)).ToHashSet();
+
     private static NotificationData Map(Notification value) => new(
         value.NotificationId, value.UserIdFk, value.ArticleIdFk, value.Type, value.Title,
         value.Body ?? string.Empty, value.IsRead, value.CreatedAt, value.ReadAt);

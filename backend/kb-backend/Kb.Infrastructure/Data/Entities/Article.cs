@@ -33,6 +33,8 @@ public partial class Article
 
     public virtual ICollection<ArticleComment> ArticleComments { get; set; } = new List<ArticleComment>();
 
+    public virtual ICollection<ArticleNotificationPreference> ArticleNotificationPreferences { get; set; } = new List<ArticleNotificationPreference>();
+
     public virtual ICollection<ArticleDraft> ArticleDrafts { get; set; } = new List<ArticleDraft>();
 
     public virtual ICollection<ArticleReviewEvent> ArticleReviewEvents { get; set; } = new List<ArticleReviewEvent>();

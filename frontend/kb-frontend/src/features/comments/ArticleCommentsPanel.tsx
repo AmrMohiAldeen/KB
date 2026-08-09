@@ -39,6 +39,7 @@ type ArticleCommentsPanelProps = {
   pendingAnchor: PendingCommentAnchor | null
   onClearPendingAnchor: () => void
   locale?: string
+  anchorPositions?: Record<string, number>
 }
 
 const anchorLabel = (comment: ArticleComment) => {
@@ -164,12 +165,21 @@ export default function ArticleCommentsPanel({
   onActiveThreadChange,
   pendingAnchor,
   onClearPendingAnchor,
-  locale = 'en'
+  locale = 'en',
+  anchorPositions = {}
 }: ArticleCommentsPanelProps) {
   const [articleComposerOpen, setArticleComposerOpen] = useState(false)
   const [body, setBody] = useState('')
   const [reply, setReply] = useState('')
   const threads = useMemo(() => state.query.data?.threads ?? [], [state.query.data?.threads])
+  const orderedThreads = useMemo(() => [...threads].sort((left, right) => {
+    const leftPosition = anchorPositions[left.commentId]
+    const rightPosition = anchorPositions[right.commentId]
+    if (leftPosition == null && rightPosition == null) return 0
+    if (leftPosition == null) return 1
+    if (rightPosition == null) return -1
+    return leftPosition - rightPosition
+  }), [anchorPositions, threads])
   const active = threads.find(thread => thread.commentId === activeThreadId) ?? null
   const composerOpen = articleComposerOpen || Boolean(pendingAnchor)
   const error = state.query.error || mutationError(state)
@@ -205,7 +215,7 @@ export default function ArticleCommentsPanel({
       variant='outlined'
       component='aside'
       aria-label='Article comments'
-      sx={{ width: { xs: '100%', xl: 390 }, flexShrink: 0, alignSelf: 'stretch', borderRadius: 2 }}
+      sx={{ width: '100%', minWidth: 0, flexShrink: 0, alignSelf: 'flex-start', borderRadius: 2 }}
     >
       <CardContent sx={{ p: 3, '&:last-child': { pb: 3 } }}>
         <Stack spacing={2.5}>
@@ -289,7 +299,7 @@ export default function ArticleCommentsPanel({
           )}
 
           {state.query.isSuccess && threads.length === 0 && !composerOpen && (
-            <Box sx={{ py: 5, textAlign: 'center' }}>
+            <Box sx={{ py: 1, textAlign: 'start' }}>
               <Typography variant='body2' color='text.secondary'>No comments yet.</Typography>
             </Box>
           )}
@@ -301,14 +311,21 @@ export default function ArticleCommentsPanel({
           )}
 
           {threads.length > 0 && (
-            <Stack spacing={1} sx={{ maxHeight: active ? 230 : 560, overflowY: 'auto' }}>
-              {threads.map(thread => (
+            <Box>
+              {orderedThreads.map((thread, index) => {
+                const position = anchorPositions[thread.commentId]
+                const previous = index > 0 ? anchorPositions[orderedThreads[index - 1].commentId] : 0
+                const anchorGap = position == null ? 8 : Math.max(8, Math.min(280, position - (previous ?? 0) - (index ? 52 : 0)))
+                return (
                 <Button
                   key={thread.commentId}
                   variant={thread.commentId === activeThreadId ? 'tonal' : 'text'}
                   color={thread.anchorStatus === 'Attached' ? 'primary' : 'warning'}
                   onClick={() => onActiveThreadChange(thread.commentId)}
-                  sx={{ justifyContent: 'flex-start', textAlign: 'start', py: 1.25 }}
+                  sx={{
+                    display: 'flex', inlineSize: '100%', justifyContent: 'flex-start', textAlign: 'start', py: 1.25,
+                    mt: { xs: index ? 1 : 0, lg: `${index ? anchorGap : Math.min(anchorGap, 180)}px` }
+                  }}
                 >
                   <Box sx={{ minWidth: 0, width: '100%' }}>
                     <Stack direction='row' spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
@@ -329,8 +346,8 @@ export default function ArticleCommentsPanel({
                     </Typography>
                   </Box>
                 </Button>
-              ))}
-            </Stack>
+              )})}
+            </Box>
           )}
 
           {active && (

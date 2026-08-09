@@ -1,4 +1,5 @@
 using Kb.Application.Articles;
+using Kb.Application.Authorization;
 using Kb.Application.Dashboard;
 using Kb.Contracts.Articles;
 using Kb.Contracts.Common;
@@ -13,6 +14,9 @@ namespace Kb.Api.Controllers;
 [Route("api/dashboard")]
 public sealed class DashboardController(DashboardService dashboard) : ControllerBase
 {
+    private const string ManageCategoriesPolicy = PermissionPolicy.Prefix + PermissionCodes.CategoriesManage;
+    private const string ReorderArticlesPolicy = PermissionPolicy.Prefix + PermissionCodes.ArticlesEditAnyDraft;
+
     [HttpGet("items")]
     [ProducesResponseType<DashboardItemsResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
@@ -42,6 +46,32 @@ public sealed class DashboardController(DashboardService dashboard) : Controller
                 result.FilterCounts.ToReview,
                 result.FilterCounts.Archived),
             result.Truncated));
+    }
+
+    [HttpPatch("categories/{id:guid}/position")]
+    [Authorize(Policy = ManageCategoriesPolicy)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> ReorderCategory(Guid id, DashboardReorderRequest request,
+        CancellationToken cancellationToken)
+    {
+        await dashboard.ReorderCategoryAsync(id, request.TargetId, request.Placement, cancellationToken);
+        return NoContent();
+    }
+
+    [HttpPatch("articles/{id:guid}/position")]
+    [Authorize(Policy = ReorderArticlesPolicy)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> ReorderArticle(Guid id, DashboardReorderRequest request,
+        CancellationToken cancellationToken)
+    {
+        await dashboard.ReorderArticleAsync(id, request.TargetId, request.Placement, cancellationToken);
+        return NoContent();
     }
 
     private static DashboardItemResponse ToResponse(DashboardItemData item) => new(

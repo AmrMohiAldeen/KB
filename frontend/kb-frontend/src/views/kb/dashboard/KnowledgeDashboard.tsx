@@ -1,7 +1,16 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode, type SyntheticEvent } from 'react'
-import { useParams } from 'next/navigation'
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent as ReactDragEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+  type SyntheticEvent
+} from 'react'
+import { useParams, useRouter } from 'next/navigation'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Breadcrumbs from '@mui/material/Breadcrumbs'
@@ -38,6 +47,7 @@ import {
   FileText,
   Folder,
   Grid2X2,
+  GripVertical,
   List,
   Pencil,
   Plus,
@@ -91,10 +101,15 @@ import {
 import {
   defaultDashboardPageSize,
   getDashboardItems,
-  getDashboardPermissionContext
+  getDashboardPermissionContext,
+  reorderDashboardItem
 } from '@/lib/api/dashboardApi'
 import { describeApiError } from '@/lib/api/http'
-import { canEditDashboardArticle, flattenDashboardCategories } from './utils/dashboardItems'
+import {
+  canEditDashboardArticle,
+  flattenDashboardCategories,
+  reorderDashboardItems
+} from './utils/dashboardItems'
 import { getLocalizedUrl } from '@/utils/i18n'
 
 type KnowledgeDashboardProps = {
@@ -280,6 +295,7 @@ const DashboardFilters = ({
 
 const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDashboardProps) => {
   const theme = useTheme()
+  const router = useRouter()
   const { lang } = useParams<{ lang: string }>()
   const [categories, setCategories] = useState<KbCategoryNode[]>([])
   const [items, setItems] = useState<DashboardItem[]>([])
@@ -311,6 +327,10 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
   const [filterDrawerOpen, setFilterDrawerOpen] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [draggedItemId, setDraggedItemId] = useState<string>()
+  const [dropTarget, setDropTarget] = useState<{ id: string; placement: 'before' | 'after' }>()
+  const [reordering, setReordering] = useState(false)
+  const suppressNavigationRef = useRef(false)
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -400,6 +420,7 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
   const canViewArticles = hasPermission(permissionContext, 'articles.view')
   const canEditOwnArticle = hasPermission(permissionContext, 'articles.editOwnDraft') ||
     hasPermission(permissionContext, 'articles.editAnyDraft')
+  const canReorderArticles = hasPermission(permissionContext, 'articles.editAnyDraft')
   const selectableArticles = useMemo(
     () => items.flatMap(item => item.kind === 'article' && item.article.status !== 'Archived' && canDeleteArticle
       ? [item.article]
@@ -410,6 +431,145 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
     () => selectableArticles.filter(article => selectedArticleIds.has(article.articleId)),
     [selectableArticles, selectedArticleIds]
   )
+
+  const canReorderItem = (item: DashboardItem) => sort === 'position' && !debouncedSearch && (
+    item.kind === 'category'
+      ? canManageCategories
+      : canReorderArticles && Boolean(categoryId)
+  )
+
+  const finishDragging = () => {
+    setDraggedItemId(undefined)
+    setDropTarget(undefined)
+    window.setTimeout(() => { suppressNavigationRef.current = false }, 0)
+  }
+
+  const persistReorder = async (
+    draggedId: string,
+    targetId: string,
+    placement: 'before' | 'after'
+  ) => {
+    const dragged = items.find(item => item.id === draggedId)
+    const target = items.find(item => item.id === targetId)
+
+    if (!dragged || !target || dragged.kind !== target.kind || !canReorderItem(dragged)) return
+
+    const previousItems = items
+
+    setItems(reorderDashboardItems(items, draggedId, targetId, placement))
+    setReordering(true)
+    setMutationErrors([])
+    try {
+      await reorderDashboardItem({
+        accessToken,
+        kind: dragged.kind,
+        id: dragged.kind === 'category' ? dragged.category.id : dragged.article.articleId,
+        targetId: target.kind === 'category' ? target.category.id : target.article.articleId,
+        placement
+      })
+      if (dragged.kind === 'category') {
+        const tree = await getCategoryTree(accessToken)
+
+        setCategories(tree)
+      }
+    } catch (error) {
+      setItems(previousItems)
+      setMutationErrors(describeApiError(error))
+    } finally {
+      setReordering(false)
+      finishDragging()
+    }
+  }
+
+  const moveWithKeyboard = (item: DashboardItem, direction: -1 | 1) => {
+    const group = items.filter(candidate => candidate.kind === item.kind)
+    const index = group.findIndex(candidate => candidate.id === item.id)
+    const target = group[index + direction]
+
+    if (!target) return
+    suppressNavigationRef.current = true
+    void persistReorder(item.id, target.id, direction < 0 ? 'before' : 'after')
+  }
+
+  const dragHandle = (item: DashboardItem) => {
+    if (!canReorderItem(item)) return null
+
+    const label = item.kind === 'category' ? item.category.name : item.article.title
+
+    return (
+      <Tooltip title='Drag to reorder'>
+        <IconButton
+          className='dashboard-drag-handle'
+          size='small'
+          draggable={!reordering}
+          disabled={reordering}
+          onClick={stopRowAction}
+          onMouseDown={stopRowAction}
+          onDragStart={event => {
+            stopRowAction(event)
+            suppressNavigationRef.current = true
+            event.dataTransfer.effectAllowed = 'move'
+            event.dataTransfer.setData('text/plain', item.id)
+            setDraggedItemId(item.id)
+          }}
+          onDragEnd={finishDragging}
+          onKeyDown={event => {
+            if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') {
+              event.preventDefault()
+              stopRowAction(event)
+              moveWithKeyboard(item, -1)
+            } else if (event.key === 'ArrowDown' || event.key === 'ArrowRight') {
+              event.preventDefault()
+              stopRowAction(event)
+              moveWithKeyboard(item, 1)
+            }
+          }}
+          aria-label={`Reorder ${label}`}
+          sx={{
+            cursor: reordering ? 'wait' : 'grab',
+            opacity: 0,
+            pointerEvents: 'none',
+            transition: 'opacity 140ms ease, color 140ms ease',
+            '&:active': { cursor: 'grabbing' },
+            '&:focus-visible': { opacity: 1 }
+          }}
+        >
+          <GripVertical size={17} />
+        </IconButton>
+      </Tooltip>
+    )
+  }
+
+  const dragOverItem = (event: ReactDragEvent<HTMLElement>, item: DashboardItem) => {
+    const dragged = items.find(candidate => candidate.id === draggedItemId)
+
+    if (!dragged || dragged.id === item.id || dragged.kind !== item.kind || !canReorderItem(dragged)) return
+
+    event.preventDefault()
+    stopRowAction(event)
+    event.dataTransfer.dropEffect = 'move'
+    const bounds = event.currentTarget.getBoundingClientRect()
+    const placement = event.clientY < bounds.top + bounds.height / 2 ? 'before' : 'after'
+
+    if (dropTarget?.id !== item.id || dropTarget.placement !== placement)
+      setDropTarget({ id: item.id, placement })
+  }
+
+  const leaveDragTarget = (event: ReactDragEvent<HTMLElement>) => {
+    if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return
+
+    setDropTarget(undefined)
+  }
+
+  const dropOnItem = (event: ReactDragEvent<HTMLElement>, item: DashboardItem) => {
+    event.preventDefault()
+    stopRowAction(event)
+    const sourceId = draggedItemId ?? event.dataTransfer.getData('text/plain')
+
+    if (sourceId && dropTarget?.id === item.id)
+      void persistReorder(sourceId, item.id, dropTarget.placement)
+    else finishDragging()
+  }
 
   const applyFilter = (filter: DashboardArticleFilter) => {
     setContentLoading(true)
@@ -432,13 +592,31 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
     setFilterDrawerOpen(false)
   }
 
-  const refresh = useCallback(() => {
+  const openDashboardItem = (item: DashboardItem) => {
+    if (suppressNavigationRef.current) return
+
+    if (item.kind === 'category') {
+      selectCategory(item.category.id)
+      return
+    }
+
+    router.push(getLocalizedUrl(`/editor?articleId=${encodeURIComponent(item.article.articleId)}`, lang))
+  }
+
+  const openDashboardItemFromKeyboard = (event: ReactKeyboardEvent<HTMLElement>, item: DashboardItem) => {
+    if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) return
+
+    event.preventDefault()
+    openDashboardItem(item)
+  }
+
+  const refresh = () => {
     setCategoriesLoading(true)
     setContentLoading(true)
     setRefreshKey(current => current + 1)
-  }, [])
+  }
 
-  const submitArticle = useCallback(async (form: ArticleFormState) => {
+  const submitArticle = async (form: ArticleFormState) => {
     const canEdit = editingArticle && canEditDashboardArticle({
       article: {
         ...editingArticle,
@@ -477,9 +655,9 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
     } finally {
       setMutating(false)
     }
-  }, [accessToken, canCreateArticle, editingArticle, mutating, permissionContext, refresh])
+  }
 
-  const submitCategory = useCallback(async (form: CategoryFormState) => {
+  const submitCategory = async (form: CategoryFormState) => {
     if (!accessToken || !canManageCategories || mutating) return
 
     setMutating(true)
@@ -517,9 +695,9 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
     } finally {
       setMutating(false)
     }
-  }, [accessToken, canManageCategories, editingCategory, mutating, refresh])
+  }
 
-  const confirmDelete = useCallback(async () => {
+  const confirmDelete = async () => {
     if (!accessToken || !canDeleteArticle || !deleteTarget || mutating) return
 
     setMutating(true)
@@ -535,9 +713,9 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
     } finally {
       setMutating(false)
     }
-  }, [accessToken, canDeleteArticle, deleteTarget, mutating, refresh])
+  }
 
-  const confirmCategoryDelete = useCallback(async () => {
+  const confirmCategoryDelete = async () => {
     if (!accessToken || !canManageCategories || !categoryDeleteTarget || mutating) return
 
     setMutating(true)
@@ -553,9 +731,9 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
     } finally {
       setMutating(false)
     }
-  }, [accessToken, canManageCategories, categoryDeleteTarget, categoryId, mutating, refresh])
+  }
 
-  const openArticleEdit = useCallback(async (article: ArticleListItemResponse) => {
+  const openArticleEdit = async (article: ArticleListItemResponse) => {
     if (!accessToken || mutating || !canEditDashboardArticle({ article, permissionContext })) return
 
     setMutating(true)
@@ -570,9 +748,9 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
     } finally {
       setMutating(false)
     }
-  }, [accessToken, mutating, permissionContext])
+  }
 
-  const duplicateItem = useCallback(async (item: DashboardItem) => {
+  const duplicateItem = async (item: DashboardItem) => {
     if (!accessToken || mutating) return
     if (item.kind === 'category' && !canManageCategories) return
     if (item.kind === 'article' && (!canCreateArticle || !canEditOwnArticle)) return
@@ -612,9 +790,9 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
     } finally {
       setMutating(false)
     }
-  }, [accessToken, canCreateArticle, canEditOwnArticle, canManageCategories, mutating, refresh])
+  }
 
-  const copyItemLink = useCallback(async (item: DashboardItem) => {
+  const copyItemLink = async (item: DashboardItem) => {
     const path = item.kind === 'category'
       ? getLocalizedUrl(`/dashboard?categoryId=${encodeURIComponent(item.category.id)}`, lang)
       : getLocalizedUrl(`/kb/${encodeURIComponent(item.article.slug)}`, lang)
@@ -625,9 +803,9 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
     } catch {
       setMutationErrors(['The link could not be copied. Check browser clipboard permissions and try again.'])
     }
-  }, [lang])
+  }
 
-  const setCategoryArchived = useCallback(async (category: KbCategoryNode) => {
+  const setCategoryArchived = async (category: KbCategoryNode) => {
     if (!accessToken || !canManageCategories || mutating) return
 
     setMutating(true)
@@ -642,9 +820,9 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
     } finally {
       setMutating(false)
     }
-  }, [accessToken, canManageCategories, mutating, refresh])
+  }
 
-  const confirmBulkDelete = useCallback(async () => {
+  const confirmBulkDelete = async () => {
     if (!accessToken || !canDeleteArticle || !selectedArticles.length || mutating) return
 
     setMutating(true)
@@ -672,9 +850,9 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
     } finally {
       setMutating(false)
     }
-  }, [accessToken, canDeleteArticle, mutating, refresh, selectedArticles])
+  }
 
-  const restoreArchivedArticle = useCallback(async (article: ArticleListItemResponse) => {
+  const restoreArchivedArticle = async (article: ArticleListItemResponse) => {
     if (!accessToken || !canDeleteArticle || article.status !== 'Archived' || mutating) return
 
     setMutating(true)
@@ -689,7 +867,7 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
     } finally {
       setMutating(false)
     }
-  }, [accessToken, canDeleteArticle, mutating, refresh])
+  }
 
   const toggleArticle = (articleId: string) => {
     setSelectedArticleIds(current => {
@@ -1179,35 +1357,50 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
                           key={item.id}
                           selected={selected}
                           hover
-                          tabIndex={item.kind === 'category' ? 0 : undefined}
-                          onClick={item.kind === 'category' ? () => selectCategory(item.category.id) : undefined}
-                          onKeyDown={item.kind === 'category' ? event => {
-                            if (event.key === 'Enter' || event.key === ' ') {
-                              event.preventDefault()
-                              selectCategory(item.category.id)
-                            }
-                          } : undefined}
+                          tabIndex={0}
+                          onClick={() => openDashboardItem(item)}
+                          onKeyDown={event => openDashboardItemFromKeyboard(event, item)}
+                          onDragOver={event => dragOverItem(event, item)}
+                          onDragLeave={leaveDragTarget}
+                          onDrop={event => dropOnItem(event, item)}
                           sx={{
                             '& > *': { borderBlockEndColor: 'divider' },
                             '&.Mui-selected': { bgcolor: 'action.selected' },
-                            ...(item.kind === 'category' && { cursor: 'pointer' }),
-                            '&:hover .dashboard-row-actions, &:focus-within .dashboard-row-actions': {
+                            cursor: 'pointer',
+                            opacity: draggedItemId === item.id ? 0.48 : 1,
+                            transition: theme.transitions.create(['opacity', 'background-color', 'box-shadow']),
+                            ...(dropTarget?.id === item.id && {
+                              boxShadow: dropTarget.placement === 'before'
+                                ? 'inset 0 3px 0 var(--mui-palette-primary-main)'
+                                : 'inset 0 -3px 0 var(--mui-palette-primary-main)',
+                              bgcolor: 'action.hover'
+                            }),
+                            '&:hover .dashboard-drag-handle': {
                               opacity: 1,
                               pointerEvents: 'auto'
-                            }
+                            },
+                            ...(!draggedItemId && {
+                              '&:hover .dashboard-row-actions, &:focus-within .dashboard-row-actions': {
+                                opacity: 1,
+                                pointerEvents: 'auto'
+                              }
+                            })
                           }}
                         >
                           <TableCell padding='checkbox'>
-                            {isArticle ? (
-                              <Checkbox
-                                size='small'
-                                checked={selected}
-                                disabled={!selectable}
-                                onChange={() => toggleArticle(item.article.articleId)}
-                                onClick={stopRowAction}
-                                slotProps={{ input: { 'aria-label': `Select ${item.article.title}` } }}
-                              />
-                            ) : <Box sx={{ inlineSize: 34 }} />}
+                            <Stack direction='row' spacing={0.25} sx={{ alignItems: 'center' }}>
+                              {dragHandle(item)}
+                              {isArticle ? (
+                                <Checkbox
+                                  size='small'
+                                  checked={selected}
+                                  disabled={!selectable}
+                                  onChange={() => toggleArticle(item.article.articleId)}
+                                  onClick={stopRowAction}
+                                  slotProps={{ input: { 'aria-label': `Select ${item.article.title}` } }}
+                                />
+                              ) : <Box sx={{ inlineSize: 34 }} />}
+                            </Stack>
                           </TableCell>
                           <TableCell sx={{ py: 1.5 }}>
                             <ItemName item={item} />
@@ -1269,15 +1462,13 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
                   return (
                     <Box
                       key={item.id}
-                      role={item.kind === 'category' ? 'button' : undefined}
-                      tabIndex={item.kind === 'category' ? 0 : undefined}
-                      onClick={item.kind === 'category' ? () => selectCategory(item.category.id) : undefined}
-                      onKeyDown={item.kind === 'category' ? event => {
-                        if (event.key === 'Enter' || event.key === ' ') {
-                          event.preventDefault()
-                          selectCategory(item.category.id)
-                        }
-                      } : undefined}
+                      role={item.kind === 'category' ? 'button' : 'link'}
+                      tabIndex={0}
+                      onClick={() => openDashboardItem(item)}
+                      onKeyDown={event => openDashboardItemFromKeyboard(event, item)}
+                      onDragOver={event => dragOverItem(event, item)}
+                      onDragLeave={leaveDragTarget}
+                      onDrop={event => dropOnItem(event, item)}
                       sx={{
                         display: 'flex',
                         flexDirection: 'column',
@@ -1287,27 +1478,43 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
                         borderColor: selected ? 'primary.main' : 'divider',
                         borderRadius: 1.5,
                         bgcolor: selected ? 'action.selected' : 'background.paper',
-                        cursor: item.kind === 'category' ? 'pointer' : 'default',
+                        cursor: 'pointer',
+                        opacity: draggedItemId === item.id ? 0.48 : 1,
                         transition: theme.transitions.create(['border-color', 'background-color', 'box-shadow']),
                         '&:hover': { borderColor: 'text.disabled', boxShadow: theme.shadows[2] },
-                        '&:hover .dashboard-row-actions, &:focus-within .dashboard-row-actions': {
+                        ...(dropTarget?.id === item.id && {
+                          boxShadow: dropTarget.placement === 'before'
+                            ? 'inset 0 3px 0 var(--mui-palette-primary-main)'
+                            : 'inset 0 -3px 0 var(--mui-palette-primary-main)',
+                          bgcolor: 'action.hover'
+                        }),
+                        '&:hover .dashboard-drag-handle': {
                           opacity: 1,
                           pointerEvents: 'auto'
-                        }
+                        },
+                        ...(!draggedItemId && {
+                          '&:hover .dashboard-row-actions, &:focus-within .dashboard-row-actions': {
+                            opacity: 1,
+                            pointerEvents: 'auto'
+                          }
+                        })
                       }}
                     >
                       <Stack direction='row' sx={{ alignItems: 'flex-start', justifyContent: 'space-between', mb: 2 }}>
-                        {isArticle ? (
-                          <Checkbox
-                            size='small'
-                            checked={selected}
-                            disabled={!selectable}
-                            onChange={() => toggleArticle(item.article.articleId)}
-                            onClick={stopRowAction}
-                            slotProps={{ input: { 'aria-label': `Select ${item.article.title}` } }}
-                            sx={{ p: 0.5, ml: -0.5 }}
-                          />
-                        ) : <Box />}
+                        <Stack direction='row' spacing={0.25} sx={{ alignItems: 'center' }}>
+                          {dragHandle(item)}
+                          {isArticle ? (
+                            <Checkbox
+                              size='small'
+                              checked={selected}
+                              disabled={!selectable}
+                              onChange={() => toggleArticle(item.article.articleId)}
+                              onClick={stopRowAction}
+                              slotProps={{ input: { 'aria-label': `Select ${item.article.title}` } }}
+                              sx={{ p: 0.5, ml: -0.5 }}
+                            />
+                          ) : <Box />}
+                        </Stack>
                         {item.kind === 'category'
                           ? item.category.status === 'Archived' && <StatusChip label='Archived' color='secondary' />
                           : <ArticleBadges article={item.article} />}

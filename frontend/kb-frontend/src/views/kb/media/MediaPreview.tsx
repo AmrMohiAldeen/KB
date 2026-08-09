@@ -79,7 +79,7 @@ const AuthenticatedImagePreview = ({ file, accessToken, api }: MediaPreviewProps
       controller.abort()
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
-  }, [accessToken, api, file.mediaId])
+  }, [accessToken, api, file.mediaId, file.uploadedAt])
 
   return (
     <PreviewFrame>

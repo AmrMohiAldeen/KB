@@ -44,6 +44,17 @@ public sealed record MediaReferenceResponse(
     string ReferenceEntityType,
     Guid ReferenceEntityId);
 
+public sealed record MediaReferenceDetailsResponse(
+    Guid ReferenceId,
+    Guid MediaId,
+    Guid? ArticleId,
+    string? ArticleTitle,
+    string? ArticleSlug,
+    string? ArticleStatus,
+    string ReferenceEntityType,
+    Guid ReferenceEntityId,
+    int? VersionNumber);
+
 public sealed class CreateMediaReferenceRequest
 {
     public Guid? ArticleId { get; init; }

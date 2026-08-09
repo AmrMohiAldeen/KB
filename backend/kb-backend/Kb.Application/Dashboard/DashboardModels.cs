@@ -65,3 +65,9 @@ public sealed record DashboardPageData(
     long EverythingArticleCount,
     DashboardFilterCountsData FilterCounts,
     bool Truncated);
+
+public sealed record DashboardReorderAudit(
+    Guid ActorId,
+    string Action,
+    string MetadataJson,
+    DateTime CreatedAt);

@@ -19,4 +19,9 @@ public interface INotificationRepository
         CancellationToken cancellationToken);
     Task InsertAsync(IReadOnlyCollection<NewNotificationData> notifications,
         CancellationToken cancellationToken);
+    Task<bool?> GetArticlePreferenceAsync(Guid articleId, Guid userId, CancellationToken cancellationToken);
+    Task<bool> SetArticlePreferenceAsync(Guid articleId, Guid userId, bool enabled, DateTime updatedAt,
+        CancellationToken cancellationToken);
+    Task<IReadOnlySet<Guid>> GetDisabledRecipientIdsAsync(Guid articleId, IReadOnlyCollection<Guid> userIds,
+        CancellationToken cancellationToken);
 }

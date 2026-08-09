@@ -97,6 +97,7 @@ export interface KnowledgeBaseEditorProps {
   commentAnchors?: readonly EditorCommentAnchor[];
   activeCommentThreadId?: string | null;
   onSelectCommentThread?: (threadId: string) => void;
+  onCommentAnchorPositionsChange?: (positions: Record<string, number>) => void;
   canComment?: boolean;
   currentDraftId?: string | null;
   onAddCommentAnchor?: (
@@ -121,6 +122,7 @@ export default function KnowledgeBaseEditor({
   commentAnchors = [],
   activeCommentThreadId = null,
   onSelectCommentThread,
+  onCommentAnchorPositionsChange,
   canComment = false,
   currentDraftId,
   onAddCommentAnchor,
@@ -226,6 +228,33 @@ export default function KnowledgeBaseEditor({
     editor.view.dispatch(editor.state.tr.setMeta("commentAnchors:refresh", true));
   }, [activeCommentThreadId, commentAnchors, editor]);
 
+  useEffect(() => {
+    if (!editor || !onCommentAnchorPositionsChange) return;
+    let frame = 0;
+    const measure = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        const editorTop = editor.view.dom.getBoundingClientRect().top;
+        const positions: Record<string, number> = {};
+        editor.view.dom.querySelectorAll<HTMLElement>('[data-comment-thread-id]').forEach(element => {
+          const id = element.dataset.commentThreadId;
+          if (id && positions[id] == null)
+            positions[id] = Math.max(0, element.getBoundingClientRect().top - editorTop);
+        });
+        onCommentAnchorPositionsChange(positions);
+      });
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(editor.view.dom);
+    window.addEventListener('resize', measure);
+    measure();
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, [activeCommentThreadId, commentAnchors, editor, onCommentAnchorPositionsChange]);
+
   const addCommentToSelection = useCallback(() => {
     if (!editor || !canComment || !currentDraftId || !onAddCommentAnchor) return;
     const { from, to, empty, $from } = editor.state.selection;
@@ -286,7 +315,7 @@ export default function KnowledgeBaseEditor({
         </div>
       )}
 
-      <div className="max-h-[72vh] overflow-y-auto">
+      <div>
         <div className="prose prose-base max-w-none">
           {editable && <ImageBubbleMenu editor={editor} />}
           <EditorContent editor={editor} className="kb-editor-content" />

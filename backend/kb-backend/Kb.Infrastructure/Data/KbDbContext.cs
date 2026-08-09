@@ -19,6 +19,8 @@ public partial class KbDbContext : DbContext
 
     public virtual DbSet<ArticleComment> ArticleComments { get; set; }
 
+    public virtual DbSet<ArticleNotificationPreference> ArticleNotificationPreferences { get; set; }
+
     public virtual DbSet<ArticleDraft> ArticleDrafts { get; set; }
 
     public virtual DbSet<ArticleReviewEvent> ArticleReviewEvents { get; set; }
@@ -569,6 +571,22 @@ public partial class KbDbContext : DbContext
                 .HasForeignKey(d => d.UserIdFk)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_NOTIFICATIONS_USERS");
+        });
+
+        modelBuilder.Entity<ArticleNotificationPreference>(entity =>
+        {
+            entity.HasKey(e => new { e.UserIdFk, e.ArticleIdFk });
+            entity.ToTable("ARTICLE_NOTIFICATION_PREFERENCES");
+            entity.Property(e => e.UserIdFk).HasColumnName("UserID_FK");
+            entity.Property(e => e.ArticleIdFk).HasColumnName("ArticleID_FK");
+            entity.Property(e => e.IsEnabled).HasDefaultValue(true);
+            entity.Property(e => e.UpdatedAt).HasPrecision(3);
+            entity.HasOne(e => e.UserIdFkNavigation).WithMany(e => e.ArticleNotificationPreferences)
+                .HasForeignKey(e => e.UserIdFk).OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("FK_ARTICLE_NOTIFICATION_PREFERENCES_USERS");
+            entity.HasOne(e => e.ArticleIdFkNavigation).WithMany(e => e.ArticleNotificationPreferences)
+                .HasForeignKey(e => e.ArticleIdFk).OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("FK_ARTICLE_NOTIFICATION_PREFERENCES_ARTICLES");
         });
 
         modelBuilder.Entity<Role>(entity =>

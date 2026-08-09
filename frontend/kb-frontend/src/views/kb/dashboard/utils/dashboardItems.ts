@@ -82,3 +82,27 @@ export const canEditDashboardArticle = ({
   )
   )
 )
+
+export const reorderDashboardItems = (
+  items: DashboardItem[],
+  draggedId: string,
+  targetId: string,
+  placement: 'before' | 'after'
+): DashboardItem[] => {
+  const dragged = items.find(item => item.id === draggedId)
+  const target = items.find(item => item.id === targetId)
+
+  if (!dragged || !target || dragged.id === target.id || dragged.kind !== target.kind) return items
+
+  const reordered = items.filter(item => item.id !== dragged.id)
+  const targetIndex = reordered.findIndex(item => item.id === target.id)
+
+  reordered.splice(targetIndex + (placement === 'after' ? 1 : 0), 0, dragged)
+
+  let categoryPosition = 0
+  let articlePosition = 0
+
+  return reordered.map(item => item.kind === 'category'
+    ? { ...item, category: { ...item.category, sortOrder: categoryPosition++ } }
+    : { ...item, article: { ...item.article, position: articlePosition++ } })
+}

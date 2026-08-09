@@ -6,7 +6,8 @@ import {
   buildDashboardItems,
   canEditDashboardArticle,
   flattenDashboardCategories,
-  getDashboardCategoriesForSelection
+  getDashboardCategoriesForSelection,
+  reorderDashboardItems
 } from './dashboardItems'
 
 const category = (
@@ -136,5 +137,32 @@ describe('dashboard items', () => {
       article,
       permissionContext: { userId: 'someone-else', permissions: ['articles.editAnyDraft'] }
     })).toBe(true)
+  })
+
+  it('reorders only within an item group and normalizes positions', () => {
+    const firstCategory = category('category-1', 'First category', 0)
+    const secondCategory = category('category-2', 'Second category', 1)
+    const secondArticle = { ...article, articleId: 'article-2', title: 'Second article', position: 1 }
+    const items = buildDashboardItems({
+      categories: [firstCategory, secondCategory],
+      articles: [article, secondArticle],
+      search: '',
+      sort: 'position'
+    })
+
+    const reordered = reorderDashboardItems(
+      items,
+      'category:category-2',
+      'category:category-1',
+      'before'
+    )
+
+    expect(reordered.map(item => item.id)).toEqual([
+      'category:category-2',
+      'category:category-1',
+      'article:article-2',
+      'article:article-1'
+    ])
+    expect(reorderDashboardItems(items, 'article:article-1', 'category:category-1', 'after')).toBe(items)
   })
 })

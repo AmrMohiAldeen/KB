@@ -97,9 +97,6 @@ const HorizontalMenu = ({ dictionary }: { dictionary: Awaited<ReturnType<typeof 
           <MenuItem href={href('/templates')} icon={<i className='tabler-template' />}>
             {navigation.templates}
           </MenuItem>
-          <MenuItem href={href('/reusable-blocks')} icon={<i className='tabler-components' />}>
-            {navigation.reusableBlocks}
-          </MenuItem>
           <MenuItem href={href('/media')} icon={<i className='tabler-photo' />}>
             {navigation.media}
           </MenuItem>

@@ -1,5 +1,7 @@
+using System.Data;
 using Kb.Application.Articles;
 using Kb.Application.Dashboard;
+using Kb.Application.Exceptions;
 using Kb.Domain.Constants;
 using Kb.Infrastructure.Data;
 using Kb.Infrastructure.Data.Entities;
@@ -104,6 +106,98 @@ public sealed class DashboardRepository(KbDbContext dbContext) : IDashboardRepos
         return new(items, query.Page, query.PageSize, totalCount, articleCount, everythingArticleCount, filterCounts,
             (long)query.Page * query.PageSize < totalCount);
     }
+
+    public async Task ReorderCategoryAsync(Guid id, Guid targetId, bool placeAfter, DashboardReorderAudit audit,
+        CancellationToken cancellationToken)
+    {
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(
+            IsolationLevel.Serializable, cancellationToken);
+        try
+        {
+            var pair = await dbContext.Categories
+                .Where(category => category.CategoryId == id || category.CategoryId == targetId)
+                .ToDictionaryAsync(category => category.CategoryId, cancellationToken);
+            if (!pair.TryGetValue(id, out var item) || !pair.TryGetValue(targetId, out var target))
+                throw new NotFoundException("The category being reordered no longer exists.");
+            if (item.ParentCategoryIdFk != target.ParentCategoryIdFk)
+                throw new ConflictException("Categories can only be reordered within the same parent category.");
+
+            var siblings = await dbContext.Categories
+                .Where(category => category.ParentCategoryIdFk == item.ParentCategoryIdFk)
+                .OrderBy(category => category.SortOrder)
+                .ThenBy(category => category.Name)
+                .ThenBy(category => category.CategoryId)
+                .ToListAsync(cancellationToken);
+            MoveRelative(siblings, item, target, placeAfter);
+            for (var index = 0; index < siblings.Count; index++)
+                siblings[index].SortOrder = index;
+            AddAudit(id, null, AuditEntityTypes.Category, audit);
+            await dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch
+        {
+            await transaction.RollbackAsync(CancellationToken.None);
+            throw;
+        }
+    }
+
+    public async Task ReorderArticleAsync(Guid id, Guid targetId, bool placeAfter, DashboardReorderAudit audit,
+        CancellationToken cancellationToken)
+    {
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(
+            IsolationLevel.Serializable, cancellationToken);
+        try
+        {
+            var pair = await dbContext.Articles
+                .Where(article => (article.ArticleId == id || article.ArticleId == targetId) &&
+                                  article.DeletedAt == null && article.Status != ArticleStatuses.Deleted)
+                .ToDictionaryAsync(article => article.ArticleId, cancellationToken);
+            if (!pair.TryGetValue(id, out var item) || !pair.TryGetValue(targetId, out var target))
+                throw new NotFoundException("The article being reordered no longer exists.");
+            if (item.CategoryIdFk != target.CategoryIdFk)
+                throw new ConflictException("Articles can only be reordered within the same category.");
+
+            var siblings = await dbContext.Articles
+                .Where(article => article.CategoryIdFk == item.CategoryIdFk && article.DeletedAt == null &&
+                                  article.Status != ArticleStatuses.Deleted)
+                .OrderBy(article => article.Position)
+                .ThenBy(article => article.Title)
+                .ThenBy(article => article.ArticleId)
+                .ToListAsync(cancellationToken);
+            MoveRelative(siblings, item, target, placeAfter);
+            for (var index = 0; index < siblings.Count; index++)
+                siblings[index].Position = index;
+            AddAudit(id, id, ArticleAuditEntityTypes.Article, audit);
+            await dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch
+        {
+            await transaction.RollbackAsync(CancellationToken.None);
+            throw;
+        }
+    }
+
+    private static void MoveRelative<T>(IList<T> siblings, T item, T target, bool placeAfter)
+    {
+        siblings.Remove(item);
+        var targetIndex = siblings.IndexOf(target);
+        siblings.Insert(targetIndex + (placeAfter ? 1 : 0), item);
+    }
+
+    private void AddAudit(Guid entityId, Guid? articleId, string entityType, DashboardReorderAudit audit) =>
+        dbContext.ArticleAuditLogs.Add(new ArticleAuditLog
+        {
+            AuditLogId = dbContext.Database.IsSqlServer() ? Guid.Empty : Guid.NewGuid(),
+            ArticleIdFk = articleId,
+            ActorIdFk = audit.ActorId,
+            ActionType = audit.Action,
+            EntityType = entityType,
+            EntityId = entityId,
+            MetaDataJson = audit.MetadataJson,
+            CreatedAt = audit.CreatedAt
+        });
 
     private IQueryable<Article> ActiveArticles() => dbContext.Articles.AsNoTracking()
         .Where(article => article.DeletedAt == null && article.Status != ArticleStatuses.Deleted &&

@@ -1,8 +1,14 @@
+using System.Text.Json;
+using Kb.Application.Abstractions;
 using Kb.Application.Exceptions;
+using Kb.Domain.Constants;
 
 namespace Kb.Application.Dashboard;
 
-public sealed class DashboardService(IDashboardRepository repository)
+public sealed class DashboardService(
+    IDashboardRepository repository,
+    ICurrentUser currentUser,
+    TimeProvider timeProvider)
 {
     public const int DefaultPageSize = 100;
     public const int MaxPageSize = 100;
@@ -50,5 +56,41 @@ public sealed class DashboardService(IDashboardRepository repository)
             normalizedSort,
             page,
             pageSize), cancellationToken);
+    }
+
+    public Task ReorderCategoryAsync(Guid id, Guid targetId, string? placement,
+        CancellationToken cancellationToken) => ReorderAsync(
+        id, targetId, placement, "category", CategoryAuditActions.Reordered,
+        (placeAfter, audit) => repository.ReorderCategoryAsync(id, targetId, placeAfter, audit, cancellationToken));
+
+    public Task ReorderArticleAsync(Guid id, Guid targetId, string? placement,
+        CancellationToken cancellationToken) => ReorderAsync(
+        id, targetId, placement, "article", ArticleAuditActions.Reordered,
+        (placeAfter, audit) => repository.ReorderArticleAsync(id, targetId, placeAfter, audit, cancellationToken));
+
+    private Task ReorderAsync(
+        Guid id,
+        Guid targetId,
+        string? placement,
+        string kind,
+        string action,
+        Func<bool, DashboardReorderAudit, Task> reorder)
+    {
+        if (id == Guid.Empty || targetId == Guid.Empty)
+            throw new BusinessRuleException($"Dashboard {kind} IDs must not be empty GUIDs.");
+        if (id == targetId)
+            return Task.CompletedTask;
+        var placeAfter = (placement ?? "before").Trim().ToLowerInvariant() switch
+        {
+            "before" => false,
+            "after" => true,
+            _ => throw new BusinessRuleException("Dashboard reorder placement must be before or after.")
+        };
+        var audit = new DashboardReorderAudit(
+            currentUser.UserId,
+            action,
+            JsonSerializer.Serialize(new { targetId, placement = placeAfter ? "after" : "before" }),
+            timeProvider.GetUtcNow().UtcDateTime);
+        return reorder(placeAfter, audit);
     }
 }

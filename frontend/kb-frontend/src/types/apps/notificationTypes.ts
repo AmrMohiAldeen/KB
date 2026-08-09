@@ -14,3 +14,4 @@ export type NotificationResponse = {
 export type NotificationListResponse = PagedResponse<NotificationResponse>
 export type UnreadNotificationCountResponse = { unreadCount: number }
 export type MarkAllNotificationsReadResponse = { markedReadCount: number; unreadCount: number }
+export type ArticleNotificationPreferenceResponse = { articleId: string; enabled: boolean }

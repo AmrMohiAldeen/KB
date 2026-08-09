@@ -54,6 +54,16 @@ public sealed record NewMediaData(
     Guid UploadedBy,
     DateTime UploadedAt);
 
+public sealed record ReplacementMediaData(
+    string OriginalFileName,
+    string StoredFileName,
+    string MimeType,
+    string FileExtension,
+    long FileSizeBytes,
+    string StoragePath,
+    Guid UploadedBy,
+    DateTime UploadedAt);
+
 public sealed record MediaContentData(
     Stream Content,
     string ContentType,
@@ -65,6 +75,17 @@ public sealed record MediaReferenceData(
     Guid? ArticleId,
     string EntityType,
     Guid EntityId);
+
+public sealed record MediaReferenceDetailsData(
+    Guid Id,
+    Guid MediaId,
+    Guid? ArticleId,
+    string? ArticleTitle,
+    string? ArticleSlug,
+    string? ArticleStatus,
+    string EntityType,
+    Guid EntityId,
+    int? VersionNumber);
 
 public sealed record CreateMediaReferenceCommand(
     Guid? ArticleId,

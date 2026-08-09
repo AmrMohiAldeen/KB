@@ -17,6 +17,13 @@ public sealed record UnreadNotificationCountResponse(long UnreadCount);
 
 public sealed record MarkAllNotificationsReadResponse(int MarkedReadCount, long UnreadCount);
 
+public sealed record ArticleNotificationPreferenceResponse(Guid ArticleId, bool Enabled);
+
+public sealed class UpdateArticleNotificationPreferenceRequest
+{
+    public bool Enabled { get; init; }
+}
+
 public sealed class MarkNotificationsReadRequest : IValidatableObject
 {
     [Required, MinLength(1), MaxLength(ContractLimits.MaxNotificationIds)]

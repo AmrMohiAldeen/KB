@@ -34,12 +34,12 @@ describe('lifecycle action visibility', () => {
 
   it('shows reviewer actions without exposing approval when the backend denies it', () => {
     expect(getVisibleLifecycleActions('SubmittedForReview', permissions({ canReview: true })))
-      .toEqual(['startReview'])
+      .toEqual([])
     expect(getVisibleLifecycleActions('SubmittedForReview', permissions({
       canReview: true,
       canRequestChanges: true,
       canApprove: true
-    }))).toEqual(['startReview', 'requestChanges', 'reject', 'approve'])
+    }))).toEqual(['requestChanges', 'approve'])
     expect(getVisibleLifecycleActions('InReview', permissions({
       canRequestChanges: true,
       canApprove: false
@@ -47,15 +47,15 @@ describe('lifecycle action visibility', () => {
     expect(getVisibleLifecycleActions('InReview', permissions({
       canRequestChanges: true,
       canApprove: true
-    }))).toEqual(['requestChanges', 'reject', 'approve'])
+    }))).toEqual(['requestChanges', 'approve'])
   })
 
-  it('shows publish, override, and archive only from explicit backend flags', () => {
+  it('keeps publish and admin targets in the status control while archive stays a secondary action', () => {
     expect(getVisibleLifecycleActions('Approved', permissions({
       canPublish: true,
       canDelete: true,
       canOverrideWorkflow: true,
       workflowOverrideTargets: ['Draft']
-    }))).toEqual(['publish', 'override', 'archive'])
+    }))).toEqual(['publish', 'override'])
   })
 })

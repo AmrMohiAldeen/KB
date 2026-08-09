@@ -102,6 +102,7 @@ export function useArticleDraftEditor({
   const [draft, setDraft] = useState<ArticleDraftResponse | null>(null)
   const [messages, setMessages] = useState<string[]>([])
   const [saveState, setSaveState] = useState<DraftAutosaveSnapshot>(initialSaveState)
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null)
   const [loadAttempt, setLoadAttempt] = useState(0)
   const [editorKey, setEditorKey] = useState(0)
   const coordinatorRef = useRef<ArticleDraftAutosaveCoordinator | null>(null)
@@ -115,9 +116,15 @@ export function useArticleDraftEditor({
     const coordinator = new ArticleDraftAutosaveCoordinator({
       rowVersion: loaded.rowVersion,
       debounceMs,
-      save: request => api.save(articleId, request, accessToken),
+      save: async request => {
+        const response = await api.save(articleId, request, accessToken)
+        if (generationRef.current === generation) setLastSavedAt(response.updatedAt)
+        return response
+      },
       onStateChange: next => {
-        if (generationRef.current === generation) setSaveState(next)
+        if (generationRef.current === generation) {
+          setSaveState(next)
+        }
       }
     })
 
@@ -160,18 +167,19 @@ export function useArticleDraftEditor({
         if (cancelled || generationRef.current !== generation) return
 
         setDraft(loaded)
+        setLastSavedAt(loaded.updatedAt)
         setEditorKey(current => current + 1)
         setSaveState({ ...initialSaveState, rowVersion: loaded.rowVersion })
 
         if (!loaded.canEdit) {
           setPhase('readonly')
-          setMessages(['Read-only: you do not have permission to edit this draft.'])
+          setMessages([])
           return
         }
 
         if (loaded.lock.isLocked && !loaded.isLockOwner) {
           setPhase('locked')
-          setMessages(['This draft is locked by another user and has opened read-only.'])
+          setMessages([])
           return
         }
 
@@ -363,6 +371,7 @@ export function useArticleDraftEditor({
     draft,
     messages,
     saveState,
+    lastSavedAt,
     editorKey,
     editable: phase === 'editing' && Boolean(draft?.isLockOwner),
     onEditorChange,
