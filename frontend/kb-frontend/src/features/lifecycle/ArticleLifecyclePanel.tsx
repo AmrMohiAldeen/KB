@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import Alert from '@mui/material/Alert'
+import AlertTitle from '@mui/material/AlertTitle'
 import Avatar from '@mui/material/Avatar'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
@@ -43,6 +44,7 @@ import type { ArticleLifecycleAction } from '@/types/apps/articleLifecycleTypes'
 import type { ArticleStatus } from '@/types/apps/articleTypes'
 import {
   getVisibleLifecycleActions,
+  getActiveChangeRequest,
   lifecycleActionLabels,
   lifecycleTargetActionLabel
 } from './lifecycleActions'
@@ -239,6 +241,11 @@ export default function ArticleLifecyclePanel({
       : status === 'InReview' || status === 'ChangesRequested'
         ? 'warning'
         : 'secondary'
+  const activeChangeRequest = getActiveChangeRequest(status, lifecycle.reviewHistory)
+  const changeRequestedAt = activeChangeRequest
+    ? new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' })
+        .format(new Date(activeChangeRequest.createdAt))
+    : null
 
   const toolbar = (
     <Stack
@@ -390,6 +397,18 @@ export default function ArticleLifecyclePanel({
       <Tooltip title='Revision history'>
         <IconButton aria-label='Revision history' onClick={() => setActivityOpen(true)}><Activity size={19} /></IconButton>
       </Tooltip>
+
+      {activeChangeRequest && (
+        <Alert severity='warning' variant='outlined' sx={{ flexBasis: '100%', inlineSize: '100%', mt: 0.5 }}>
+          <AlertTitle sx={{ fontWeight: 700 }}>Changes requested</AlertTitle>
+          <Typography variant='body2' sx={{ whiteSpace: 'pre-wrap' }}>
+            {activeChangeRequest.comment}
+          </Typography>
+          <Typography variant='caption' color='text.secondary' sx={{ display: 'block', mt: 0.75 }}>
+            Requested by {activeChangeRequest.actor.fullName}{changeRequestedAt ? ` · ${changeRequestedAt}` : ''}
+          </Typography>
+        </Alert>
+      )}
     </Stack>
   )
 

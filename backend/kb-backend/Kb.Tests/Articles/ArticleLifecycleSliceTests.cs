@@ -84,6 +84,11 @@ public sealed class ArticleLifecycleSliceTests
         Assert.Equal((SearchIndexJobTypes.Upsert, JobStatuses.Pending, version.VersionId),
             (job.JobType, job.Status, job.VersionIdFk));
         Assert.Equal(7, await f.Context.ArticleReviewEvents.CountAsync());
+        var changeRequest = await f.Context.ArticleReviewEvents.AsNoTracking().SingleAsync(value =>
+            value.Action == ReviewActions.RequestChanges);
+        Assert.Equal("Add an example", changeRequest.Comment);
+        Assert.Equal(f.ReviewerId, changeRequest.ActorIdFk);
+        Assert.NotEqual(default, changeRequest.CreatedAt);
         Assert.Equal(11, await f.Context.ArticleAuditLogs.CountAsync());
         Assert.Equal(4, await f.Context.ArticleAuditLogs.CountAsync(
             log => log.ActionType == ArticleAuditActions.VersionCreated));

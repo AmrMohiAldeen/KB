@@ -1,7 +1,8 @@
 import type { ArticleStatus } from '@/types/apps/articleTypes'
 import type {
   ArticleLifecycleAction,
-  ArticlePermissionsResponse
+  ArticlePermissionsResponse,
+  ArticleReviewEventResponse
 } from '@/types/apps/articleLifecycleTypes'
 
 export const getVisibleLifecycleActions = (
@@ -40,4 +41,24 @@ export const lifecycleTargetActionLabel: Record<ArticleStatus, string> = {
   Approved: 'Approve',
   Published: 'Publish',
   Archived: 'Archive'
+}
+
+export const getActiveChangeRequest = (
+  status: ArticleStatus | undefined,
+  reviewHistory: readonly ArticleReviewEventResponse[]
+): ArticleReviewEventResponse | null => {
+  if (status !== 'ChangesRequested') return null
+
+  const ordered = [...reviewHistory]
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+  const requestIndex = ordered.findIndex(event =>
+      event.action === 'RequestChanges' &&
+      event.toStatus === 'ChangesRequested' &&
+      Boolean(event.comment?.trim())
+  )
+
+  if (requestIndex < 0 || ordered.slice(0, requestIndex).some(event => event.action === 'SubmitForReview'))
+    return null
+
+  return ordered[requestIndex]
 }
