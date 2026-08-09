@@ -103,7 +103,6 @@ __tablestorage__/
 
 # Generated storage
 uploads/
-storage/
 local-storage/
 temp/
 tmp/
