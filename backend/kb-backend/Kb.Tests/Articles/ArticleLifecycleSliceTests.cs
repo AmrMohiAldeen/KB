@@ -53,12 +53,13 @@ public sealed class ArticleLifecycleSliceTests
             new(secondSubmission.RowVersion), default);
         var approved = await f.Service.ApproveAsync(f.ArticleId,
             new(restarted.RowVersion, "Approved"), default);
+        Assert.Equal(2, await f.Context.ArticleVersions.CountAsync());
         f.Current.UserId = f.PublisherId;
         var published = await f.Service.PublishAsync(f.ArticleId,
             new(approved.RowVersion, "Ship it"), default);
 
         Assert.Equal(ArticleStatuses.Published, published.Status);
-        Assert.Equal(4, published.PublishedVersionNumber);
+        Assert.Equal(3, published.PublishedVersionNumber);
         Assert.NotNull(published.PublishedVersionId);
         f.Context.ChangeTracker.Clear();
         var article = await f.Context.Articles.AsNoTracking().SingleAsync();
@@ -70,7 +71,6 @@ public sealed class ArticleLifecycleSliceTests
             [
                 ArticleSnapshotReasons.SubmittedForReview,
                 ArticleSnapshotReasons.SubmittedForReview,
-                ArticleSnapshotReasons.Approved,
                 ArticleSnapshotReasons.Published
             ],
             versions.Select(version => version.SnapshotReason));
@@ -89,14 +89,14 @@ public sealed class ArticleLifecycleSliceTests
         Assert.Equal("Add an example", changeRequest.Comment);
         Assert.Equal(f.ReviewerId, changeRequest.ActorIdFk);
         Assert.NotEqual(default, changeRequest.CreatedAt);
-        Assert.Equal(11, await f.Context.ArticleAuditLogs.CountAsync());
-        Assert.Equal(4, await f.Context.ArticleAuditLogs.CountAsync(
+        Assert.Equal(10, await f.Context.ArticleAuditLogs.CountAsync());
+        Assert.Equal(3, await f.Context.ArticleAuditLogs.CountAsync(
             log => log.ActionType == ArticleAuditActions.VersionCreated));
         var versionAudit = await f.Context.ArticleAuditLogs.AsNoTracking().SingleAsync(
             log => log.EntityId == version.VersionId &&
                    log.ActionType == ArticleAuditActions.VersionCreated);
         using var versionMetadata = JsonDocument.Parse(versionAudit.MetaDataJson!);
-        Assert.Equal(4, versionMetadata.RootElement.GetProperty("versionNumber").GetInt32());
+        Assert.Equal(3, versionMetadata.RootElement.GetProperty("versionNumber").GetInt32());
         Assert.Equal(ArticleSnapshotReasons.Published,
             versionMetadata.RootElement.GetProperty("snapshotReason").GetString());
         var publishAudit = await f.Context.ArticleAuditLogs.SingleAsync(

@@ -252,7 +252,7 @@ public sealed class ArticleLifecycleService
         ReviewerTransitionAsync(articleId, command,
             [ArticleStatuses.SubmittedForReview, ArticleStatuses.InReview],
             ArticleStatuses.Approved, ReviewActions.Approve, ArticleAuditActions.Approved,
-            preventSelfApproval: true, snapshotReason: ArticleSnapshotReasons.Approved, cancellationToken);
+            preventSelfApproval: true, snapshotReason: null, cancellationToken);
 
     public Task<LifecycleResultData> RejectAsync(
         Guid articleId,

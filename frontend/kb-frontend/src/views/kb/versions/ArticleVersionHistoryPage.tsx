@@ -285,7 +285,7 @@ export default function ArticleVersionHistoryPage({
         onSelectedRowIdsChange={selectVersions}
         emptyState={{
           title: 'No version snapshots yet',
-          description: 'Snapshots appear when this article is submitted, approved, or published.'
+          description: 'Review snapshots appear when the article is submitted. Publishing creates the immutable published version.'
         }}
         pagination={{
           page,
