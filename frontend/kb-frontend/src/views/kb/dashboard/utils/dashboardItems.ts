@@ -49,13 +49,14 @@ export const buildDashboardItems = ({
   const items = [...categoryItems, ...articleItems]
 
   return items.sort((left, right) => {
+    if (left.kind !== right.kind) return left.kind === 'category' ? -1 : 1
+
     if (sort === 'title')
       return itemTitle(left).localeCompare(itemTitle(right))
 
     if (sort === 'createdAt' || sort === 'updatedAt')
       return itemDate(right, sort) - itemDate(left, sort) || itemTitle(left).localeCompare(itemTitle(right))
 
-    if (left.kind !== right.kind) return left.kind === 'category' ? -1 : 1
     if (left.kind === 'category' && right.kind === 'category')
       return left.category.sortOrder - right.category.sortOrder || left.category.name.localeCompare(right.category.name)
 

@@ -14,6 +14,12 @@ public static class ArticleStatuses
     public const string Deleted = "Deleted";
 }
 
+public static class CategoryStatuses
+{
+    public const string Active = "Active";
+    public const string Archived = "Archived";
+}
+
 public static class ReviewActions
 {
     public const string SubmitForReview = "SubmitForReview";
@@ -180,6 +186,8 @@ public static class CategoryAuditActions
     public const string Updated = "CategoryUpdated";
     public const string Moved = "CategoryMoved";
     public const string Deleted = "CategoryDeleted";
+    public const string Archived = "CategoryArchived";
+    public const string Unarchived = "CategoryUnarchived";
 }
 
 public static class AuditEntityTypes

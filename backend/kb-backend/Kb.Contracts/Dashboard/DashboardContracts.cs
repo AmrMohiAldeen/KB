@@ -11,7 +11,8 @@ public sealed record DashboardCategoryResponse(
     int SortOrder,
     string? Path,
     int Depth,
-    int ArticleCount);
+    int ArticleCount,
+    string Status);
 
 public sealed record DashboardItemResponse(
     string Kind,

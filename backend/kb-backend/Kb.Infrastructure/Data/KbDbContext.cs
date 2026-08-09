@@ -396,6 +396,9 @@ public partial class KbDbContext : DbContext
             entity.Property(e => e.ParentCategoryIdFk).HasColumnName("ParentCategoryID_FK");
             entity.Property(e => e.Path).HasMaxLength(2048);
             entity.Property(e => e.Slug).HasMaxLength(250);
+            entity.Property(e => e.Status)
+                .HasMaxLength(40)
+                .HasDefaultValue("Active", "DF_CATEGORIES_Status");
 
             entity.HasOne(d => d.ParentCategoryIdFkNavigation).WithMany(p => p.InverseParentCategoryIdFkNavigation)
                 .HasForeignKey(d => d.ParentCategoryIdFk)

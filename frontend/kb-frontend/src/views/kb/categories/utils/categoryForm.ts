@@ -3,6 +3,7 @@ import type { KbCategoryNode } from '../../types/categories'
 
 export type CategoryFormState = {
   name: string
+  slug: string
   description: string
   parentCategoryId: string
   sortOrder: number
@@ -10,6 +11,7 @@ export type CategoryFormState = {
 
 export const emptyCategoryForm: CategoryFormState = {
   name: '',
+  slug: '',
   description: '',
   parentCategoryId: '',
   sortOrder: 0
@@ -19,6 +21,7 @@ export const getInitialCategoryForm = (category?: KbCategoryNode): CategoryFormS
   category
     ? {
         name: category.name,
+        slug: category.slug,
         description: category.description,
         parentCategoryId: category.parentId ?? '',
         sortOrder: category.sortOrder

@@ -45,7 +45,7 @@ public sealed class CategoriesController(CategoryService categories) : Controlle
     public async Task<ActionResult<CategoryDetailsResponse>> Create(CreateCategoryRequest request, CancellationToken cancellationToken)
     {
         var created = await categories.CreateAsync(
-            new(request.ParentCategoryId, request.Name, request.Description, request.SortOrder), cancellationToken);
+            new(request.ParentCategoryId, request.Name, request.Description, request.SortOrder, request.Slug), cancellationToken);
         return CreatedAtAction(nameof(GetById), new { id = created.Id }, ToDetailsResponse(created));
     }
 
@@ -58,8 +58,26 @@ public sealed class CategoriesController(CategoryService categories) : Controlle
         CancellationToken cancellationToken)
     {
         var updated = await categories.UpdateAsync(id,
-            new(request.Name, request.Description, request.SortOrder), cancellationToken);
+            new(request.Name, request.Description, request.SortOrder, request.Slug), cancellationToken);
         return Ok(ToDetailsResponse(updated));
+    }
+
+    [HttpPost("{id:guid}/archive")]
+    [Authorize(Policy = ManagePolicy)]
+    [ProducesResponseType<CategoryDetailsResponse>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<CategoryDetailsResponse>> Archive(Guid id, CancellationToken cancellationToken)
+    {
+        var archived = await categories.SetArchivedAsync(id, true, cancellationToken);
+        return Ok(ToDetailsResponse(archived));
+    }
+
+    [HttpPost("{id:guid}/unarchive")]
+    [Authorize(Policy = ManagePolicy)]
+    [ProducesResponseType<CategoryDetailsResponse>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<CategoryDetailsResponse>> Unarchive(Guid id, CancellationToken cancellationToken)
+    {
+        var restored = await categories.SetArchivedAsync(id, false, cancellationToken);
+        return Ok(ToDetailsResponse(restored));
     }
 
     [HttpPatch("{id:guid}/move")]
@@ -86,9 +104,10 @@ public sealed class CategoriesController(CategoryService categories) : Controlle
 
     private static CategoryDetailsResponse ToDetailsResponse(CategoryData category) => new(category.Id,
         category.ParentCategoryId, category.Name, category.Slug, category.Description, category.SortOrder,
-        category.Path, category.Depth, category.ArticleCount);
+        category.Path, category.Depth, category.ArticleCount, category.Status);
 
     private static CategoryTreeNodeResponse ToTreeResponse(CategoryTreeNode category) => new(category.Id,
         category.ParentCategoryId, category.Name, category.Slug, category.Description, category.SortOrder,
-        category.Path, category.Depth, category.ArticleCount, category.Children.Select(ToTreeResponse).ToArray());
+        category.Path, category.Depth, category.ArticleCount, category.Children.Select(ToTreeResponse).ToArray(),
+        category.Status);
 }

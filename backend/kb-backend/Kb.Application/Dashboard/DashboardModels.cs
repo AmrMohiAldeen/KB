@@ -36,7 +36,8 @@ public sealed record DashboardCategoryData(
     int SortOrder,
     string? Path,
     int Depth,
-    int ArticleCount);
+    int ArticleCount,
+    string Status);
 
 public sealed record DashboardItemData(
     string Kind,

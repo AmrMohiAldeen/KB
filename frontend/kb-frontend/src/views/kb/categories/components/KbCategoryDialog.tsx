@@ -51,10 +51,13 @@ export const KbCategoryDialog = ({
   const handleSubmit = async () => {
     const validationErrors: string[] = []
     const name = form.name.trim()
+    const slug = form.slug.trim()
     const description = form.description.trim()
 
     if (!name) validationErrors.push('Name is required.')
     if (name.length > 200) validationErrors.push('Name cannot exceed 200 characters.')
+    if (category && !slug) validationErrors.push('Slug is required.')
+    if (slug.length > 250) validationErrors.push('Slug cannot exceed 250 characters.')
     if (description.length > 1000) validationErrors.push('Description cannot exceed 1000 characters.')
     if (!Number.isInteger(form.sortOrder) || form.sortOrder < 0)
       validationErrors.push('Sort order must be a non-negative integer.')
@@ -63,7 +66,7 @@ export const KbCategoryDialog = ({
     if (validationErrors.length) return
 
     if (onSubmit)
-      await onSubmit({ ...form, name, description })
+      await onSubmit({ ...form, name, slug, description })
   }
 
   return (
@@ -88,6 +91,17 @@ export const KbCategoryDialog = ({
           slotProps={{ htmlInput: { maxLength: 200 } }}
           placeholder='Category name'
           required
+          fullWidth
+        />
+        <CustomTextField
+          label='Slug'
+          value={form.slug}
+          onChange={event => setForm(current => ({ ...current, slug: event.target.value }))}
+          slotProps={{ htmlInput: { maxLength: 250 } }}
+          helperText={category
+            ? 'Changing the slug changes links to this category.'
+            : 'Optional. The backend generates a unique slug from the name when left blank.'}
+          required={Boolean(category)}
           fullWidth
         />
         <CustomTextField

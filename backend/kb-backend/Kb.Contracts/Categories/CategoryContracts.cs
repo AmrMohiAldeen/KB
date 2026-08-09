@@ -13,6 +13,9 @@ public abstract class CategoryWriteRequest
 
     [Range(0, int.MaxValue)]
     public int SortOrder { get; init; }
+
+    [NonWhiteSpace, StringLength(250)]
+    public string? Slug { get; init; }
 }
 
 public sealed class CreateCategoryRequest : CategoryWriteRequest
@@ -42,7 +45,8 @@ public sealed record CategoryTreeNodeResponse(
     string? Path,
     int Depth,
     int ArticleCount,
-    IReadOnlyList<CategoryTreeNodeResponse> Children);
+    IReadOnlyList<CategoryTreeNodeResponse> Children,
+    string Status);
 
 public sealed record CategoryDetailsResponse(
     Guid Id,
@@ -53,4 +57,5 @@ public sealed record CategoryDetailsResponse(
     int SortOrder,
     string? Path,
     int Depth,
-    int ArticleCount);
+    int ArticleCount,
+    string Status);

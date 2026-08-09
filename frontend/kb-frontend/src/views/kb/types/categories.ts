@@ -8,5 +8,6 @@ export type KbCategoryNode = {
   path: string | null
   depth: number
   articleCount: number
+  status?: 'Active' | 'Archived'
   children: KbCategoryNode[]
 }

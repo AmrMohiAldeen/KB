@@ -39,7 +39,8 @@ public sealed class CategoryRepository(KbDbContext dbContext) : ICategoryReposit
                 category.Depth,
                 category.Articles.Count(article =>
                     article.DeletedAt == null && article.Status != ArticleStatuses.Deleted &&
-                    article.Status != ArticleStatuses.Archived)))
+                    article.Status != ArticleStatuses.Archived),
+                category.Status))
             .SingleOrDefaultAsync(cancellationToken);
 
     public async Task<IReadOnlyList<CategoryData>> GetAllAsync(CancellationToken cancellationToken) =>
@@ -55,7 +56,8 @@ public sealed class CategoryRepository(KbDbContext dbContext) : ICategoryReposit
                 category.Depth,
                 category.Articles.Count(article =>
                     article.DeletedAt == null && article.Status != ArticleStatuses.Deleted &&
-                    article.Status != ArticleStatuses.Archived)))
+                    article.Status != ArticleStatuses.Archived),
+                category.Status))
             .ToListAsync(cancellationToken);
 
     public async Task<IReadOnlyList<CategoryData>> GetDescendantsAsync(string pathPrefix, Guid categoryId, CancellationToken cancellationToken) =>
@@ -63,8 +65,10 @@ public sealed class CategoryRepository(KbDbContext dbContext) : ICategoryReposit
             .Where(category => category.CategoryId != categoryId && category.Path != null && category.Path.StartsWith(pathPrefix))
             .Select(category => Map(category)).ToListAsync(cancellationToken);
 
-    public Task<bool> SlugExistsAsync(string slug, CancellationToken cancellationToken) =>
-        dbContext.Categories.AsNoTracking().AnyAsync(category => category.Slug == slug, cancellationToken);
+    public Task<bool> SlugExistsAsync(string slug, Guid? excludingId, CancellationToken cancellationToken) =>
+        dbContext.Categories.AsNoTracking().AnyAsync(
+            category => category.Slug == slug && (!excludingId.HasValue || category.CategoryId != excludingId.Value),
+            cancellationToken);
 
     public Task<bool> HasChildrenAsync(Guid id, CancellationToken cancellationToken) =>
         dbContext.Categories.AsNoTracking().AnyAsync(category => category.ParentCategoryIdFk == id, cancellationToken);
@@ -108,15 +112,23 @@ public sealed class CategoryRepository(KbDbContext dbContext) : ICategoryReposit
         return Map(entity);
     }
 
-    public async Task<CategoryData> UpdateAndAuditAsync(Guid id, string name, string? description, int sortOrder,
+    public async Task<CategoryData> UpdateAndAuditAsync(Guid id, string name, string slug, string? description, int sortOrder,
         AuditData audit, CancellationToken cancellationToken)
     {
         var entity = await dbContext.Categories.SingleAsync(category => category.CategoryId == id, cancellationToken);
         entity.Name = name;
+        entity.Slug = slug;
         entity.Description = description;
         entity.SortOrder = sortOrder;
         AddAudit(id, audit);
-        await dbContext.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException exception) when (IsSlugUniquenessViolation(exception))
+        {
+            throw new ConflictException("The category slug is already in use.");
+        }
         return Map(entity);
     }
 
@@ -150,6 +162,16 @@ public sealed class CategoryRepository(KbDbContext dbContext) : ICategoryReposit
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task<CategoryData> SetStatusAndAuditAsync(Guid id, string status, AuditData audit,
+        CancellationToken cancellationToken)
+    {
+        var entity = await dbContext.Categories.SingleAsync(category => category.CategoryId == id, cancellationToken);
+        entity.Status = status;
+        AddAudit(id, audit);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return Map(entity);
+    }
+
     private void AddAudit(Guid categoryId, AuditData audit) => dbContext.ArticleAuditLogs.Add(new()
     {
         AuditLogId = dbContext.Database.IsSqlServer() ? Guid.Empty : Guid.NewGuid(),
@@ -163,7 +185,8 @@ public sealed class CategoryRepository(KbDbContext dbContext) : ICategoryReposit
     });
 
     private static CategoryData Map(Category category) => new(category.CategoryId, category.ParentCategoryIdFk,
-        category.Name, category.Slug, category.Description, category.SortOrder, category.Path, category.Depth);
+        category.Name, category.Slug, category.Description, category.SortOrder, category.Path, category.Depth,
+        Status: category.Status);
 
     private static bool IsSlugUniquenessViolation(DbUpdateException exception)
     {

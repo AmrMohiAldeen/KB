@@ -21,6 +21,8 @@ public partial class Category
 
     public int Depth { get; set; }
 
+    public string Status { get; set; } = "Active";
+
     public virtual ICollection<Article> Articles { get; set; } = new List<Article>();
 
     public virtual ICollection<Category> InverseParentCategoryIdFkNavigation { get; set; } = new List<Category>();

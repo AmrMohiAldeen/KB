@@ -1,14 +1,13 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useCallback, useEffect, useMemo, useState, type ReactNode, type SyntheticEvent } from 'react'
+import { useParams } from 'next/navigation'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Breadcrumbs from '@mui/material/Breadcrumbs'
 import Button from '@mui/material/Button'
 import ButtonGroup from '@mui/material/ButtonGroup'
 import Checkbox from '@mui/material/Checkbox'
-import Chip from '@mui/material/Chip'
 import Divider from '@mui/material/Divider'
 import Drawer from '@mui/material/Drawer'
 import IconButton from '@mui/material/IconButton'
@@ -21,7 +20,6 @@ import Table from '@mui/material/Table'
 import TableBody from '@mui/material/TableBody'
 import TableCell from '@mui/material/TableCell'
 import TableContainer from '@mui/material/TableContainer'
-import TableHead from '@mui/material/TableHead'
 import TablePagination from '@mui/material/TablePagination'
 import TableRow from '@mui/material/TableRow'
 import Tooltip from '@mui/material/Tooltip'
@@ -31,7 +29,11 @@ import {
   Archive,
   ChevronDown,
   ChevronRight,
+  Copy,
+  Download,
   Eye,
+  ExternalLink,
+  FileCode2,
   FileClock,
   FileText,
   Folder,
@@ -42,7 +44,8 @@ import {
   RotateCcw,
   Search,
   SlidersHorizontal,
-  Trash2
+  Trash2,
+  UserRound
 } from 'lucide-react'
 
 import CustomTextField from '@core/components/mui/TextField'
@@ -55,7 +58,7 @@ import type { CategoryFormState } from '../categories/utils/categoryForm'
 import KbCategoryDialog from '../categories/components/KbCategoryDialog'
 import DashboardCategoryTree from './DashboardCategoryTree'
 import StatusChip from '../shared/components/StatusChip'
-import type { ArticleListItemResponse } from '@/types/apps/articleTypes'
+import type { ArticleDetailsResponse, ArticleListItemResponse } from '@/types/apps/articleTypes'
 import type {
   DashboardArticleFilter,
   DashboardItem,
@@ -67,9 +70,24 @@ import type { KbCategoryNode } from '../types/categories'
 import { articleStatusColor, articleStatusLabel } from '../config/articles'
 import { formatDate } from '../shared/utils/formatDate'
 import { getCategoryOptions } from '../categories/utils/categoryForm'
-import { createArticle, deleteArticle, describeArticleApiError } from '@/lib/api/articlesApi'
+import {
+  createArticle,
+  deleteArticle,
+  describeArticleApiError,
+  getArticleById,
+  updateArticle
+} from '@/lib/api/articlesApi'
 import { describeLifecycleError, unarchiveArticle } from '@/lib/api/articleLifecycleApi'
-import { createCategory, getCategoryTree } from '@/lib/api/categories'
+import { getArticleDraft, saveArticleDraftContent } from '@/lib/api/articleDraftsApi'
+import {
+  archiveCategory,
+  createCategory,
+  deleteCategory,
+  getCategoryTree,
+  moveCategory,
+  unarchiveCategory,
+  updateCategory
+} from '@/lib/api/categories'
 import {
   defaultDashboardPageSize,
   getDashboardItems,
@@ -81,6 +99,7 @@ import { getLocalizedUrl } from '@/utils/i18n'
 
 type KnowledgeDashboardProps = {
   accessToken: string
+  initialCategoryId?: string
 }
 
 const missingTokenMessage = 'Sign in through the company authentication provider before loading the dashboard.'
@@ -134,11 +153,31 @@ const ItemName = ({ item }: { item: DashboardItem }) => (
       <Typography variant='caption' color='text.secondary' noWrap sx={{ display: 'block', mt: 0.25 }}>
         {item.kind === 'category'
           ? `${item.category.articleCount} article${item.category.articleCount === 1 ? '' : 's'}`
-          : `Updated ${formatDate(item.article.updatedAt)} · ${item.article.owner.fullName}`}
+          : `Updated ${formatDate(item.article.updatedAt)}`}
       </Typography>
     </Box>
   </Stack>
 )
+
+const ArticleBadges = ({ article }: { article: ArticleListItemResponse }) => {
+  const statuses = article.currentDraftId && article.status !== 'Draft'
+    ? (['Draft', article.status] as const)
+    : [article.status]
+
+  return (
+    <Stack direction='row' spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap' }}>
+      {statuses.map(status => (
+        <StatusChip
+          key={status}
+          label={articleStatusLabel[status]}
+          color={articleStatusColor[status]}
+        />
+      ))}
+    </Stack>
+  )
+}
+
+const stopRowAction = (event: SyntheticEvent) => event.stopPropagation()
 
 type DashboardFiltersProps = {
   activeFilter: DashboardArticleFilter
@@ -239,15 +278,14 @@ const DashboardFilters = ({
   </Box>
 )
 
-const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
-  const router = useRouter()
+const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDashboardProps) => {
   const theme = useTheme()
   const { lang } = useParams<{ lang: string }>()
   const [categories, setCategories] = useState<KbCategoryNode[]>([])
   const [items, setItems] = useState<DashboardItem[]>([])
   const [permissionContext, setPermissionContext] = useState<DashboardPermissionContext | null>(null)
   const [activeFilter, setActiveFilter] = useState<DashboardArticleFilter>('Everything')
-  const [categoryId, setCategoryId] = useState('')
+  const [categoryId, setCategoryId] = useState(initialCategoryId)
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [sort, setSort] = useState<DashboardSort>('position')
@@ -264,7 +302,10 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
   const [successMessage, setSuccessMessage] = useState('')
   const [categoryDialogOpen, setCategoryDialogOpen] = useState(false)
   const [articleDialogOpen, setArticleDialogOpen] = useState(false)
+  const [editingCategory, setEditingCategory] = useState<KbCategoryNode>()
+  const [editingArticle, setEditingArticle] = useState<ArticleDetailsResponse>()
   const [deleteTarget, setDeleteTarget] = useState<ArticleListItemResponse>()
+  const [categoryDeleteTarget, setCategoryDeleteTarget] = useState<KbCategoryNode>()
   const [selectedArticleIds, setSelectedArticleIds] = useState<Set<string>>(() => new Set())
   const [bulkMenuAnchor, setBulkMenuAnchor] = useState<HTMLElement | null>(null)
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
@@ -357,6 +398,8 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
   const canManageCategories = hasPermission(permissionContext, 'categories.manage')
   const canDeleteArticle = hasPermission(permissionContext, 'articles.delete')
   const canViewArticles = hasPermission(permissionContext, 'articles.view')
+  const canEditOwnArticle = hasPermission(permissionContext, 'articles.editOwnDraft') ||
+    hasPermission(permissionContext, 'articles.editAnyDraft')
   const selectableArticles = useMemo(
     () => items.flatMap(item => item.kind === 'article' && item.article.status !== 'Archived' && canDeleteArticle
       ? [item.article]
@@ -367,7 +410,6 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
     () => selectableArticles.filter(article => selectedArticleIds.has(article.articleId)),
     [selectableArticles, selectedArticleIds]
   )
-  const allArticlesSelected = selectableArticles.length > 0 && selectedArticles.length === selectableArticles.length
 
   const applyFilter = (filter: DashboardArticleFilter) => {
     setContentLoading(true)
@@ -381,6 +423,11 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
     setContentLoading(true)
     setPage(0)
     setCategoryId(nextCategoryId)
+    const url = new URL(window.location.href)
+
+    if (nextCategoryId) url.searchParams.set('categoryId', nextCategoryId)
+    else url.searchParams.delete('categoryId')
+    window.history.replaceState(null, '', url)
     setSelectedArticleIds(new Set())
     setFilterDrawerOpen(false)
   }
@@ -392,22 +439,45 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
   }, [])
 
   const submitArticle = useCallback(async (form: ArticleFormState) => {
-    if (!accessToken || !canCreateArticle || mutating) return
+    const canEdit = editingArticle && canEditDashboardArticle({
+      article: {
+        ...editingArticle,
+        currentDraftId: editingArticle.currentDraft?.draftId ?? null,
+        currentPublishedVersionId: editingArticle.currentPublishedVersion?.versionId ?? null,
+        isCurrentDraftLocked: editingArticle.currentDraft?.isLocked ?? false,
+        lockedBy: editingArticle.currentDraft?.lockedBy ?? null,
+        position: 0
+      },
+      permissionContext
+    })
+
+    if (!accessToken || mutating || (!editingArticle && !canCreateArticle) || (editingArticle && !canEdit)) return
 
     setMutating(true)
     setMutationErrors([])
 
     try {
-      await createArticle(form, accessToken)
+      if (editingArticle) {
+        const rowVersion = editingArticle.currentDraft?.rowVersion
+
+        if (!rowVersion) {
+          setMutationErrors(['This article has no editable draft metadata. Open it in the editor to create a draft.'])
+          return
+        }
+        await updateArticle(editingArticle.articleId, { ...form, rowVersion }, accessToken)
+      } else {
+        await createArticle(form, accessToken)
+      }
       setArticleDialogOpen(false)
-      setSuccessMessage(`“${form.title}” was created.`)
+      setEditingArticle(undefined)
+      setSuccessMessage(`“${form.title}” was ${editingArticle ? 'updated' : 'created'}.`)
       refresh()
     } catch (error) {
       setMutationErrors(describeArticleApiError(error))
     } finally {
       setMutating(false)
     }
-  }, [accessToken, canCreateArticle, mutating, refresh])
+  }, [accessToken, canCreateArticle, editingArticle, mutating, permissionContext, refresh])
 
   const submitCategory = useCallback(async (form: CategoryFormState) => {
     if (!accessToken || !canManageCategories || mutating) return
@@ -416,21 +486,38 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
     setMutationErrors([])
 
     try {
-      await createCategory({
-        name: form.name,
-        description: form.description || null,
-        parentCategoryId: form.parentCategoryId || null,
-        sortOrder: form.sortOrder
-      }, accessToken)
+      if (editingCategory) {
+        await updateCategory(editingCategory.id, {
+          name: form.name,
+          slug: form.slug,
+          description: form.description || null,
+          sortOrder: form.sortOrder
+        }, accessToken)
+        if ((editingCategory.parentId ?? '') !== form.parentCategoryId) {
+          await moveCategory(editingCategory.id, {
+            parentCategoryId: form.parentCategoryId || null,
+            sortOrder: form.sortOrder
+          }, accessToken)
+        }
+      } else {
+        await createCategory({
+          name: form.name,
+          slug: form.slug || null,
+          description: form.description || null,
+          parentCategoryId: form.parentCategoryId || null,
+          sortOrder: form.sortOrder
+        }, accessToken)
+      }
       setCategoryDialogOpen(false)
-      setSuccessMessage(`“${form.name}” was created.`)
+      setEditingCategory(undefined)
+      setSuccessMessage(`“${form.name}” was ${editingCategory ? 'updated' : 'created'}.`)
       refresh()
     } catch (error) {
       setMutationErrors(describeApiError(error))
     } finally {
       setMutating(false)
     }
-  }, [accessToken, canManageCategories, mutating, refresh])
+  }, [accessToken, canManageCategories, editingCategory, mutating, refresh])
 
   const confirmDelete = useCallback(async () => {
     if (!accessToken || !canDeleteArticle || !deleteTarget || mutating) return
@@ -449,6 +536,113 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
       setMutating(false)
     }
   }, [accessToken, canDeleteArticle, deleteTarget, mutating, refresh])
+
+  const confirmCategoryDelete = useCallback(async () => {
+    if (!accessToken || !canManageCategories || !categoryDeleteTarget || mutating) return
+
+    setMutating(true)
+    setMutationErrors([])
+    try {
+      await deleteCategory(categoryDeleteTarget.id, accessToken)
+      setSuccessMessage(`“${categoryDeleteTarget.name}” was deleted.`)
+      setCategoryDeleteTarget(undefined)
+      if (categoryId === categoryDeleteTarget.id) selectCategory('')
+      refresh()
+    } catch (error) {
+      setMutationErrors(describeApiError(error))
+    } finally {
+      setMutating(false)
+    }
+  }, [accessToken, canManageCategories, categoryDeleteTarget, categoryId, mutating, refresh])
+
+  const openArticleEdit = useCallback(async (article: ArticleListItemResponse) => {
+    if (!accessToken || mutating || !canEditDashboardArticle({ article, permissionContext })) return
+
+    setMutating(true)
+    setMutationErrors([])
+    try {
+      const details = await getArticleById(article.articleId, accessToken)
+
+      setEditingArticle(details)
+      setArticleDialogOpen(true)
+    } catch (error) {
+      setMutationErrors(describeArticleApiError(error))
+    } finally {
+      setMutating(false)
+    }
+  }, [accessToken, mutating, permissionContext])
+
+  const duplicateItem = useCallback(async (item: DashboardItem) => {
+    if (!accessToken || mutating) return
+    if (item.kind === 'category' && !canManageCategories) return
+    if (item.kind === 'article' && (!canCreateArticle || !canEditOwnArticle)) return
+
+    setMutating(true)
+    setMutationErrors([])
+    try {
+      if (item.kind === 'category') {
+        await createCategory({
+          name: `${item.category.name} copy`,
+          slug: null,
+          description: item.category.description || null,
+          parentCategoryId: item.category.parentId,
+          sortOrder: item.category.sortOrder + 1
+        }, accessToken)
+      } else if (item.article.category) {
+        const sourceDraft = await getArticleDraft(item.article.articleId, accessToken)
+        const created = await createArticle({
+          title: `${item.article.title} copy`,
+          slug: null,
+          categoryId: item.article.category.categoryId
+        }, accessToken)
+        const rowVersion = created.currentDraft?.rowVersion
+
+        if (!rowVersion) throw new Error('The duplicate article draft could not be initialized.')
+        await saveArticleDraftContent(created.articleId, {
+          content: sourceDraft.content,
+          rowVersion
+        }, accessToken)
+      } else {
+        throw new Error('The article must belong to a category before it can be duplicated.')
+      }
+      setSuccessMessage(`“${item.kind === 'category' ? item.category.name : item.article.title}” was duplicated.`)
+      refresh()
+    } catch (error) {
+      setMutationErrors(item.kind === 'article' ? describeArticleApiError(error) : describeApiError(error))
+    } finally {
+      setMutating(false)
+    }
+  }, [accessToken, canCreateArticle, canEditOwnArticle, canManageCategories, mutating, refresh])
+
+  const copyItemLink = useCallback(async (item: DashboardItem) => {
+    const path = item.kind === 'category'
+      ? getLocalizedUrl(`/dashboard?categoryId=${encodeURIComponent(item.category.id)}`, lang)
+      : getLocalizedUrl(`/kb/${encodeURIComponent(item.article.slug)}`, lang)
+
+    try {
+      await navigator.clipboard.writeText(new URL(path, window.location.origin).toString())
+      setSuccessMessage('Link copied to the clipboard.')
+    } catch {
+      setMutationErrors(['The link could not be copied. Check browser clipboard permissions and try again.'])
+    }
+  }, [lang])
+
+  const setCategoryArchived = useCallback(async (category: KbCategoryNode) => {
+    if (!accessToken || !canManageCategories || mutating) return
+
+    setMutating(true)
+    setMutationErrors([])
+    try {
+      if (category.status === 'Archived') await unarchiveCategory(category.id, accessToken)
+      else await archiveCategory(category.id, accessToken)
+      setSuccessMessage(`“${category.name}” was ${category.status === 'Archived' ? 'restored' : 'archived'}.`)
+      refresh()
+    } catch (error) {
+      setMutationErrors(describeApiError(error))
+    } finally {
+      setMutating(false)
+    }
+  }, [accessToken, canManageCategories, mutating, refresh])
 
   const confirmBulkDelete = useCallback(async () => {
     if (!accessToken || !canDeleteArticle || !selectedArticles.length || mutating) return
@@ -508,71 +702,80 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
     })
   }
 
-  const toggleAllArticles = () => {
-    setSelectedArticleIds(allArticlesSelected
-      ? new Set()
-      : new Set(selectableArticles.map(article => article.articleId)))
-  }
+  const itemActions = (item: DashboardItem) => {
+    const label = item.kind === 'category' ? item.category.name : item.article.title
+    const canEdit = item.kind === 'category'
+      ? canManageCategories
+      : canEditDashboardArticle({ article: item.article, permissionContext })
+    const canDelete = item.kind === 'category'
+      ? canManageCategories
+      : canDeleteArticle && item.article.status !== 'Archived'
+    const canDuplicate = item.kind === 'category'
+      ? canManageCategories
+      : canCreateArticle && canEditOwnArticle
+    const canRead = item.kind === 'category' || canViewArticles
 
-  const articleActions = (article: ArticleListItemResponse) => {
-    const canEdit = canEditDashboardArticle({ article, permissionContext })
-    const canView = canViewArticles && article.status !== 'Archived'
-    const canDelete = canDeleteArticle && article.status !== 'Archived'
-    const canRestore = canDeleteArticle && article.status === 'Archived'
-
-    if (!canView && !canEdit && !canDelete && !canRestore)
-      return <Typography variant='body2' color='text.secondary'>—</Typography>
+    const action = (
+      title: string,
+      icon: ReactNode,
+      onClick: () => void,
+      options: { color?: 'primary' | 'error'; hidden?: boolean } = {}
+    ) => options.hidden ? null : (
+      <Tooltip key={title} title={title}>
+        <IconButton
+          size='small'
+          color={options.color}
+          disabled={mutating}
+          onClick={event => {
+            stopRowAction(event)
+            onClick()
+          }}
+          onMouseDown={stopRowAction}
+          aria-label={`${title} ${label}`}
+        >
+          {icon}
+        </IconButton>
+      </Tooltip>
+    )
 
     return (
-      <Stack direction='row' spacing={0.25} sx={{ justifyContent: 'flex-end' }}>
-        {canView && (
-          <Tooltip title='View article'>
-            <IconButton
-              size='small'
-              onClick={() => router.push(getLocalizedUrl(`/kb/${article.slug}`, lang))}
-              aria-label={`View ${article.title}`}
-            >
-              <Eye size={16} />
-            </IconButton>
-          </Tooltip>
+      <Stack
+        className='dashboard-row-actions'
+        direction='row'
+        spacing={0.125}
+        onClick={stopRowAction}
+        sx={{ justifyContent: 'flex-end', opacity: 0, pointerEvents: 'none', transition: 'opacity 140ms ease' }}
+      >
+        {action('Edit slug', <Pencil size={15} />, () => {
+          if (item.kind === 'category') {
+            setEditingCategory(item.category)
+            setMutationErrors([])
+            setCategoryDialogOpen(true)
+          } else void openArticleEdit(item.article)
+        }, { color: 'primary', hidden: !canEdit })}
+        {action('Delete', <Trash2 size={15} />, () => {
+          if (item.kind === 'category') setCategoryDeleteTarget(item.category)
+          else setDeleteTarget(item.article)
+        }, { color: 'error', hidden: !canDelete })}
+        {action('Duplicate', <Copy size={15} />, () => void duplicateItem(item), { hidden: !canDuplicate })}
+        {action('Copy link', <ExternalLink size={15} />, () => void copyItemLink(item), { hidden: !canRead })}
+        {/* TODO: Connect PDF export to the export-jobs API when dashboard item export is enabled. */}
+        {action('Export PDF', <Download size={15} />, () => setSuccessMessage('PDF export is coming soon.'), { hidden: !canRead })}
+        {/* TODO: Connect HTML export to the export-jobs API when dashboard item export is enabled. */}
+        {action('Export HTML', <FileCode2 size={15} />, () => setSuccessMessage('HTML export is coming soon.'), { hidden: !canRead })}
+        {/* TODO: Connect preview to the localized preview surface when it is available. */}
+        {action('Preview', <Eye size={15} />, () => setSuccessMessage('Preview is coming soon.'), { hidden: !canRead })}
+        {item.kind === 'category' && action(
+          item.category.status === 'Archived' ? 'Unarchive' : 'Archive',
+          item.category.status === 'Archived' ? <RotateCcw size={15} /> : <Archive size={15} />,
+          () => void setCategoryArchived(item.category),
+          { hidden: !canManageCategories }
         )}
-        {canEdit && (
-          <Tooltip title='Open editor'>
-            <IconButton
-              size='small'
-              color='primary'
-              onClick={() => router.push(getLocalizedUrl(`/editor?articleId=${encodeURIComponent(article.articleId)}`, lang))}
-              aria-label={`Edit ${article.title}`}
-            >
-              <Pencil size={16} />
-            </IconButton>
-          </Tooltip>
-        )}
-        {canDelete && (
-          <Tooltip title='Delete article'>
-            <IconButton
-              size='small'
-              color='error'
-              disabled={mutating}
-              onClick={() => setDeleteTarget(article)}
-              aria-label={`Delete ${article.title}`}
-            >
-              <Trash2 size={16} />
-            </IconButton>
-          </Tooltip>
-        )}
-        {canRestore && (
-          <Tooltip title='Restore article'>
-            <IconButton
-              size='small'
-              color='primary'
-              disabled={mutating}
-              onClick={() => void restoreArchivedArticle(article)}
-              aria-label={`Restore ${article.title}`}
-            >
-              <RotateCcw size={16} />
-            </IconButton>
-          </Tooltip>
+        {item.kind === 'article' && item.article.status === 'Archived' && action(
+          'Restore',
+          <RotateCcw size={15} />,
+          () => void restoreArchivedArticle(item.article),
+          { color: 'primary', hidden: !canDeleteArticle }
         )}
       </Stack>
     )
@@ -612,6 +815,7 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
   return (
     <>
       <Box
+        data-dashboard-full-width
         sx={{
           display: 'flex',
           minBlockSize: 'calc(100dvh - var(--header-height, 64px))',
@@ -701,6 +905,7 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
                       disabled={mutating}
                       onClick={() => {
                         setMutationErrors([])
+                        setEditingCategory(undefined)
                         setCategoryDialogOpen(true)
                       }}
                     >
@@ -715,6 +920,7 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
                       disabled={mutating || !categories.length}
                       onClick={() => {
                         setMutationErrors([])
+                        setEditingArticle(undefined)
                         setArticleDialogOpen(true)
                       }}
                     >
@@ -925,16 +1131,7 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
           <Box sx={{ bgcolor: 'background.paper', minBlockSize: 420 }}>
             {contentLoading ? (
               <TableContainer aria-label='Loading dashboard content'>
-                <Table sx={{ minInlineSize: { xs: 620, md: 840 } }}>
-                  <TableHead>
-                    <TableRow>
-                      <TableCell padding='checkbox'><Skeleton variant='rounded' width={18} height={18} /></TableCell>
-                      <TableCell>Name</TableCell>
-                      <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>Category</TableCell>
-                      <TableCell>Status</TableCell>
-                      <TableCell align='right'>Actions</TableCell>
-                    </TableRow>
-                  </TableHead>
+                <Table sx={{ inlineSize: '100%' }}>
                   <TableBody>
                     {[1, 2, 3, 4, 5, 6].map(row => (
                       <TableRow key={row}>
@@ -948,9 +1145,10 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
                             </Box>
                           </Stack>
                         </TableCell>
-                        <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}><Skeleton width={100} /></TableCell>
-                        <TableCell><Skeleton variant='rounded' width={76} height={24} /></TableCell>
-                        <TableCell align='right'><Skeleton width={68} sx={{ ml: 'auto' }} /></TableCell>
+                        <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}><Skeleton width='70%' /></TableCell>
+                        <TableCell align='right' sx={{ inlineSize: 1, whiteSpace: 'nowrap' }}>
+                          <Skeleton width={200} sx={{ ml: 'auto' }} />
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -969,25 +1167,7 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
               </Box>
             ) : view === 'list' ? (
               <TableContainer>
-                <Table aria-label='Categories and articles' sx={{ minInlineSize: { xs: 620, md: 840 } }}>
-                  <TableHead>
-                    <TableRow>
-                      <TableCell padding='checkbox'>
-                        <Checkbox
-                          size='small'
-                          checked={allArticlesSelected}
-                          indeterminate={selectedArticles.length > 0 && !allArticlesSelected}
-                          disabled={!selectableArticles.length}
-                          onChange={toggleAllArticles}
-                          slotProps={{ input: { 'aria-label': 'Select all deletable articles on this page' } }}
-                        />
-                      </TableCell>
-                      <TableCell>Name</TableCell>
-                      <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>Category</TableCell>
-                      <TableCell>Status</TableCell>
-                      <TableCell align='right'>Actions</TableCell>
-                    </TableRow>
-                  </TableHead>
+                <Table aria-label='Categories and articles' sx={{ inlineSize: '100%' }}>
                   <TableBody>
                     {items.map(item => {
                       const isArticle = item.kind === 'article'
@@ -998,10 +1178,23 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
                         <TableRow
                           key={item.id}
                           selected={selected}
+                          hover
+                          tabIndex={item.kind === 'category' ? 0 : undefined}
+                          onClick={item.kind === 'category' ? () => selectCategory(item.category.id) : undefined}
+                          onKeyDown={item.kind === 'category' ? event => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault()
+                              selectCategory(item.category.id)
+                            }
+                          } : undefined}
                           sx={{
                             '& > *': { borderBlockEndColor: 'divider' },
-                            '&:hover': { bgcolor: 'action.hover' },
-                            '&.Mui-selected': { bgcolor: 'action.selected' }
+                            '&.Mui-selected': { bgcolor: 'action.selected' },
+                            ...(item.kind === 'category' && { cursor: 'pointer' }),
+                            '&:hover .dashboard-row-actions, &:focus-within .dashboard-row-actions': {
+                              opacity: 1,
+                              pointerEvents: 'auto'
+                            }
                           }}
                         >
                           <TableCell padding='checkbox'>
@@ -1011,30 +1204,47 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
                                 checked={selected}
                                 disabled={!selectable}
                                 onChange={() => toggleArticle(item.article.articleId)}
+                                onClick={stopRowAction}
                                 slotProps={{ input: { 'aria-label': `Select ${item.article.title}` } }}
                               />
                             ) : <Box sx={{ inlineSize: 34 }} />}
                           </TableCell>
-                          <TableCell sx={{ py: 1.5 }}><ItemName item={item} /></TableCell>
-                          <TableCell sx={{ display: { xs: 'none', md: 'table-cell' }, color: 'text.secondary' }}>
-                            {item.kind === 'category'
-                              ? item.category.path || 'Top level'
-                              : item.article.category?.name ?? 'Uncategorized'}
+                          <TableCell sx={{ py: 1.5 }}>
+                            <ItemName item={item} />
+                            <Box sx={{ display: { xs: 'block', sm: 'none' }, mt: 1 }}>
+                              {item.kind === 'category' ? item.category.status === 'Archived' && (
+                                <StatusChip label='Archived' color='secondary' />
+                              ) : (
+                                <Stack spacing={0.5} sx={{ alignItems: 'flex-start' }}>
+                                  <ArticleBadges article={item.article} />
+                                  <Typography variant='caption' color='text.secondary'>
+                                    By {item.article.owner.fullName} · Languages —
+                                  </Typography>
+                                </Stack>
+                              )}
+                            </Box>
                           </TableCell>
-                          <TableCell>
-                            {item.kind === 'category' ? (
-                              <Chip size='small' label='Category' variant='outlined' color='warning' />
+                          <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' }, py: 1.25 }}>
+                            {item.kind === 'category' ? item.category.status === 'Archived' && (
+                              <StatusChip label='Archived' color='secondary' />
                             ) : (
-                              <StatusChip
-                                label={articleStatusLabel[item.article.status]}
-                                color={articleStatusColor[item.article.status]}
-                              />
+                              <Stack spacing={0.75} sx={{ alignItems: 'flex-start' }}>
+                                <ArticleBadges article={item.article} />
+                                <Stack direction='row' spacing={1.5} useFlexGap sx={{ flexWrap: 'wrap' }}>
+                                  <Stack direction='row' spacing={0.5} sx={{ alignItems: 'center' }}>
+                                    <UserRound size={13} aria-hidden='true' />
+                                    <Typography variant='caption' color='text.secondary'>
+                                      {item.article.owner.fullName}
+                                    </Typography>
+                                  </Stack>
+                                  {/* TODO: Replace this placeholder when article localization versions are available. */}
+                                  <Typography variant='caption' color='text.secondary'>Languages —</Typography>
+                                </Stack>
+                              </Stack>
                             )}
                           </TableCell>
-                          <TableCell align='right' sx={{ whiteSpace: 'nowrap' }}>
-                            {item.kind === 'category' ? (
-                              <Button size='small' onClick={() => selectCategory(item.category.id)}>Browse</Button>
-                            ) : articleActions(item.article)}
+                          <TableCell align='right' sx={{ inlineSize: 1, whiteSpace: 'nowrap', py: 1.25 }}>
+                            {itemActions(item)}
                           </TableCell>
                         </TableRow>
                       )
@@ -1059,6 +1269,15 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
                   return (
                     <Box
                       key={item.id}
+                      role={item.kind === 'category' ? 'button' : undefined}
+                      tabIndex={item.kind === 'category' ? 0 : undefined}
+                      onClick={item.kind === 'category' ? () => selectCategory(item.category.id) : undefined}
+                      onKeyDown={item.kind === 'category' ? event => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          selectCategory(item.category.id)
+                        }
+                      } : undefined}
                       sx={{
                         display: 'flex',
                         flexDirection: 'column',
@@ -1068,8 +1287,13 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
                         borderColor: selected ? 'primary.main' : 'divider',
                         borderRadius: 1.5,
                         bgcolor: selected ? 'action.selected' : 'background.paper',
+                        cursor: item.kind === 'category' ? 'pointer' : 'default',
                         transition: theme.transitions.create(['border-color', 'background-color', 'box-shadow']),
-                        '&:hover': { borderColor: 'text.disabled', boxShadow: theme.shadows[2] }
+                        '&:hover': { borderColor: 'text.disabled', boxShadow: theme.shadows[2] },
+                        '&:hover .dashboard-row-actions, &:focus-within .dashboard-row-actions': {
+                          opacity: 1,
+                          pointerEvents: 'auto'
+                        }
                       }}
                     >
                       <Stack direction='row' sx={{ alignItems: 'flex-start', justifyContent: 'space-between', mb: 2 }}>
@@ -1079,32 +1303,28 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
                             checked={selected}
                             disabled={!selectable}
                             onChange={() => toggleArticle(item.article.articleId)}
+                            onClick={stopRowAction}
                             slotProps={{ input: { 'aria-label': `Select ${item.article.title}` } }}
                             sx={{ p: 0.5, ml: -0.5 }}
                           />
                         ) : <Box />}
-                        {item.kind === 'category' ? (
-                          <Chip size='small' label='Category' variant='outlined' color='warning' />
-                        ) : (
-                          <StatusChip
-                            label={articleStatusLabel[item.article.status]}
-                            color={articleStatusColor[item.article.status]}
-                          />
-                        )}
+                        {item.kind === 'category'
+                          ? item.category.status === 'Archived' && <StatusChip label='Archived' color='secondary' />
+                          : <ArticleBadges article={item.article} />}
                       </Stack>
                       <ItemName item={item} />
                       <Typography variant='caption' color='text.secondary' noWrap sx={{ mt: 1.5 }}>
                         {item.kind === 'category'
                           ? item.category.path || 'Top-level category'
-                          : item.article.category?.name ?? 'Uncategorized'}
+                          : `By ${item.article.owner.fullName}`}
                       </Typography>
+                      {item.kind === 'article' && (
+                        // TODO: Replace this placeholder when article localization versions are available.
+                        <Typography variant='caption' color='text.secondary'>Languages —</Typography>
+                      )}
                       <Box sx={{ flex: 1 }} />
                       <Divider sx={{ my: 1.75 }} />
-                      {item.kind === 'category' ? (
-                        <Button size='small' onClick={() => selectCategory(item.category.id)} sx={{ alignSelf: 'flex-end' }}>
-                          Browse
-                        </Button>
-                      ) : articleActions(item.article)}
+                      {itemActions(item)}
                     </Box>
                   )
                 })}
@@ -1141,18 +1361,30 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
 
       <KbCategoryDialog
         open={categoryDialogOpen}
+        category={editingCategory}
         categories={categories}
         submitting={mutating}
         errors={mutationErrors}
-        onClose={() => { if (!mutating) setCategoryDialogOpen(false) }}
+        onClose={() => {
+          if (!mutating) {
+            setCategoryDialogOpen(false)
+            setEditingCategory(undefined)
+          }
+        }}
         onSubmit={submitCategory}
       />
       <KbArticleDialog
         open={articleDialogOpen}
+        article={editingArticle}
         categories={categories}
         submitting={mutating}
         errors={mutationErrors}
-        onClose={() => { if (!mutating) setArticleDialogOpen(false) }}
+        onClose={() => {
+          if (!mutating) {
+            setArticleDialogOpen(false)
+            setEditingArticle(undefined)
+          }
+        }}
         onSubmit={submitArticle}
       />
       <KbConfirmDialog
@@ -1164,6 +1396,18 @@ const KnowledgeDashboard = ({ accessToken }: KnowledgeDashboardProps) => {
         submitting={mutating}
         onClose={() => { if (!mutating) setDeleteTarget(undefined) }}
         onConfirm={() => void confirmDelete()}
+      />
+      <KbConfirmDialog
+        open={Boolean(categoryDeleteTarget)}
+        title='Delete category?'
+        description={categoryDeleteTarget
+          ? `Delete “${categoryDeleteTarget.name}”? Categories with children or articles cannot be deleted.`
+          : ''}
+        confirmLabel='Delete'
+        confirmColor='error'
+        submitting={mutating}
+        onClose={() => { if (!mutating) setCategoryDeleteTarget(undefined) }}
+        onConfirm={() => void confirmCategoryDelete()}
       />
       <KbConfirmDialog
         open={bulkDeleteOpen}

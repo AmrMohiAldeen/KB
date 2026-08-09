@@ -79,10 +79,21 @@ describe('dashboard items', () => {
 
   it('combines category and article matches and sorts them by title', () => {
     const items = buildDashboardItems({
-      categories: [category('category-1', 'Alpha category', 0)],
+      categories: [category('category-1', 'Zulu category', 0)],
       articles: [article],
       search: '',
       sort: 'title'
+    })
+
+    expect(items.map(item => item.id)).toEqual(['category:category-1', 'article:article-1'])
+  })
+
+  it('keeps categories before articles for date sorting', () => {
+    const items = buildDashboardItems({
+      categories: [category('category-1', 'Category', 0)],
+      articles: [article],
+      search: '',
+      sort: 'updatedAt'
     })
 
     expect(items.map(item => item.id)).toEqual(['category:category-1', 'article:article-1'])

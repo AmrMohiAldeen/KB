@@ -57,7 +57,8 @@ public sealed class DashboardController(DashboardService dashboard) : Controller
             item.Category.SortOrder,
             item.Category.Path,
             item.Category.Depth,
-            item.Category.ArticleCount),
+            item.Category.ArticleCount,
+            item.Category.Status),
         item.Article is null ? null : ToArticleResponse(item.Article));
 
     private static ArticleListItemResponse ToArticleResponse(ArticleListData article) => new(

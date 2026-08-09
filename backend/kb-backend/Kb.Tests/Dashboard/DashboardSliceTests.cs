@@ -12,7 +12,7 @@ namespace Kb.Tests.Dashboard;
 public sealed class DashboardSliceTests
 {
     [Fact]
-    public async Task Position_sort_combines_direct_child_categories_and_articles_stably()
+    public async Task Position_sort_keeps_direct_child_categories_before_articles_stably()
     {
         await using var fixture = await Fixture.CreateAsync();
         var result = await fixture.Service.GetAsync(
@@ -21,7 +21,7 @@ public sealed class DashboardSliceTests
         Assert.Equal(3, result.TotalCount);
         Assert.Equal(2, result.ArticleCount);
         Assert.Equal(
-            new[] { "article:First", "category:Child", "article:Second" },
+            new[] { "category:Child", "article:First", "article:Second" },
             result.Items.Select(item => $"{item.Kind}:{item.Title}"));
         Assert.DoesNotContain(result.Items, item => item.Title == "Grandchild");
     }

@@ -82,18 +82,40 @@ public sealed class CategorySliceTests
     }
 
     [Fact]
-    public async Task Update_preserves_slug_and_hierarchy()
+    public async Task Update_can_change_slug_and_preserves_hierarchy()
     {
         await using var f = await Fixture.CreateAsync();
         var root = await f.Service.CreateAsync(new(null, "Original", "Before", 1), default);
-        var updated = await f.Service.UpdateAsync(root.Id, new(" Renamed ", " After ", 7), default);
+        var updated = await f.Service.UpdateAsync(root.Id, new(" Renamed ", " After ", 7, "custom-link"), default);
 
         Assert.Equal(("Renamed", "After", 7), (updated.Name, updated.Description, updated.SortOrder));
-        Assert.Equal((root.Slug, root.ParentCategoryId, root.Path, root.Depth),
-            (updated.Slug, updated.ParentCategoryId, updated.Path, updated.Depth));
+        Assert.Equal("custom-link", updated.Slug);
+        Assert.Equal((root.ParentCategoryId, root.Path, root.Depth),
+            (updated.ParentCategoryId, updated.Path, updated.Depth));
         var audit = await f.Context.ArticleAuditLogs.SingleAsync(x => x.ActionType == CategoryAuditActions.Updated);
         Assert.Contains("before", audit.MetaDataJson);
         Assert.Contains("after", audit.MetaDataJson);
+    }
+
+    [Fact]
+    public async Task Archive_preserves_category_and_contents_and_can_be_reversed()
+    {
+        await using var f = await Fixture.CreateAsync();
+        var category = await f.Service.CreateAsync(new(null, "Keep Me", null, 0), default);
+        await f.AddArticleAsync(category.Id, softDeleted: false);
+
+        var archived = await f.Service.SetArchivedAsync(category.Id, true, default);
+
+        Assert.Equal(CategoryStatuses.Archived, archived.Status);
+        Assert.NotNull(await f.Context.Categories.FindAsync(category.Id));
+        Assert.Equal(1, await f.Context.Articles.CountAsync(article => article.CategoryIdFk == category.Id));
+
+        var restored = await f.Service.SetArchivedAsync(category.Id, false, default);
+        Assert.Equal(CategoryStatuses.Active, restored.Status);
+        Assert.Equal(1, await f.Context.ArticleAuditLogs.CountAsync(
+            audit => audit.ActionType == CategoryAuditActions.Archived));
+        Assert.Equal(1, await f.Context.ArticleAuditLogs.CountAsync(
+            audit => audit.ActionType == CategoryAuditActions.Unarchived));
     }
 
     [Fact]
@@ -147,7 +169,7 @@ public sealed class CategorySliceTests
     public void Write_actions_require_manage_and_reads_require_authentication()
     {
         Assert.NotNull(typeof(CategoriesController).GetCustomAttribute<AuthorizeAttribute>());
-        foreach (var action in new[] { "Create", "Update", "Move", "Delete" })
+        foreach (var action in new[] { "Create", "Update", "Move", "Delete", "Archive", "Unarchive" })
         {
             var authorize = typeof(CategoriesController).GetMethod(action)!.GetCustomAttribute<AuthorizeAttribute>();
             Assert.Equal(PermissionPolicy.For(PermissionCodes.CategoriesManage), authorize!.Policy);

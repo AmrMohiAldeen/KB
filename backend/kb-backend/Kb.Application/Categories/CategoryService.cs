@@ -60,7 +60,7 @@ public sealed class CategoryService(
                 EnsureValidStoredPath(parent);
             }
 
-            var slug = await GenerateUniqueSlugAsync(name, token);
+            var slug = await GenerateUniqueSlugAsync(command.Slug ?? name, null, token);
             var depth = parent is null ? 0 : checked(parent.Depth + 1);
             var inserted = await repository.InsertAsync(
                 new(command.ParentCategoryId, name, slug, description, command.SortOrder, depth), token);
@@ -82,12 +82,31 @@ public sealed class CategoryService(
         {
             var existing = await repository.GetByIdAsync(id, token)
                 ?? throw new NotFoundException("The category was not found.");
+            var slug = command.Slug is null
+                ? existing.Slug
+                : await GenerateUniqueSlugAsync(command.Slug, existing.Id, token);
             var audit = Audit(actorId, CategoryAuditActions.Updated, new
             {
-                before = new { existing.Name, existing.Description, existing.SortOrder },
-                after = new { name, description, sortOrder = command.SortOrder }
+                before = new { existing.Name, existing.Slug, existing.Description, existing.SortOrder },
+                after = new { name, slug, description, sortOrder = command.SortOrder }
             });
-            return await repository.UpdateAndAuditAsync(id, name, description, command.SortOrder, audit, token);
+            return await repository.UpdateAndAuditAsync(id, name, slug, description, command.SortOrder, audit, token);
+        }, cancellationToken);
+    }
+
+    public Task<CategoryData> SetArchivedAsync(Guid id, bool archived, CancellationToken cancellationToken)
+    {
+        var actorId = currentUser.UserId;
+        return repository.ExecuteSerializableAsync(async token =>
+        {
+            var category = await repository.GetByIdAsync(id, token)
+                ?? throw new NotFoundException("The category was not found.");
+            var status = archived ? CategoryStatuses.Archived : CategoryStatuses.Active;
+            if (category.Status == status)
+                return category;
+            var action = archived ? CategoryAuditActions.Archived : CategoryAuditActions.Unarchived;
+            var audit = Audit(actorId, action, new { category.Name, oldStatus = category.Status, newStatus = status });
+            return await repository.SetStatusAndAuditAsync(id, status, audit, token);
         }, cancellationToken);
     }
 
@@ -168,9 +187,9 @@ public sealed class CategoryService(
         }, cancellationToken);
     }
 
-    private async Task<string> GenerateUniqueSlugAsync(string name, CancellationToken cancellationToken)
+    private async Task<string> GenerateUniqueSlugAsync(string source, Guid? excludingId, CancellationToken cancellationToken)
     {
-        var generated = slugGenerator.Generate(name);
+        var generated = slugGenerator.Generate(source);
         var baseSlug = string.IsNullOrWhiteSpace(generated) ? "category" : generated;
         baseSlug = baseSlug[..Math.Min(baseSlug.Length, MaxSlugLength)].Trim('-');
         if (baseSlug.Length == 0)
@@ -182,7 +201,7 @@ public sealed class CategoryService(
             if (stemLength <= 0)
                 break;
             var candidate = baseSlug[..Math.Min(baseSlug.Length, stemLength)].TrimEnd('-') + suffix;
-            if (!await repository.SlugExistsAsync(candidate, cancellationToken))
+            if (!await repository.SlugExistsAsync(candidate, excludingId, cancellationToken))
                 return candidate;
         }
         throw new ConflictException("A unique category slug could not be allocated.");
@@ -253,6 +272,6 @@ public sealed class CategoryService(
             }
         active.Remove(category.Id);
         return new(category.Id, category.ParentCategoryId, category.Name, category.Slug, category.Description,
-            category.SortOrder, category.Path, category.Depth, category.ArticleCount, nodes);
+            category.SortOrder, category.Path, category.Depth, category.ArticleCount, nodes, category.Status);
     }
 }

@@ -11,6 +11,7 @@ export type CategoryTreeNodeResponse = {
   path: string | null
   depth: number
   articleCount: number
+  status: 'Active' | 'Archived'
   children: CategoryTreeNodeResponse[]
 }
 
@@ -24,6 +25,7 @@ export type CategoryDetailsResponse = {
   path: string | null
   depth: number
   articleCount: number
+  status: 'Active' | 'Archived'
 }
 
 export type CreateCategoryRequest = {
@@ -31,12 +33,14 @@ export type CreateCategoryRequest = {
   name: string
   description: string | null
   sortOrder: number
+  slug?: string | null
 }
 
 export type UpdateCategoryRequest = {
   name: string
   description: string | null
   sortOrder: number
+  slug: string | null
 }
 
 export type MoveCategoryRequest = {
@@ -56,6 +60,7 @@ export const mapCategoryTreeNode = (
   path: category.path,
   depth: category.depth,
   articleCount: category.articleCount,
+  status: category.status,
   children: category.children.map(mapCategoryTreeNode)
 })
 
@@ -129,3 +134,13 @@ export const deleteCategory = (
     accessToken,
     { method: 'DELETE' }
   )
+
+export const archiveCategory = (id: string, accessToken: string) =>
+  apiRequest<CategoryDetailsResponse>(`/api/categories/${encodeURIComponent(id)}/archive`, accessToken, {
+    method: 'POST'
+  })
+
+export const unarchiveCategory = (id: string, accessToken: string) =>
+  apiRequest<CategoryDetailsResponse>(`/api/categories/${encodeURIComponent(id)}/unarchive`, accessToken, {
+    method: 'POST'
+  })

@@ -58,7 +58,8 @@ public sealed class DashboardRepository(KbDbContext dbContext) : IDashboardRepos
                 category.Depth,
                 category.Articles.Count(article =>
                     article.DeletedAt == null && article.Status != ArticleStatuses.Deleted &&
-                    article.Status != ArticleStatuses.Archived)))
+                    article.Status != ArticleStatuses.Archived),
+                category.Status))
             .ToListAsync(cancellationToken);
 
         var articleItems = await OrderArticles(articles, query.Sort)
@@ -164,17 +165,19 @@ public sealed class DashboardRepository(KbDbContext dbContext) : IDashboardRepos
         IEnumerable<DashboardItemData> source,
         DashboardSort sort) => sort switch
         {
-            DashboardSort.Title => source.OrderBy(item => item.Title, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(item => item.Kind, StringComparer.Ordinal)
-                .ThenBy(item => item.Id),
-            DashboardSort.UpdatedAt => source.OrderByDescending(item => item.UpdatedAt ?? DateTime.MinValue)
+            DashboardSort.Title => source.OrderBy(item => item.Kind == "category" ? 0 : 1)
                 .ThenBy(item => item.Title, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(item => item.Id),
-            DashboardSort.CreatedAt => source.OrderByDescending(item => item.CreatedAt ?? DateTime.MinValue)
+            DashboardSort.UpdatedAt => source.OrderBy(item => item.Kind == "category" ? 0 : 1)
+                .ThenByDescending(item => item.UpdatedAt ?? DateTime.MinValue)
                 .ThenBy(item => item.Title, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(item => item.Id),
-            _ => source.OrderBy(item => item.Position)
-                .ThenBy(item => item.Kind == "category" ? 0 : 1)
+            DashboardSort.CreatedAt => source.OrderBy(item => item.Kind == "category" ? 0 : 1)
+                .ThenByDescending(item => item.CreatedAt ?? DateTime.MinValue)
+                .ThenBy(item => item.Title, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(item => item.Id),
+            _ => source.OrderBy(item => item.Kind == "category" ? 0 : 1)
+                .ThenBy(item => item.Position)
                 .ThenBy(item => item.Title, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(item => item.Id)
         };
