@@ -1,2 +1,126 @@
+<<<<<<< HEAD
 ﻿bin/
 obj/
+=======
+﻿# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDEs
+.vs/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.example.json
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.code-workspace
+
+# .NET
+**/bin/
+**/obj/
+artifacts/
+TestResults/
+*.trx
+*.coverage
+*.coveragexml
+coverage/
+coverage-*/
+*.nupkg
+*.snupkg
+packages/
+.nuget/
+*.rsuser
+*.userprefs
+
+# Next.js / Node.js
+node_modules/
+.next/
+out/
+dist/
+build/
+.turbo/
+.vercel/
+*.tsbuildinfo
+
+# Package manager caches
+.npm/
+.pnpm-store/
+.yarn/cache/
+.yarn/unplugged/
+.yarn/build-state.yml
+.yarn/install-state.gz
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+appsettings.Local.json
+appsettings.*.Local.json
+appsettings.Secrets.json
+appsettings.Production.json
+secrets.json
+*.pfx
+*.p12
+*.key
+*.pem
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Tests
+.nyc_output/
+playwright-report/
+test-results/
+blob-report/
+cypress/videos/
+cypress/screenshots/
+
+# Azurite
+__azurite_db_*.json
+__blobstorage__/
+__queuestorage__/
+__tablestorage__/
+.azurite/
+
+# Local databases
+*.mdf
+*.ldf
+*.ndf
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Generated storage
+uploads/
+storage/
+local-storage/
+temp/
+tmp/
+exports/
+generated/
+media-cache/
+
+!uploads/.gitkeep
+!storage/.gitkeep
+!exports/.gitkeep
+
+# Temporary and backup files
+*.bak
+*.tmp
+*.temp
+*.swp
+*.swo
+*.orig
+*~
+>>>>>>> e6bf108 (gitignore)
