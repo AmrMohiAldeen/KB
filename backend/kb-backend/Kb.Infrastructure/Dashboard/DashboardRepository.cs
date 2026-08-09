@@ -179,6 +179,63 @@ public sealed class DashboardRepository(KbDbContext dbContext) : IDashboardRepos
         }
     }
 
+    public async Task MoveArticlesAsync(IReadOnlyCollection<Guid> articleIds, Guid destinationCategoryId,
+        DashboardReorderAudit audit, CancellationToken cancellationToken)
+    {
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(
+            IsolationLevel.Serializable, cancellationToken);
+        try
+        {
+            var destination = await dbContext.Categories.AsNoTracking()
+                .SingleOrDefaultAsync(category => category.CategoryId == destinationCategoryId, cancellationToken)
+                ?? throw new NotFoundException("The destination category was not found.");
+            if (destination.Status != CategoryStatuses.Active)
+                throw new ConflictException("Articles cannot be moved into an archived category.");
+
+            var articles = await dbContext.Articles
+                .Where(article => articleIds.Contains(article.ArticleId) && article.DeletedAt == null &&
+                                  article.Status != ArticleStatuses.Deleted &&
+                                  article.Status != ArticleStatuses.Archived)
+                .OrderBy(article => article.Position).ThenBy(article => article.ArticleId)
+                .ToListAsync(cancellationToken);
+            if (articles.Count != articleIds.Count)
+                throw new NotFoundException("One or more selected articles were not found or are not active.");
+
+            var nextPosition = (await dbContext.Articles
+                .Where(article => article.CategoryIdFk == destinationCategoryId &&
+                                  !articleIds.Contains(article.ArticleId) && article.DeletedAt == null &&
+                                  article.Status != ArticleStatuses.Deleted &&
+                                  article.Status != ArticleStatuses.Archived)
+                .Select(article => (int?)article.Position).MaxAsync(cancellationToken) ?? -1) + 1;
+
+            foreach (var article in articles)
+            {
+                var oldCategoryId = article.CategoryIdFk;
+                article.CategoryIdFk = destinationCategoryId;
+                article.Position = nextPosition++;
+                article.UpdatedAt = audit.CreatedAt;
+                AddAudit(article.ArticleId, article.ArticleId, ArticleAuditEntityTypes.Article,
+                    audit with
+                    {
+                        MetadataJson = System.Text.Json.JsonSerializer.Serialize(new
+                        {
+                            oldCategoryId,
+                            newCategoryId = destinationCategoryId
+                        })
+                    });
+            }
+
+            await dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch
+        {
+            await transaction.RollbackAsync(CancellationToken.None);
+            dbContext.ChangeTracker.Clear();
+            throw;
+        }
+    }
+
     private static void MoveRelative<T>(IList<T> siblings, T item, T target, bool placeAfter)
     {
         siblings.Remove(item);

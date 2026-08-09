@@ -46,6 +46,7 @@ import {
   FileClock,
   FileText,
   Folder,
+  FolderInput,
   Grid2X2,
   GripVertical,
   List,
@@ -62,6 +63,8 @@ import CustomTextField from '@core/components/mui/TextField'
 import { KbEmptyState } from '@/views/shared'
 import KbValidationSummary from '@/views/shared/forms/KbValidationSummary'
 import KbConfirmDialog from '@/views/shared/dialogs/KbConfirmDialog'
+import KbFormDialog from '@/views/shared/dialogs/KbFormDialog'
+import KbTableFilter from '@/views/shared/tables/KbTableFilter'
 import type { ArticleFormState } from '../articles/components/KbArticleDialog'
 import KbArticleDialog from '../articles/components/KbArticleDialog'
 import type { CategoryFormState } from '../categories/utils/categoryForm'
@@ -88,7 +91,6 @@ import {
   updateArticle
 } from '@/lib/api/articlesApi'
 import { describeLifecycleError, unarchiveArticle } from '@/lib/api/articleLifecycleApi'
-import { getArticleDraft, saveArticleDraftContent } from '@/lib/api/articleDraftsApi'
 import {
   archiveCategory,
   createCategory,
@@ -100,8 +102,10 @@ import {
 } from '@/lib/api/categories'
 import {
   defaultDashboardPageSize,
+  duplicateDashboardItems,
   getDashboardItems,
   getDashboardPermissionContext,
+  moveDashboardItems,
   reorderDashboardItem
 } from '@/lib/api/dashboardApi'
 import { describeApiError } from '@/lib/api/http'
@@ -323,8 +327,11 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
   const [deleteTarget, setDeleteTarget] = useState<ArticleListItemResponse>()
   const [categoryDeleteTarget, setCategoryDeleteTarget] = useState<KbCategoryNode>()
   const [selectedArticleIds, setSelectedArticleIds] = useState<Set<string>>(() => new Set())
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<Set<string>>(() => new Set())
   const [bulkMenuAnchor, setBulkMenuAnchor] = useState<HTMLElement | null>(null)
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
+  const [bulkMoveOpen, setBulkMoveOpen] = useState(false)
+  const [bulkDestinationCategoryId, setBulkDestinationCategoryId] = useState('')
   const [filterDrawerOpen, setFilterDrawerOpen] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
   const [draggedItemId, setDraggedItemId] = useState<string>()
@@ -333,15 +340,20 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
   const suppressNavigationRef = useRef(false)
 
   useEffect(() => {
+    const normalizedSearch = search.trim()
+
+    if (normalizedSearch === debouncedSearch) return
+
     const timer = window.setTimeout(() => {
       setContentLoading(true)
       setPage(0)
       setSelectedArticleIds(new Set())
-      setDebouncedSearch(search.trim())
+      setSelectedCategoryIds(new Set())
+      setDebouncedSearch(normalizedSearch)
     }, 300)
 
     return () => window.clearTimeout(timer)
-  }, [search])
+  }, [debouncedSearch, search])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -421,16 +433,41 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
   const canEditOwnArticle = hasPermission(permissionContext, 'articles.editOwnDraft') ||
     hasPermission(permissionContext, 'articles.editAnyDraft')
   const canReorderArticles = hasPermission(permissionContext, 'articles.editAnyDraft')
+  const canDuplicateArticles = canCreateArticle && canEditOwnArticle
   const selectableArticles = useMemo(
-    () => items.flatMap(item => item.kind === 'article' && item.article.status !== 'Archived' && canDeleteArticle
+    () => items.flatMap(item => item.kind === 'article' && item.article.status !== 'Archived' &&
+      (canDeleteArticle || canReorderArticles || canDuplicateArticles)
       ? [item.article]
       : []),
-    [canDeleteArticle, items]
+    [canDeleteArticle, canDuplicateArticles, canReorderArticles, items]
   )
   const selectedArticles = useMemo(
     () => selectableArticles.filter(article => selectedArticleIds.has(article.articleId)),
     [selectableArticles, selectedArticleIds]
   )
+  const selectableCategories = useMemo(
+    () => items.flatMap(item => item.kind === 'category' && canManageCategories ? [item.category] : []),
+    [canManageCategories, items]
+  )
+  const selectedCategories = useMemo(
+    () => selectableCategories.filter(category => selectedCategoryIds.has(category.id)),
+    [selectableCategories, selectedCategoryIds]
+  )
+  const selectedCount = selectedArticles.length + selectedCategories.length
+  const bulkSelection = useMemo(() => ({
+    articleIds: selectedArticles.map(article => article.articleId),
+    categoryIds: selectedCategories.map(category => category.id)
+  }), [selectedArticles, selectedCategories])
+  const canBulkMove = selectedCount > 0 &&
+    (selectedArticles.length === 0 || canReorderArticles) &&
+    (selectedCategories.length === 0 || canManageCategories)
+  const canBulkDuplicate = selectedCount > 0 &&
+    (selectedArticles.length === 0 || canDuplicateArticles) &&
+    (selectedCategories.length === 0 || canManageCategories)
+  const selectedCategoryPaths = selectedCategories.flatMap(category => category.path ? [category.path] : [])
+  const bulkDestinationOptions = categoryOptions.filter(option => option.status === 'Active' &&
+    !selectedCategoryIds.has(option.id) &&
+    !selectedCategoryPaths.some(path => option.path?.startsWith(path)))
 
   const canReorderItem = (item: DashboardItem) => sort === 'position' && !debouncedSearch && (
     item.kind === 'category'
@@ -576,6 +613,7 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
     setPage(0)
     setActiveFilter(filter)
     setSelectedArticleIds(new Set())
+    setSelectedCategoryIds(new Set())
     setMutationErrors([])
   }
 
@@ -589,6 +627,7 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
     else url.searchParams.delete('categoryId')
     window.history.replaceState(null, '', url)
     setSelectedArticleIds(new Set())
+    setSelectedCategoryIds(new Set())
     setFilterDrawerOpen(false)
   }
 
@@ -758,31 +797,10 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
     setMutating(true)
     setMutationErrors([])
     try {
-      if (item.kind === 'category') {
-        await createCategory({
-          name: `${item.category.name} copy`,
-          slug: null,
-          description: item.category.description || null,
-          parentCategoryId: item.category.parentId,
-          sortOrder: item.category.sortOrder + 1
-        }, accessToken)
-      } else if (item.article.category) {
-        const sourceDraft = await getArticleDraft(item.article.articleId, accessToken)
-        const created = await createArticle({
-          title: `${item.article.title} copy`,
-          slug: null,
-          categoryId: item.article.category.categoryId
-        }, accessToken)
-        const rowVersion = created.currentDraft?.rowVersion
-
-        if (!rowVersion) throw new Error('The duplicate article draft could not be initialized.')
-        await saveArticleDraftContent(created.articleId, {
-          content: sourceDraft.content,
-          rowVersion
-        }, accessToken)
-      } else {
-        throw new Error('The article must belong to a category before it can be duplicated.')
-      }
+      await duplicateDashboardItems({
+        articleIds: item.kind === 'article' ? [item.article.articleId] : [],
+        categoryIds: item.kind === 'category' ? [item.category.id] : []
+      }, accessToken)
       setSuccessMessage(`“${item.kind === 'category' ? item.category.name : item.article.title}” was duplicated.`)
       refresh()
     } catch (error) {
@@ -845,6 +863,7 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
       }
 
       setSelectedArticleIds(new Set())
+      setSelectedCategoryIds(new Set())
       setBulkDeleteOpen(false)
       refresh()
     } finally {
@@ -864,6 +883,49 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
       refresh()
     } catch (error) {
       setMutationErrors(describeLifecycleError(error))
+    } finally {
+      setMutating(false)
+    }
+  }
+
+  const duplicateSelected = async () => {
+    if (!accessToken || !canBulkDuplicate || mutating) return
+
+    setBulkMenuAnchor(null)
+    setMutating(true)
+    setMutationErrors([])
+    try {
+      const result = await duplicateDashboardItems(bulkSelection, accessToken)
+      const duplicated = result.articleCount + result.categoryCount
+
+      setSuccessMessage(`${duplicated} selected item${duplicated === 1 ? '' : 's'} duplicated.`)
+      setSelectedArticleIds(new Set())
+      setSelectedCategoryIds(new Set())
+      refresh()
+    } catch (error) {
+      setMutationErrors(describeApiError(error))
+    } finally {
+      setMutating(false)
+    }
+  }
+
+  const moveSelected = async () => {
+    if (!accessToken || !canBulkMove || !bulkDestinationCategoryId || mutating) return
+
+    setMutating(true)
+    setMutationErrors([])
+    try {
+      const result = await moveDashboardItems(bulkSelection, bulkDestinationCategoryId, accessToken)
+      const moved = result.articleCount + result.categoryCount
+
+      setSuccessMessage(`${moved} selected item${moved === 1 ? '' : 's'} moved.`)
+      setSelectedArticleIds(new Set())
+      setSelectedCategoryIds(new Set())
+      setBulkMoveOpen(false)
+      setBulkDestinationCategoryId('')
+      refresh()
+    } catch (error) {
+      setMutationErrors(describeApiError(error))
     } finally {
       setMutating(false)
     }
@@ -957,6 +1019,17 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
         )}
       </Stack>
     )
+  }
+
+  const toggleCategory = (categoryId: string) => {
+    setSelectedCategoryIds(current => {
+      const next = new Set(current)
+
+      if (next.has(categoryId)) next.delete(categoryId)
+      else next.add(categoryId)
+
+      return next
+    })
   }
 
   const emptyState = activeFilter === 'Archived'
@@ -1139,10 +1212,10 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
             sx={{
               display: 'flex',
               alignItems: 'center',
-              gap: 1.25,
+              gap: 1,
               flexWrap: 'wrap',
               px: { xs: 2.5, sm: 3.5, xl: 4.5 },
-              py: 2,
+              py: 1.5,
               borderBlockEnd: 1,
               borderColor: 'divider',
               bgcolor: 'background.paper'
@@ -1164,12 +1237,12 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
               variant='outlined'
               color='secondary'
               endIcon={<ChevronDown size={15} />}
-              disabled={!selectedArticles.length || mutating}
+              disabled={!selectedCount || mutating}
               onClick={event => setBulkMenuAnchor(event.currentTarget)}
               aria-haspopup='menu'
               aria-expanded={Boolean(bulkMenuAnchor)}
             >
-              Bulk actions{selectedArticles.length ? ` (${selectedArticles.length})` : ''}
+              Bulk actions{selectedCount ? ` (${selectedCount})` : ''}
             </Button>
             <Menu
               anchorEl={bulkMenuAnchor}
@@ -1177,6 +1250,22 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
               onClose={() => setBulkMenuAnchor(null)}
             >
               <MenuItem
+                disabled={!canBulkMove}
+                onClick={() => {
+                  setBulkMenuAnchor(null)
+                  setBulkDestinationCategoryId('')
+                  setBulkMoveOpen(true)
+                }}
+              >
+                <FolderInput size={16} style={{ marginInlineEnd: 10 }} />
+                Move selected
+              </MenuItem>
+              <MenuItem disabled={!canBulkDuplicate || mutating} onClick={() => void duplicateSelected()}>
+                <Copy size={16} style={{ marginInlineEnd: 10 }} />
+                Duplicate selected
+              </MenuItem>
+              <MenuItem
+                disabled={!selectedArticles.length || selectedCategories.length > 0 || !canDeleteArticle}
                 onClick={() => {
                   setBulkMenuAnchor(null)
                   setBulkDeleteOpen(true)
@@ -1189,6 +1278,7 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
                 onClick={() => {
                   setBulkMenuAnchor(null)
                   setSelectedArticleIds(new Set())
+                  setSelectedCategoryIds(new Set())
                 }}
               >
                 Clear selection
@@ -1212,24 +1302,24 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
               sx={{ flex: '1 1 240px', minInlineSize: 180, maxInlineSize: 480 }}
             />
 
-            <CustomTextField
+            <KbTableFilter
               select
               value={activeFilter}
               onChange={event => applyFilter(event.target.value as DashboardArticleFilter)}
               slotProps={{ htmlInput: { 'aria-label': 'Filter by article status' } }}
-              sx={{ display: { xs: 'none', sm: 'block' }, minInlineSize: 160 }}
+              sx={{ display: { xs: 'none', sm: 'block' }, inlineSize: 160 }}
             >
               {filterOptions.map(option => (
                 <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
               ))}
-            </CustomTextField>
+            </KbTableFilter>
 
-            <CustomTextField
+            <KbTableFilter
               select
               value={categoryId}
               onChange={event => selectCategory(event.target.value)}
               slotProps={{ htmlInput: { 'aria-label': 'Filter by category' } }}
-              sx={{ display: { xs: 'none', xl: 'block' }, minInlineSize: 175 }}
+              sx={{ display: { xs: 'none', xl: 'block' }, inlineSize: 175 }}
             >
               <MenuItem value=''>All categories</MenuItem>
               {categoryOptions.map(category => (
@@ -1237,24 +1327,25 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
                   {`${'— '.repeat(category.depth)}${category.name}`}
                 </MenuItem>
               ))}
-            </CustomTextField>
+            </KbTableFilter>
 
-            <CustomTextField
+            <KbTableFilter
               select
               value={sort}
               onChange={event => {
                 setContentLoading(true)
                 setPage(0)
                 setSelectedArticleIds(new Set())
+                setSelectedCategoryIds(new Set())
                 setSort(event.target.value as DashboardSort)
               }}
               slotProps={{ htmlInput: { 'aria-label': 'Sort content' } }}
-              sx={{ minInlineSize: 150 }}
+              sx={{ inlineSize: 150 }}
             >
               {sortOptions.map(option => (
                 <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
               ))}
-            </CustomTextField>
+            </KbTableFilter>
 
             <ButtonGroup size='small' variant='outlined' aria-label='Dashboard view'>
               <Tooltip title='List view'>
@@ -1349,8 +1440,13 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
                   <TableBody>
                     {items.map(item => {
                       const isArticle = item.kind === 'article'
-                      const selectable = isArticle && canDeleteArticle && item.article.status !== 'Archived'
-                      const selected = isArticle && selectedArticleIds.has(item.article.articleId)
+                      const selectable = isArticle
+                        ? selectableArticles.some(article => article.articleId === item.article.articleId)
+                        : canManageCategories
+                      const selected = isArticle
+                        ? selectedArticleIds.has(item.article.articleId)
+                        : selectedCategoryIds.has(item.category.id)
+                      const label = isArticle ? item.article.title : item.category.name
 
                       return (
                         <TableRow
@@ -1390,16 +1486,16 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
                           <TableCell padding='checkbox'>
                             <Stack direction='row' spacing={0.25} sx={{ alignItems: 'center' }}>
                               {dragHandle(item)}
-                              {isArticle ? (
-                                <Checkbox
-                                  size='small'
-                                  checked={selected}
-                                  disabled={!selectable}
-                                  onChange={() => toggleArticle(item.article.articleId)}
-                                  onClick={stopRowAction}
-                                  slotProps={{ input: { 'aria-label': `Select ${item.article.title}` } }}
-                                />
-                              ) : <Box sx={{ inlineSize: 34 }} />}
+                              <Checkbox
+                                size='small'
+                                checked={selected}
+                                disabled={!selectable}
+                                onChange={() => item.kind === 'article'
+                                  ? toggleArticle(item.article.articleId)
+                                  : toggleCategory(item.category.id)}
+                                onClick={stopRowAction}
+                                slotProps={{ input: { 'aria-label': `Select ${label}` } }}
+                              />
                             </Stack>
                           </TableCell>
                           <TableCell sx={{ py: 1.5 }}>
@@ -1456,8 +1552,13 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
               >
                 {items.map(item => {
                   const isArticle = item.kind === 'article'
-                  const selectable = isArticle && canDeleteArticle && item.article.status !== 'Archived'
-                  const selected = isArticle && selectedArticleIds.has(item.article.articleId)
+                  const selectable = isArticle
+                    ? selectableArticles.some(article => article.articleId === item.article.articleId)
+                    : canManageCategories
+                  const selected = isArticle
+                    ? selectedArticleIds.has(item.article.articleId)
+                    : selectedCategoryIds.has(item.category.id)
+                  const label = isArticle ? item.article.title : item.category.name
 
                   return (
                     <Box
@@ -1503,17 +1604,17 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
                       <Stack direction='row' sx={{ alignItems: 'flex-start', justifyContent: 'space-between', mb: 2 }}>
                         <Stack direction='row' spacing={0.25} sx={{ alignItems: 'center' }}>
                           {dragHandle(item)}
-                          {isArticle ? (
-                            <Checkbox
-                              size='small'
-                              checked={selected}
-                              disabled={!selectable}
-                              onChange={() => toggleArticle(item.article.articleId)}
-                              onClick={stopRowAction}
-                              slotProps={{ input: { 'aria-label': `Select ${item.article.title}` } }}
-                              sx={{ p: 0.5, ml: -0.5 }}
-                            />
-                          ) : <Box />}
+                          <Checkbox
+                            size='small'
+                            checked={selected}
+                            disabled={!selectable}
+                            onChange={() => item.kind === 'article'
+                              ? toggleArticle(item.article.articleId)
+                              : toggleCategory(item.category.id)}
+                            onClick={stopRowAction}
+                            slotProps={{ input: { 'aria-label': `Select ${label}` } }}
+                            sx={{ p: 0.5, ml: -0.5 }}
+                          />
                         </Stack>
                         {item.kind === 'category'
                           ? item.category.status === 'Archived' && <StatusChip label='Archived' color='secondary' />
@@ -1550,11 +1651,13 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
                   onPageChange={(_, nextPage) => {
                     setContentLoading(true)
                     setSelectedArticleIds(new Set())
+                    setSelectedCategoryIds(new Set())
                     setPage(nextPage)
                   }}
                   onRowsPerPageChange={event => {
                     setContentLoading(true)
                     setSelectedArticleIds(new Set())
+                    setSelectedCategoryIds(new Set())
                     setPage(0)
                     setPageSize(Number(event.target.value))
                   }}
@@ -1626,6 +1729,42 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
         onClose={() => { if (!mutating) setBulkDeleteOpen(false) }}
         onConfirm={() => void confirmBulkDelete()}
       />
+      <KbFormDialog
+        open={bulkMoveOpen}
+        title='Move selected items'
+        description='Selected categories keep their child hierarchy. A category cannot be moved into itself or one of its descendants.'
+        submitLabel='Move selected'
+        submitting={mutating}
+        submitDisabled={!bulkDestinationCategoryId}
+        onClose={() => {
+          if (!mutating) {
+            setBulkMoveOpen(false)
+            setBulkDestinationCategoryId('')
+          }
+        }}
+        onSubmit={() => void moveSelected()}
+      >
+        <Stack spacing={2}>
+          <Typography variant='body2' color='text.secondary'>
+            {selectedCount} item{selectedCount === 1 ? '' : 's'} selected
+          </Typography>
+          <CustomTextField
+            select
+            label='Destination category'
+            value={bulkDestinationCategoryId}
+            onChange={event => setBulkDestinationCategoryId(event.target.value)}
+            fullWidth
+            required
+          >
+            <MenuItem value='' disabled>Select a category</MenuItem>
+            {bulkDestinationOptions.map(category => (
+              <MenuItem key={category.id} value={category.id}>
+                {`${'— '.repeat(category.depth)}${category.name}`}
+              </MenuItem>
+            ))}
+          </CustomTextField>
+        </Stack>
+      </KbFormDialog>
     </>
   )
 }

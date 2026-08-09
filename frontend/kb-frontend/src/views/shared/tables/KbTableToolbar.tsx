@@ -69,28 +69,34 @@ export const KbTableToolbar = ({
     <Box
       sx={theme => ({
         display: 'flex',
-        flexDirection: { xs: 'column', lg: 'row' },
-        alignItems: { lg: 'center' },
+        flexDirection: { xs: 'column', md: 'row' },
+        alignItems: { md: 'center' },
         justifyContent: 'space-between',
-        gap: 3,
+        gap: 1.5,
         borderBlockEnd: `1px solid ${theme.palette.divider}`,
-        p: { xs: 4, md: 5 },
+        px: { xs: 2, md: 2.5 },
+        py: 1.5,
         bgcolor: 'background.paper'
       })}
     >
-      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ flex: 1, minInlineSize: 0 }}>
+      <Stack
+        direction='row'
+        spacing={1}
+        useFlexGap
+        sx={{ flex: 1, minInlineSize: 0, alignItems: 'center', flexWrap: 'wrap' }}
+      >
         {searchSlot ??
           (typeof searchValue !== 'undefined' && onSearchChange ? (
             <CustomTextField
               value={searchValue}
               onChange={event => onSearchChange(event.target.value)}
               placeholder={searchPlaceholder}
-              sx={{ inlineSize: { xs: '100%', md: 360 }, maxInlineSize: '100%' }}
+              sx={{ flex: '1 1 220px', inlineSize: { xs: '100%', sm: 280 }, maxInlineSize: 340 }}
               slotProps={{
                 input: {
                   startAdornment: (
                     <InputAdornment position='start'>
-                      <Search size={18} />
+                        <Search size={16} />
                     </InputAdornment>
                   )
                 }
@@ -100,7 +106,7 @@ export const KbTableToolbar = ({
         {filters}
       </Stack>
 
-      <Stack direction='row' spacing={2} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
+      <Stack direction='row' spacing={1} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
         {selectedCount > 0 && (
           <Typography variant='body2' color='text.secondary'>
             {selectedCount} selected
@@ -108,7 +114,7 @@ export const KbTableToolbar = ({
         )}
         {hideableColumns.length > 0 && onVisibleColumnIdsChange && (
           <>
-            <Button variant='outlined' color='secondary' startIcon={<Columns3 size={18} />} onClick={openColumnMenu}>
+            <Button size='small' variant='outlined' color='secondary' startIcon={<Columns3 size={16} />} onClick={openColumnMenu}>
               Columns
             </Button>
             <Menu

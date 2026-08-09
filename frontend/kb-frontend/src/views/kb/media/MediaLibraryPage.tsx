@@ -29,12 +29,12 @@ import type { MediaLibraryApi } from '@/lib/api/mediaApi'
 import { hasAccessToken, isAuthenticationError } from '@/lib/api/http'
 import { useAccessToken } from '@/lib/auth/accessTokenContext'
 import { describeMediaApiError, mediaLibraryApi } from '@/lib/api/mediaApi'
-import CustomTextField from '@core/components/mui/TextField'
 import { KbPageShell } from '@/views/shared'
 import KbConfirmDialog from '@/views/shared/dialogs/KbConfirmDialog'
 import KbValidationSummary from '@/views/shared/forms/KbValidationSummary'
 import KbDataTable from '@/views/shared/tables/KbDataTable'
 import KbTableToolbar from '@/views/shared/tables/KbTableToolbar'
+import KbTableFilter from '@/views/shared/tables/KbTableFilter'
 import PageHeader from '../shared/components/PageHeader'
 import StatusChip from '../shared/components/StatusChip'
 import MediaPreview from './MediaPreview'
@@ -527,15 +527,15 @@ const MediaLibraryPage = ({
             searchPlaceholder='Search by filename'
             filters={
               <>
-                <CustomTextField
+                <KbTableFilter
                   select
-                  label='Media type'
                   value={mediaType}
                   onChange={event => {
                     setMediaType(event.target.value as MediaKind | '')
                     setPage(0)
                   }}
-                  sx={{ minInlineSize: { xs: '100%', sm: 170 } }}
+                  slotProps={{ htmlInput: { 'aria-label': 'Filter by media type' } }}
+                  sx={{ inlineSize: { xs: '100%', sm: 164 } }}
                 >
                   <MenuItem value=''>All media types</MenuItem>
                   {MEDIA_KIND_OPTIONS.map(option => (
@@ -543,16 +543,16 @@ const MediaLibraryPage = ({
                       {option.label}
                     </MenuItem>
                   ))}
-                </CustomTextField>
-                <CustomTextField
+                </KbTableFilter>
+                <KbTableFilter
                   select
-                  label='Status'
                   value={status}
                   onChange={event => {
                     setStatus(event.target.value as MediaStatus | '')
                     setPage(0)
                   }}
-                  sx={{ minInlineSize: { xs: '100%', sm: 150 } }}
+                  slotProps={{ htmlInput: { 'aria-label': 'Filter by status' } }}
+                  sx={{ inlineSize: { xs: '100%', sm: 150 } }}
                 >
                   <MenuItem value=''>All statuses</MenuItem>
                   {statusOptions.map(option => (
@@ -560,7 +560,7 @@ const MediaLibraryPage = ({
                       {option.label}
                     </MenuItem>
                   ))}
-                </CustomTextField>
+                </KbTableFilter>
               </>
             }
           />

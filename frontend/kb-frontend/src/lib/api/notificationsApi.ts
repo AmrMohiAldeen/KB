@@ -6,7 +6,7 @@ import type {
   NotificationResponse,
   UnreadNotificationCountResponse
 } from '@/types/apps/notificationTypes'
-import { apiRequest } from './http'
+import { ApiError, apiRequest, describeApiError } from './http'
 
 export type NotificationsApi = {
   list: (page: number, pageSize: number, accessToken: string, signal?: AbortSignal) =>
@@ -50,3 +50,13 @@ export const setArticleNotificationPreference = (
 
 export const getNotificationRecipients = (accessToken: string, signal?: AbortSignal) =>
   apiRequest<NotificationRecipientResponse[]>('/api/notifications/recipients', accessToken, { signal })
+
+export const describeNotificationApiError = (error: unknown): string[] => {
+  if (error instanceof ApiError && error.status >= 500) {
+    const message = 'The server could not complete the notification request. Try again later.'
+
+    return [error.problem?.traceId ? `${message} (Reference: ${error.problem.traceId})` : message]
+  }
+
+  return describeApiError(error)
+}

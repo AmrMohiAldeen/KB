@@ -5,6 +5,7 @@ public static class ContractLimits
     public const int MaxPermissionCodes = 100;
     public const int MaxNotificationIds = 100;
     public const int MaxAdditionalNotificationRecipients = 100;
+    public const int MaxDashboardBulkItems = 100;
     public const int MaxTiptapJsonBytes = 2 * 1024 * 1024;
     public const int MaxCommentLength = 20_000;
     public const int MaxReviewCommentLength = 10_000;

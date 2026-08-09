@@ -66,3 +66,15 @@ export type DashboardItemsResponse = Omit<DashboardResult, 'items' | 'filterCoun
   items: DashboardItemResponse[]
   filterCounts: DashboardFilterCountsResponse
 }
+
+export type DashboardBulkSelection = {
+  articleIds: string[]
+  categoryIds: string[]
+}
+
+export type DashboardBulkActionResponse = {
+  articleCount: number
+  categoryCount: number
+  articleIds: string[]
+  categoryIds: string[]
+}

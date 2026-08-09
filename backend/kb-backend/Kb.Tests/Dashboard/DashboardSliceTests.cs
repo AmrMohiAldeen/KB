@@ -3,14 +3,19 @@ using Kb.Api.Controllers;
 using Kb.Application.Abstractions;
 using Kb.Application.Authorization;
 using Kb.Application.Dashboard;
+using Kb.Application.Categories;
 using Kb.Application.Exceptions;
 using Kb.Domain.Constants;
 using Kb.Infrastructure.Dashboard;
+using Kb.Infrastructure.Authorization;
+using Kb.Infrastructure.Categories;
 using Kb.Infrastructure.Data;
 using Kb.Infrastructure.Data.Entities;
 using Microsoft.Data.Sqlite;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
+using Kb.Infrastructure.Services;
 
 namespace Kb.Tests.Dashboard;
 
@@ -107,19 +112,80 @@ public sealed class DashboardSliceTests
         Assert.Equal(PermissionPolicy.For(PermissionCodes.ArticlesEditAnyDraft), article!.Policy);
     }
 
+    [Fact]
+    public async Task Bulk_category_move_enforces_permission_in_the_application_layer()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var child = await fixture.Context.Categories.SingleAsync(category => category.Name == "Child");
+        var destination = await fixture.Context.Categories.SingleAsync(category => category.Name == "Other");
+
+        await Assert.ThrowsAsync<ForbiddenException>(() => fixture.CreateBulkService().MoveAsync(
+            [], [child.CategoryId], destination.CategoryId, default));
+    }
+
+    [Fact]
+    public async Task Bulk_category_move_preserves_selected_descendants_and_rejects_cycles()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.GrantAsync(PermissionCodes.CategoriesManage);
+        var root = await fixture.Context.Categories.SingleAsync(category => category.Name == "Root");
+        var child = await fixture.Context.Categories.SingleAsync(category => category.Name == "Child");
+        var grandchild = await fixture.Context.Categories.SingleAsync(category => category.Name == "Grandchild");
+        var destination = await fixture.Context.Categories.SingleAsync(category => category.Name == "Other");
+        root.Path = $"/{root.CategoryId:D}/";
+        child.Path = $"{root.Path}{child.CategoryId:D}/";
+        grandchild.Path = $"{child.Path}{grandchild.CategoryId:D}/";
+        destination.Path = $"/{destination.CategoryId:D}/";
+        await fixture.Context.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<ConflictException>(() => fixture.CreateBulkService().MoveAsync(
+            [], [root.CategoryId], grandchild.CategoryId, default));
+
+        var result = await fixture.CreateBulkService().MoveAsync(
+            [], [child.CategoryId, grandchild.CategoryId], destination.CategoryId, default);
+        fixture.Context.ChangeTracker.Clear();
+
+        Assert.Equal([child.CategoryId], result.CategoryIds);
+        var movedChild = await fixture.Context.Categories.SingleAsync(value => value.CategoryId == child.CategoryId);
+        var movedGrandchild = await fixture.Context.Categories.SingleAsync(value => value.CategoryId == grandchild.CategoryId);
+        Assert.Equal(destination.CategoryId, movedChild.ParentCategoryIdFk);
+        Assert.Equal(child.CategoryId, movedGrandchild.ParentCategoryIdFk);
+        Assert.StartsWith(movedChild.Path, movedGrandchild.Path);
+    }
+
     private sealed class Fixture : IAsyncDisposable
     {
         private readonly SqliteConnection connection;
         public KbDbContext Context { get; }
         public DashboardService Service { get; }
         public Guid RootCategoryId { get; }
+        public Guid UserId { get; }
 
         private Fixture(SqliteConnection connection, KbDbContext context, Guid rootCategoryId, Guid userId)
         {
             this.connection = connection;
             Context = context;
             RootCategoryId = rootCategoryId;
+            UserId = userId;
             Service = new DashboardService(new DashboardRepository(context), new CurrentUser(userId), TimeProvider.System);
+        }
+
+        public DashboardBulkService CreateBulkService()
+        {
+            var current = new CurrentUser(UserId);
+            var categoryService = new CategoryService(new CategoryRepository(Context), new SlugGenerator(),
+                current, TimeProvider.System, NullLogger<CategoryService>.Instance);
+            return new DashboardBulkService(new DashboardRepository(Context), categoryService, null!, null!,
+                current, new DatabasePermissionChecker(Context), TimeProvider.System);
+        }
+
+        public async Task GrantAsync(string permission)
+        {
+            var roleId = Guid.NewGuid();
+            Context.Roles.Add(new Role { RoleId = roleId, RoleName = $"Bulk {permission}" });
+            Context.RolePermissions.Add(new RolePermission { RoleIdFk = roleId, PermissionCode = permission });
+            Context.UserRoles.Add(new UserRole { UserId = UserId, RoleId = roleId, AssignedAt = DateTime.UtcNow });
+            await Context.SaveChangesAsync();
         }
 
         public static async Task<Fixture> CreateAsync()

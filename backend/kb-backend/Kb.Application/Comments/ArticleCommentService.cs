@@ -16,10 +16,11 @@ public sealed class ArticleCommentService(
     public async Task<ArticleCommentListData> ListAsync(Guid articleId, CancellationToken cancellationToken)
     {
         var actorId = RequireUser();
-        await RequireArticleAsync(articleId, cancellationToken);
+        var article = await RequireArticleAsync(articleId, cancellationToken);
         var permissions = await GetPermissionsAsync(actorId, cancellationToken);
+        var active = article.Status != ArticleStatuses.Archived;
         return new(await repository.ListAsync(articleId, cancellationToken),
-            permissions.CanComment, permissions.CanModerate, actorId);
+            active && permissions.CanComment, active && permissions.CanModerate, actorId);
     }
 
     public async Task<ArticleCommentData> CreateAsync(
@@ -29,7 +30,7 @@ public sealed class ArticleCommentService(
     {
         var actorId = RequireUser();
         await RequireCommentPermissionAsync(actorId, cancellationToken);
-        var article = await RequireArticleAsync(articleId, cancellationToken);
+        var article = await RequireActiveArticleAsync(articleId, cancellationToken);
         var body = NormalizeBody(command.Body);
         ValidateAnchor(article, command.CurrentDraftId, command.AnchorType, command.AnchorData);
         var anchorJson = command.AnchorData?.GetRawText();
@@ -54,7 +55,7 @@ public sealed class ArticleCommentService(
     {
         var actorId = RequireUser();
         await RequireCommentPermissionAsync(actorId, cancellationToken);
-        await RequireArticleAsync(articleId, cancellationToken);
+        await RequireActiveArticleAsync(articleId, cancellationToken);
         var thread = await RequireCommentAsync(articleId, threadId, cancellationToken);
         if (thread.ParentCommentId is not null)
             throw new BusinessRuleException("Replies must be added to the root comment thread.");
@@ -187,9 +188,19 @@ public sealed class ArticleCommentService(
         CancellationToken cancellationToken)
     {
         if (commentId == Guid.Empty) throw new BusinessRuleException("Comment ID is required.");
-        await RequireArticleAsync(articleId, cancellationToken);
+        await RequireActiveArticleAsync(articleId, cancellationToken);
         return await repository.GetAsync(articleId, commentId, cancellationToken)
                ?? throw new NotFoundException("The comment was not found.");
+    }
+
+    private async Task<ArticleCommentContextData> RequireActiveArticleAsync(
+        Guid articleId,
+        CancellationToken cancellationToken)
+    {
+        var article = await RequireArticleAsync(articleId, cancellationToken);
+        if (article.Status == ArticleStatuses.Archived)
+            throw new ConflictException("Archived article comments are read-only until the article is restored.");
+        return article;
     }
 
     private async Task RequireCommentPermissionAsync(Guid actorId, CancellationToken cancellationToken)

@@ -12,7 +12,7 @@ namespace Kb.Api.Controllers;
 [ApiController]
 [Authorize]
 [Route("api/dashboard")]
-public sealed class DashboardController(DashboardService dashboard) : ControllerBase
+public sealed class DashboardController(DashboardService dashboard, DashboardBulkService bulkActions) : ControllerBase
 {
     private const string ManageCategoriesPolicy = PermissionPolicy.Prefix + PermissionCodes.CategoriesManage;
     private const string ReorderArticlesPolicy = PermissionPolicy.Prefix + PermissionCodes.ArticlesEditAnyDraft;
@@ -72,6 +72,37 @@ public sealed class DashboardController(DashboardService dashboard) : Controller
     {
         await dashboard.ReorderArticleAsync(id, request.TargetId, request.Placement, cancellationToken);
         return NoContent();
+    }
+
+    [HttpPost("bulk/move")]
+    [ProducesResponseType<DashboardBulkActionResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<DashboardBulkActionResponse>> MoveBulk(
+        DashboardBulkMoveRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await bulkActions.MoveAsync(
+            request.ArticleIds, request.CategoryIds, request.DestinationCategoryId, cancellationToken);
+        return Ok(new DashboardBulkActionResponse(
+            result.ArticleIds.Count, result.CategoryIds.Count, result.ArticleIds, result.CategoryIds));
+    }
+
+    [HttpPost("bulk/duplicate")]
+    [ProducesResponseType<DashboardBulkActionResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<DashboardBulkActionResponse>> DuplicateBulk(
+        DashboardBulkDuplicateRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await bulkActions.DuplicateAsync(request.ArticleIds, request.CategoryIds, cancellationToken);
+        return Ok(new DashboardBulkActionResponse(
+            result.ArticleIds.Count, result.CategoryIds.Count, result.ArticleIds, result.CategoryIds));
     }
 
     private static DashboardItemResponse ToResponse(DashboardItemData item) => new(

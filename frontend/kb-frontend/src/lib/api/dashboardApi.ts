@@ -1,6 +1,8 @@
 import { ApiError, apiRequest } from './http'
 import type {
   DashboardArticleFilter,
+  DashboardBulkActionResponse,
+  DashboardBulkSelection,
   DashboardItem,
   DashboardItemsResponse,
   DashboardPermissionContext,
@@ -116,3 +118,20 @@ export const reorderDashboardItem = ({
     body: JSON.stringify({ targetId, placement })
   }
 )
+
+export const moveDashboardItems = (
+  selection: DashboardBulkSelection,
+  destinationCategoryId: string,
+  accessToken: string
+) => apiRequest<DashboardBulkActionResponse>('/api/dashboard/bulk/move', accessToken, {
+  method: 'POST',
+  body: JSON.stringify({ ...selection, destinationCategoryId })
+})
+
+export const duplicateDashboardItems = (
+  selection: DashboardBulkSelection,
+  accessToken: string
+) => apiRequest<DashboardBulkActionResponse>('/api/dashboard/bulk/duplicate', accessToken, {
+  method: 'POST',
+  body: JSON.stringify(selection)
+})

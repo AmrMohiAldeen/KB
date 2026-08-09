@@ -8,6 +8,7 @@ public sealed record CurrentDraftData(
     Guid DraftId,
     Guid ArticleId,
     Guid ArticleOwnerId,
+    string ArticleStatus,
     string ContentJsonPath,
     string? RenderedHtmlPath,
     string? PlainTextPath,

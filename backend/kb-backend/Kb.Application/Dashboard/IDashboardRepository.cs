@@ -8,4 +8,6 @@ public interface IDashboardRepository
         CancellationToken cancellationToken);
     Task ReorderArticleAsync(Guid id, Guid targetId, bool placeAfter, DashboardReorderAudit audit,
         CancellationToken cancellationToken);
+    Task MoveArticlesAsync(IReadOnlyCollection<Guid> articleIds, Guid destinationCategoryId,
+        DashboardReorderAudit audit, CancellationToken cancellationToken);
 }

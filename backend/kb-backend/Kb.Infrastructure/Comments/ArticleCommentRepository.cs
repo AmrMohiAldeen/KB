@@ -18,9 +18,9 @@ public sealed class ArticleCommentRepository(KbDbContext dbContext) : IArticleCo
             .Where(article =>
                 article.ArticleId == articleId &&
                 article.DeletedAt == null &&
-                article.Status != ArticleStatuses.Deleted &&
-                article.Status != ArticleStatuses.Archived)
-            .Select(article => new ArticleCommentContextData(article.ArticleId, article.CurrentDraftIdFk))
+                article.Status != ArticleStatuses.Deleted)
+            .Select(article => new ArticleCommentContextData(
+                article.ArticleId, article.CurrentDraftIdFk, article.Status))
             .SingleOrDefaultAsync(cancellationToken);
 
     public async Task<IReadOnlyList<ArticleCommentData>> ListAsync(

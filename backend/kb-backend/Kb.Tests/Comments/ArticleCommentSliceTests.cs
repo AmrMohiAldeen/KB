@@ -150,6 +150,28 @@ public sealed class ArticleCommentSliceTests
         Assert.Empty(listed.Comments);
     }
 
+    [Fact]
+    public async Task Archived_article_comments_remain_visible_but_are_read_only()
+    {
+        await using var f = await Fixture.CreateAsync();
+        f.Grant(f.AuthorId, PermissionCodes.CommentsCreate, PermissionCodes.CommentsModerate);
+        var comment = await f.Service.CreateAsync(
+            f.ArticleId, new("Preserve this comment", f.DraftId, null, null), default);
+        var article = await f.Context.Articles.SingleAsync(value => value.ArticleId == f.ArticleId);
+        article.Status = ArticleStatuses.Archived;
+        await f.Context.SaveChangesAsync();
+        f.Context.ChangeTracker.Clear();
+
+        var listed = await f.Service.ListAsync(f.ArticleId, default);
+
+        Assert.Equal(comment.CommentId, Assert.Single(listed.Comments).CommentId);
+        Assert.False(listed.CanComment);
+        Assert.False(listed.CanModerate);
+        await Assert.ThrowsAsync<ConflictException>(() => f.Service.CreateAsync(
+            f.ArticleId, new("Must restore first", null, null, null), default));
+        Assert.Single(await f.Context.ArticleComments.AsNoTracking().ToListAsync());
+    }
+
     private static JsonElement Json(string value)
     {
         using var document = JsonDocument.Parse(value);

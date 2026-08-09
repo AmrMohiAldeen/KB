@@ -19,8 +19,7 @@ import { Bell, Check, CheckCheck } from 'lucide-react'
 
 import { KbEmptyState, KbPageShell } from '@/views/shared'
 import PageHeader from '../shared/components/PageHeader'
-import { describeApiError } from '@/lib/api/http'
-import { notificationsApi } from '@/lib/api/notificationsApi'
+import { describeNotificationApiError, notificationsApi } from '@/lib/api/notificationsApi'
 import type { NotificationsApi } from '@/lib/api/notificationsApi'
 import type { NotificationResponse } from '@/types/apps/notificationTypes'
 
@@ -67,7 +66,7 @@ const NotificationsPage = ({ accessToken, api = notificationsApi }: Notification
       if (error instanceof DOMException && error.name === 'AbortError') return
       setItems([])
       setTotalCount(0)
-      setErrors(describeApiError(error))
+      setErrors(describeNotificationApiError(error))
     }).finally(() => {
       if (!controller.signal.aborted) setLoading(false)
     })
@@ -83,7 +82,7 @@ const NotificationsPage = ({ accessToken, api = notificationsApi }: Notification
       setItems(current => current.map(item => item.notificationId === updated.notificationId ? updated : item))
       setUnreadCount(current => Math.max(0, current - 1))
     } catch (error) {
-      setErrors(describeApiError(error))
+      setErrors(describeNotificationApiError(error))
     } finally {
       setMutatingId(undefined)
     }
@@ -99,7 +98,7 @@ const NotificationsPage = ({ accessToken, api = notificationsApi }: Notification
       setItems(current => current.map(item => ({ ...item, isRead: true, readAt: item.readAt ?? readAt })))
       setUnreadCount(result.unreadCount)
     } catch (error) {
-      setErrors(describeApiError(error))
+      setErrors(describeNotificationApiError(error))
     } finally {
       setMarkingAll(false)
     }

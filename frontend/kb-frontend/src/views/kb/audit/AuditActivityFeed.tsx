@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 // MUI Imports
 import Alert from '@mui/material/Alert'
 import AlertTitle from '@mui/material/AlertTitle'
+import InputAdornment from '@mui/material/InputAdornment'
 import MenuItem from '@mui/material/MenuItem'
 import Typography from '@mui/material/Typography'
 
@@ -14,11 +15,11 @@ import type { ArticleAuditLogResponse } from '@/types/apps/auditLogTypes'
 import type { KbDataTableColumn, KbDataTableSort } from '@/views/shared/tables/KbDataTable'
 
 // Component Imports
-import CustomTextField from '@core/components/mui/TextField'
 import { KbPageShell } from '@/views/shared'
 import KbValidationSummary from '@/views/shared/forms/KbValidationSummary'
 import KbDataTable from '@/views/shared/tables/KbDataTable'
 import KbTableToolbar from '@/views/shared/tables/KbTableToolbar'
+import KbTableFilter from '@/views/shared/tables/KbTableFilter'
 import PageHeader from '../shared/components/PageHeader'
 
 // API and Util Imports
@@ -249,25 +250,25 @@ const AuditActivityFeed = ({ accessToken: accessTokenOverride }: AuditActivityFe
             searchPlaceholder='Filter by article title or slug'
             filters={
               <>
-                <CustomTextField
-                  label='User'
+                <KbTableFilter
                   value={userFilter}
                   placeholder='Name or email'
                   onChange={event => {
                     setUserFilter(event.target.value)
                     resetPage()
                   }}
-                  sx={{ inlineSize: { xs: '100%', md: 190 } }}
+                  slotProps={{ htmlInput: { 'aria-label': 'Filter by user' } }}
+                  sx={{ inlineSize: { xs: '100%', sm: 180 } }}
                 />
-                <CustomTextField
+                <KbTableFilter
                   select
-                  label='Action'
                   value={actionFilter}
                   onChange={event => {
                     setActionFilter(event.target.value)
                     resetPage()
                   }}
-                  sx={{ inlineSize: { xs: '100%', md: 200 } }}
+                  slotProps={{ htmlInput: { 'aria-label': 'Filter by action' } }}
+                  sx={{ inlineSize: { xs: '100%', sm: 180 } }}
                 >
                   <MenuItem value=''>All actions</MenuItem>
                   {auditActionOptions.map(([value, label]) => (
@@ -275,26 +276,32 @@ const AuditActivityFeed = ({ accessToken: accessTokenOverride }: AuditActivityFe
                       {label}
                     </MenuItem>
                   ))}
-                </CustomTextField>
-                <CustomTextField
+                </KbTableFilter>
+                <KbTableFilter
                   type='datetime-local'
-                  label='From'
                   value={fromDate}
                   onChange={event => {
                     setFromDate(event.target.value)
                     resetPage()
                   }}
-                  sx={{ inlineSize: { xs: '100%', md: 205 } }}
+                  slotProps={{
+                    input: { startAdornment: <InputAdornment position='start'>From</InputAdornment> },
+                    htmlInput: { 'aria-label': 'Filter from date and time' }
+                  }}
+                  sx={{ inlineSize: { xs: '100%', sm: 190 } }}
                 />
-                <CustomTextField
+                <KbTableFilter
                   type='datetime-local'
-                  label='To'
                   value={toDate}
                   onChange={event => {
                     setToDate(event.target.value)
                     resetPage()
                   }}
-                  sx={{ inlineSize: { xs: '100%', md: 205 } }}
+                  slotProps={{
+                    input: { startAdornment: <InputAdornment position='start'>To</InputAdornment> },
+                    htmlInput: { 'aria-label': 'Filter to date and time' }
+                  }}
+                  sx={{ inlineSize: { xs: '100%', sm: 190 } }}
                 />
               </>
             }

@@ -18,11 +18,11 @@ import type { KbUserRole, UsersType } from '@/types/apps/userTypes'
 import type { KbDataTableColumn, KbDataTableSort } from '@/views/shared/tables/KbDataTable'
 
 // Component Imports
-import CustomTextField from '@core/components/mui/TextField'
 import { KbPageShell } from '@/views/shared'
 import KbUserDrawer from '@/views/shared/admin/KbUserDrawer'
 import KbDataTable from '@/views/shared/tables/KbDataTable'
 import KbTableToolbar from '@/views/shared/tables/KbTableToolbar'
+import KbTableFilter from '@/views/shared/tables/KbTableFilter'
 import PageHeader from '../shared/components/PageHeader'
 import StatusChip from '../shared/components/StatusChip'
 
@@ -132,19 +132,19 @@ const UsersManagementPage = () => {
             searchPlaceholder='Search users'
             selectedCount={selectedRows.length}
             filters={
-              <CustomTextField
+              <KbTableFilter
                 select
-                label='Role'
                 value={roleFilter}
                 onChange={event => setRoleFilter(event.target.value as KbUserRole | 'all')}
-                sx={{ inlineSize: { xs: '100%', md: 180 } }}
+                slotProps={{ htmlInput: { 'aria-label': 'Filter by role' } }}
+                sx={{ inlineSize: { xs: '100%', sm: 164 } }}
               >
                 {roleOptions.map(option => (
                   <MenuItem key={option} value={option}>
                     {option === 'all' ? 'All roles' : roleLabels[option]}
                   </MenuItem>
                 ))}
-              </CustomTextField>
+              </KbTableFilter>
             }
           />
         }

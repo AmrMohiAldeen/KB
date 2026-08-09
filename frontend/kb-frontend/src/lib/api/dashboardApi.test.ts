@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { getDashboardItems, reorderDashboardItem } from './dashboardApi'
+import {
+  duplicateDashboardItems,
+  getDashboardItems,
+  moveDashboardItems,
+  reorderDashboardItem
+} from './dashboardApi'
 
 describe('dashboard API', () => {
   beforeEach(() => {
@@ -110,6 +115,32 @@ describe('dashboard API', () => {
     expect(fetchMock.mock.calls[0][1]).toMatchObject({
       method: 'PATCH',
       body: JSON.stringify({ targetId: 'target-id', placement: 'after' })
+    })
+  })
+
+  it('sends mixed bulk move and duplicate selections to backend-authorized endpoints', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      articleCount: 1,
+      categoryCount: 1,
+      articleIds: ['article-id'],
+      categoryIds: ['category-id']
+    }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    const selection = { articleIds: ['article-id'], categoryIds: ['category-id'] }
+
+    await moveDashboardItems(selection, 'destination-id', 'token')
+    await duplicateDashboardItems(selection, 'token')
+
+    expect(fetchMock.mock.calls.map(call => String(call[0]))).toEqual([
+      'https://api.example.test/api/dashboard/bulk/move',
+      'https://api.example.test/api/dashboard/bulk/duplicate'
+    ])
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: 'POST',
+      body: JSON.stringify({ ...selection, destinationCategoryId: 'destination-id' })
+    })
+    expect(fetchMock.mock.calls[1][1]).toMatchObject({
+      method: 'POST',
+      body: JSON.stringify(selection)
     })
   })
 })

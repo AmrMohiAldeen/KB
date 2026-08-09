@@ -17,6 +17,7 @@ public sealed class ArticleDraftRepository(KbDbContext dbContext) : IArticleDraf
                 draft.DraftId,
                 draft.ArticleIdFk,
                 draft.ArticleIdFkNavigation.AuthorIdFk,
+                draft.ArticleIdFkNavigation.Status,
                 draft.ContentJsonStoragePath,
                 draft.RenderedHtmlStoragePath,
                 draft.PlainTextStoragePath,
@@ -257,8 +258,7 @@ public sealed class ArticleDraftRepository(KbDbContext dbContext) : IArticleDraf
         .Where(draft =>
             draft.ArticleIdFkNavigation.CurrentDraftIdFk == draft.DraftId &&
             draft.ArticleIdFkNavigation.DeletedAt == null &&
-            draft.ArticleIdFkNavigation.Status != ArticleStatuses.Deleted &&
-            draft.ArticleIdFkNavigation.Status != ArticleStatuses.Archived);
+            draft.ArticleIdFkNavigation.Status != ArticleStatuses.Deleted);
 
     private void AddAudit(Guid articleId, Guid draftId, DraftAuditData audit) =>
         dbContext.ArticleAuditLogs.Add(new ArticleAuditLog

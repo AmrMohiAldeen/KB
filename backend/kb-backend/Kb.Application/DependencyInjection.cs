@@ -24,6 +24,7 @@ public static class DependencyInjection
         services.AddScoped<ArticleLifecycleService>();
         services.AddScoped<ArticleCommentService>();
         services.AddScoped<DashboardService>();
+        services.AddScoped<DashboardBulkService>();
         services.AddScoped<HelpJuiceMigrationService>();
         services.AddScoped<NotificationService>();
         return services;

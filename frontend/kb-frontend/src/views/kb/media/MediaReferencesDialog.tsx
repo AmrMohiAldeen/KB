@@ -35,7 +35,7 @@ const contextLabel = (reference: MediaReferenceDetailsResponse) => {
 }
 
 const referenceUrl = (reference: MediaReferenceDetailsResponse, lang: string) => {
-  if (!reference.articleId || reference.articleStatus === 'Archived' || reference.articleStatus === 'Deleted')
+  if (!reference.articleId || reference.articleStatus === 'Deleted')
     return null
   if (reference.referenceEntityType === 'Version')
     return getLocalizedUrl(
@@ -124,12 +124,16 @@ export default function MediaReferencesDialog({
             return (
               <Stack key={group.key} spacing={1} sx={{ borderBottom: 1, borderColor: 'divider', pb: 2 }}>
                 <Stack direction='row' spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
-                  <Typography sx={{ fontWeight: 700 }}>{group.articleTitle}</Typography>
-                  {destination && (
-                    <Link href={destination} className='text-sm font-medium text-primary hover:underline'>
-                      Open article
-                    </Link>
-                  )}
+                  {destination ? (
+                    <Typography
+                      component={Link}
+                      href={destination}
+                      color='primary'
+                      sx={{ fontWeight: 700, textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}
+                    >
+                      {group.articleTitle}
+                    </Typography>
+                  ) : <Typography sx={{ fontWeight: 700 }}>{group.articleTitle}</Typography>}
                 </Stack>
                 {group.articleStatus && (
                   <Typography variant='caption' color='text.secondary'>Status: {group.articleStatus}</Typography>

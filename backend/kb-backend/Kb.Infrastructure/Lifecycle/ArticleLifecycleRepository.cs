@@ -65,8 +65,7 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
         dbContext.ArticleVersions.AsNoTracking()
             .Where(version => version.ArticleIdFk == articleId && version.VersionId == versionId &&
                               version.ArticleIdFkNavigation.DeletedAt == null &&
-                              version.ArticleIdFkNavigation.Status != ArticleStatuses.Deleted &&
-                              version.ArticleIdFkNavigation.Status != ArticleStatuses.Archived)
+                              version.ArticleIdFkNavigation.Status != ArticleStatuses.Deleted)
             .Select(version => new LifecycleVersionData(
                 version.VersionId,
                 version.ArticleIdFk,
@@ -87,7 +86,7 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
         int pageSize,
         CancellationToken cancellationToken)
     {
-        var source = ActiveVersions(articleId);
+        var source = ExistingVersions(articleId);
         var totalCount = await source.LongCountAsync(cancellationToken);
         var skip = (int)Math.Min((long)(page - 1) * pageSize, int.MaxValue);
         var items = await source
@@ -104,7 +103,7 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
         Guid articleId,
         Guid versionId,
         CancellationToken cancellationToken) =>
-        ActiveVersions(articleId)
+        ExistingVersions(articleId)
             .Where(version => version.VersionId == versionId)
             .Select(VersionSummaryProjection)
             .SingleOrDefaultAsync(cancellationToken);
@@ -116,7 +115,6 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
             .Where(article => article.ArticleId == articleId &&
                               article.DeletedAt == null &&
                               article.Status != ArticleStatuses.Deleted &&
-                              article.Status != ArticleStatuses.Archived &&
                               article.LastPublishedVersionIdFk != null)
             .Select(article => article.LastPublishedVersionIdFkNavigation!)
             .Select(VersionSummaryProjection)
@@ -128,8 +126,7 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
         await dbContext.ArticleReviewEvents.AsNoTracking()
             .Where(review => review.ArticleIdFk == articleId &&
                              review.ArticleIdFkNavigation.DeletedAt == null &&
-                             review.ArticleIdFkNavigation.Status != ArticleStatuses.Deleted &&
-                             review.ArticleIdFkNavigation.Status != ArticleStatuses.Archived)
+                             review.ArticleIdFkNavigation.Status != ArticleStatuses.Deleted)
             .OrderByDescending(review => review.CreatedAt)
             .ThenByDescending(review => review.ReviewEventId)
             .Select(review => new LifecycleReviewEventData(
@@ -567,12 +564,11 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
 
     private Guid NewId() => dbContext.Database.IsSqlServer() ? Guid.Empty : Guid.NewGuid();
 
-    private IQueryable<ArticleVersion> ActiveVersions(Guid articleId) =>
+    private IQueryable<ArticleVersion> ExistingVersions(Guid articleId) =>
         dbContext.ArticleVersions.AsNoTracking()
             .Where(version => version.ArticleIdFk == articleId &&
                               version.ArticleIdFkNavigation.DeletedAt == null &&
-                              version.ArticleIdFkNavigation.Status != ArticleStatuses.Deleted &&
-                              version.ArticleIdFkNavigation.Status != ArticleStatuses.Archived);
+                              version.ArticleIdFkNavigation.Status != ArticleStatuses.Deleted);
 
     private static void EnsureUnlocked(ArticleDraft draft)
     {

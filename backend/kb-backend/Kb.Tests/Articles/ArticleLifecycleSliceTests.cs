@@ -449,6 +449,63 @@ public sealed class ArticleLifecycleSliceTests
     }
 
     [Fact]
+    public async Task Archived_article_keeps_its_current_draft_and_lifecycle_reads_remain_available()
+    {
+        await using var f = await Fixture.CreatePublishedAsync();
+        f.Grant(f.PublisherId,
+            PermissionCodes.ArticlesDelete,
+            PermissionCodes.ArticlesEditAnyDraft,
+            PermissionCodes.ArticlesPublish,
+            PermissionCodes.VersionsView);
+        var before = await f.Context.Articles.AsNoTracking().SingleAsync();
+
+        await f.Service.ArchiveAsync(f.ArticleId, f.RowVersion, default);
+
+        var after = await f.Context.Articles.AsNoTracking().SingleAsync();
+        Assert.Equal(before.CurrentDraftIdFk, after.CurrentDraftIdFk);
+        Assert.Equal(before.LastPublishedVersionIdFk, after.LastPublishedVersionIdFk);
+        var draft = await f.CreateDraftService().GetAsync(f.ArticleId, default);
+        Assert.Equal(f.DraftId, draft.Draft.DraftId);
+        Assert.Equal(ArticleStatuses.Archived, draft.Draft.ArticleStatus);
+        Assert.Equal(ArticleStatuses.Published, draft.Draft.Status);
+        Assert.False(draft.CanEdit);
+
+        var permissions = await f.Service.GetPermissionsAsync(f.ArticleId, default);
+        Assert.True(permissions.CanViewVersionHistory);
+        Assert.False(permissions.CanEdit);
+        Assert.False(permissions.CanPublish);
+        Assert.False(permissions.CanDelete);
+        Assert.False(permissions.CanOverrideWorkflow);
+        Assert.Single((await f.Service.GetVersionsAsync(f.ArticleId, 1, 20, default)).Items);
+        Assert.Equal(before.LastPublishedVersionIdFk,
+            (await f.Service.GetPublishedVersionAsync(f.ArticleId, default)).Version.VersionId);
+        Assert.Contains(await f.Service.GetReviewHistoryAsync(f.ArticleId, default),
+            review => review.Action == ReviewActions.Archive);
+    }
+
+    [Fact]
+    public async Task Approved_article_can_be_archived_unarchived_and_published_without_repairing_draft_links()
+    {
+        await using var f = await Fixture.CreateApprovedAsync();
+        f.Grant(f.PublisherId, PermissionCodes.ArticlesDelete, PermissionCodes.ArticlesPublish);
+        f.Current.UserId = f.PublisherId;
+        var currentDraftId = (await f.Context.Articles.AsNoTracking().SingleAsync()).CurrentDraftIdFk;
+
+        await f.Service.ArchiveAsync(f.ArticleId, f.RowVersion, default);
+        await Assert.ThrowsAsync<ConflictException>(() => f.Service.PublishAsync(
+            f.ArticleId, new(f.RowVersion, "Cannot publish while archived"), default));
+        var unarchived = await f.Service.UnarchiveAsync(f.ArticleId, default);
+        var published = await f.Service.PublishAsync(
+            f.ArticleId, new(unarchived.RowVersion, "Publish after restore"), default);
+
+        Assert.Equal(ArticleStatuses.Published, published.Status);
+        var article = await f.Context.Articles.AsNoTracking().SingleAsync();
+        Assert.Equal(currentDraftId, article.CurrentDraftIdFk);
+        Assert.Equal(published.PublishedVersionId, article.LastPublishedVersionIdFk);
+        Assert.Single(await f.Context.ArticleVersions.AsNoTracking().ToListAsync());
+    }
+
+    [Fact]
     public async Task Unarchive_restores_workflow_state_and_published_search_document_without_data_loss()
     {
         await using var f = await Fixture.CreatePublishedAsync();
@@ -498,8 +555,8 @@ public sealed class ArticleLifecycleSliceTests
         var mediaReferenceCount = await f.Context.MediaReferences.CountAsync();
 
         await f.Service.ArchiveAsync(f.ArticleId, f.RowVersion, default);
-        await Assert.ThrowsAsync<NotFoundException>(() =>
-            f.Service.GetPublishedVersionAsync(f.ArticleId, default));
+        Assert.Equal(publishedVersionId,
+            (await f.Service.GetPublishedVersionAsync(f.ArticleId, default)).Version.VersionId);
         var restored = await f.Service.UnarchiveAsync(f.ArticleId, default);
 
         Assert.Equal(ArticleStatuses.Published, restored.Status);

@@ -26,8 +26,7 @@ import type { Locale } from '@configs/i18n'
 import CustomAvatar from '@core/components/mui/Avatar'
 import themeConfig from '@configs/themeConfig'
 import { useSettings } from '@core/hooks/useSettings'
-import { notificationsApi } from '@/lib/api/notificationsApi'
-import { describeApiError } from '@/lib/api/http'
+import { describeNotificationApiError, notificationsApi } from '@/lib/api/notificationsApi'
 import type { NotificationResponse } from '@/types/apps/notificationTypes'
 import { getLocalizedUrl } from '@/utils/i18n'
 
@@ -77,7 +76,7 @@ const NotificationsDropdown = ({ accessToken }: { accessToken: string }) => {
       setUnreadCount(count.unreadCount)
     }).catch(reason => {
       if (reason instanceof DOMException && reason.name === 'AbortError') return
-      setError(describeApiError(reason)[0])
+      setError(describeNotificationApiError(reason)[0])
     }).finally(() => setLoading(false))
   }, [accessToken])
 
@@ -93,7 +92,7 @@ const NotificationsDropdown = ({ accessToken }: { accessToken: string }) => {
       setUnreadCount(count.unreadCount)
     }).catch(reason => {
       if (reason instanceof DOMException && reason.name === 'AbortError') return
-      setError(describeApiError(reason)[0])
+      setError(describeNotificationApiError(reason)[0])
     }).finally(() => {
       if (!controller.signal.aborted) setLoading(false)
     })
@@ -113,7 +112,7 @@ const NotificationsDropdown = ({ accessToken }: { accessToken: string }) => {
       setItems(current => current.map(item => item.notificationId === updated.notificationId ? updated : item))
       setUnreadCount(current => Math.max(0, current - 1))
     } catch (reason) {
-      setError(describeApiError(reason)[0])
+      setError(describeNotificationApiError(reason)[0])
     } finally {
       setMutating(false)
     }
@@ -128,7 +127,7 @@ const NotificationsDropdown = ({ accessToken }: { accessToken: string }) => {
       setItems(current => current.map(item => ({ ...item, isRead: true, readAt: item.readAt ?? readAt })))
       setUnreadCount(result.unreadCount)
     } catch (reason) {
-      setError(describeApiError(reason)[0])
+      setError(describeNotificationApiError(reason)[0])
     } finally {
       setMutating(false)
     }

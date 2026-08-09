@@ -111,7 +111,7 @@ public sealed class ArticleSliceTests
     }
 
     [Fact]
-    public async Task Archived_articles_are_excluded_from_normal_list_and_details()
+    public async Task Archived_articles_are_excluded_from_normal_list_but_remain_openable_by_id()
     {
         await using var f = await Fixture.CreateAsync();
         f.Grant(f.AuthorId, PermissionCodes.ArticlesCreate);
@@ -123,7 +123,10 @@ public sealed class ArticleSliceTests
 
         var page = await f.Service.GetPagedAsync(null, null, null, null, 1, 20, null, null, default);
         Assert.DoesNotContain(page.Items, item => item.Id == article.Id);
-        await Assert.ThrowsAsync<NotFoundException>(() => f.Service.GetAsync(article.Id, default));
+        var archived = await f.Service.GetAsync(article.Id, default);
+        Assert.Equal(ArticleStatuses.Archived, archived.Status);
+        Assert.Equal(article.CurrentDraft!.Id, archived.CurrentDraft!.Id);
+        Assert.Equal(article.CurrentDraft.RowVersion, archived.CurrentDraft.RowVersion);
     }
 
     [Fact]

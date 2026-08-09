@@ -23,6 +23,7 @@ type KbFormDialogProps = {
   cancelLabel?: string
   maxWidth?: 'xs' | 'sm' | 'md' | 'lg'
   submitting?: boolean
+  submitDisabled?: boolean
   onClose: () => void
   onSubmit: () => void
 }
@@ -36,6 +37,7 @@ export const KbFormDialog = ({
   cancelLabel = 'Cancel',
   maxWidth = 'sm',
   submitting = false,
+  submitDisabled = false,
   onClose,
   onSubmit
 }: KbFormDialogProps) => (
@@ -64,7 +66,7 @@ export const KbFormDialog = ({
       <Button variant='tonal' color='secondary' onClick={onClose} disabled={submitting}>
         {cancelLabel}
       </Button>
-      <Button variant='contained' onClick={onSubmit} loading={submitting} disabled={submitting}>
+      <Button variant='contained' onClick={onSubmit} loading={submitting} disabled={submitting || submitDisabled}>
         {submitLabel}
       </Button>
     </DialogActions>

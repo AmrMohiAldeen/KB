@@ -53,7 +53,8 @@ public sealed class ArticleDraftService
         EnsureAuthenticated();
         var draft = await GetCurrentAsync(articleId, cancellationToken);
         var actorId = currentUser.UserId;
-        var canEdit = IsEditableStatus(draft.Status) &&
+        var canEdit = draft.ArticleStatus != ArticleStatuses.Archived &&
+                      IsEditableStatus(draft.Status) &&
                       await CanEditAsync(draft.ArticleOwnerId, actorId, cancellationToken);
         var isLockOwner = draft.IsLocked && draft.LockedBy?.Id == actorId;
         var content = string.IsNullOrWhiteSpace(draft.ContentJsonPath)
@@ -68,6 +69,7 @@ public sealed class ArticleDraftService
         EnsureExpectedRowVersion(expectedRowVersion);
         var draft = await GetCurrentAsync(articleId, cancellationToken);
         var actorId = currentUser.UserId;
+        EnsureArticleActive(draft);
         EnsureEditable(draft);
         await RequireEditAsync(draft.ArticleOwnerId, actorId, cancellationToken);
         var now = timeProvider.GetUtcNow().UtcDateTime;
@@ -86,6 +88,7 @@ public sealed class ArticleDraftService
         EnsureExpectedRowVersion(expectedRowVersion);
         var draft = await GetCurrentAsync(articleId, cancellationToken);
         var actorId = currentUser.UserId;
+        EnsureArticleActive(draft);
         EnsureCurrentVersion(draft, expectedRowVersion);
         if (!draft.IsLocked || draft.LockedBy?.Id != actorId)
             throw new ConflictException("Only the current draft lock owner can release this lock.");
@@ -108,6 +111,7 @@ public sealed class ArticleDraftService
         EnsureExpectedRowVersion(expectedRowVersion);
         await RequirePermissionAsync(PermissionCodes.LocksManage, cancellationToken);
         var draft = await GetCurrentAsync(articleId, cancellationToken);
+        EnsureArticleActive(draft);
         EnsureCurrentVersion(draft, expectedRowVersion);
         if (!draft.IsLocked)
             throw new ConflictException("The draft is not currently locked.");
@@ -136,6 +140,7 @@ public sealed class ArticleDraftService
         var textBytes = EncodeOptionalContent(command.PlainText, "Plain text");
         var draft = await GetCurrentAsync(articleId, cancellationToken);
         var actorId = currentUser.UserId;
+        EnsureArticleActive(draft);
         EnsureEditable(draft);
         await RequireEditAsync(draft.ArticleOwnerId, actorId, cancellationToken);
         EnsureCurrentVersion(draft, command.RowVersion);
@@ -387,6 +392,12 @@ public sealed class ArticleDraftService
 
     private static bool IsEditableStatus(string status) =>
         status is ArticleStatuses.Draft or ArticleStatuses.ChangesRequested;
+
+    private static void EnsureArticleActive(CurrentDraftData draft)
+    {
+        if (draft.ArticleStatus == ArticleStatuses.Archived)
+            throw new ConflictException("An archived article draft is read-only until the article is restored.");
+    }
 
     private static void EnsureEditable(CurrentDraftData draft)
     {

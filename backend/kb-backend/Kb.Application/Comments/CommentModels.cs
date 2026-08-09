@@ -6,7 +6,8 @@ public sealed record CommentUserData(Guid Id, string Name);
 
 public sealed record ArticleCommentContextData(
     Guid ArticleId,
-    Guid? CurrentDraftId);
+    Guid? CurrentDraftId,
+    string Status);
 
 public sealed record ArticleCommentData(
     Guid CommentId,

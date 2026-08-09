@@ -72,7 +72,7 @@ public sealed class ArticleRepository(KbDbContext dbContext) : IArticleRepositor
     }
 
     public Task<ArticleData?> GetByIdAsync(Guid id, CancellationToken cancellationToken) =>
-        ProjectDetails(ActiveArticles().Where(article => article.ArticleId == id))
+        ProjectDetails(ExistingArticles().Where(article => article.ArticleId == id))
             .SingleOrDefaultAsync(cancellationToken);
 
     public Task<ArticleData?> GetBySlugAsync(string slug, CancellationToken cancellationToken) =>
@@ -282,6 +282,9 @@ public sealed class ArticleRepository(KbDbContext dbContext) : IArticleRepositor
     private IQueryable<Article> ActiveArticles() => dbContext.Articles.AsNoTracking()
         .Where(article => article.DeletedAt == null && article.Status != ArticleStatuses.Deleted &&
                           article.Status != ArticleStatuses.Archived);
+
+    private IQueryable<Article> ExistingArticles() => dbContext.Articles.AsNoTracking()
+        .Where(article => article.DeletedAt == null && article.Status != ArticleStatuses.Deleted);
 
     private static IOrderedQueryable<Article> Order(IQueryable<Article> query, ArticleSortField field, bool descending) =>
         (field, descending) switch

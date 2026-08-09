@@ -58,7 +58,7 @@ public sealed class ArticleLifecycleService
         Guid articleId,
         CancellationToken cancellationToken)
     {
-        var draft = await GetCurrentActiveAsync(articleId, cancellationToken);
+        var draft = await GetCurrentReadableAsync(articleId, cancellationToken);
         var actorId = currentUser.UserId;
         var isAdmin = await adminChecker.IsAdminAsync(actorId, cancellationToken);
         var permissionCodes = new[]
@@ -86,27 +86,28 @@ public sealed class ArticleLifecycleService
         var hasPublishPermission = isAdmin || granted.Contains(PermissionCodes.ArticlesPublish);
         var canEditPermission = granted.Contains(PermissionCodes.ArticlesEditAnyDraft) ||
                                 isOwner && granted.Contains(PermissionCodes.ArticlesEditOwnDraft);
+        var active = draft.ArticleStatus != ArticleStatuses.Archived;
         var unlocked = !draft.IsLocked;
         var editable = draft.DraftStatus is ArticleStatuses.Draft or ArticleStatuses.ChangesRequested;
         var reviewable = IsReviewable(draft.DraftStatus);
-        var canSubmit = isOwner && unlocked &&
+        var canSubmit = active && isOwner && unlocked &&
                         granted.Contains(PermissionCodes.ArticlesSubmitForReview) &&
                         draft.DraftStatus == ArticleStatuses.Draft;
-        var canSubmitChanges = isOwner && unlocked &&
+        var canSubmitChanges = active && isOwner && unlocked &&
                           granted.Contains(PermissionCodes.ArticlesSubmitForReview) &&
                           draft.DraftStatus == ArticleStatuses.ChangesRequested;
-        var canReview = unlocked && hasReviewPermission &&
+        var canReview = active && unlocked && hasReviewPermission &&
                         draft.DraftStatus == ArticleStatuses.SubmittedForReview;
-        var canRequestChanges = unlocked && hasReviewPermission && reviewable;
+        var canRequestChanges = active && unlocked && hasReviewPermission && reviewable;
         var canApprove = canRequestChanges && (!isOwner || isAdmin);
-        var canPublish = unlocked && hasPublishPermission &&
+        var canPublish = active && unlocked && hasPublishPermission &&
                          draft.DraftStatus == ArticleStatuses.Approved;
         var canViewVersions = granted.Contains(PermissionCodes.VersionsView);
-        var canRestore = unlocked && granted.Contains(PermissionCodes.VersionsRestore) &&
+        var canRestore = active && unlocked && granted.Contains(PermissionCodes.VersionsRestore) &&
                          IsReplaceableByRestore(draft.DraftStatus);
 
         var overrideTargets = new List<string>();
-        if (unlocked && (isAdmin || granted.Contains(PermissionCodes.ArticlesEditAnyDraft)))
+        if (active && unlocked && (isAdmin || granted.Contains(PermissionCodes.ArticlesEditAnyDraft)))
         {
             if (isAdmin || granted.Contains(PermissionCodes.ArticlesSubmitForReview))
                 overrideTargets.AddRange([
@@ -124,19 +125,19 @@ public sealed class ArticleLifecycleService
         overrideTargets.RemoveAll(status => status == draft.DraftStatus);
 
         return new(
-            editable && canEditPermission,
+            active && editable && canEditPermission,
             canSubmit || canSubmitChanges,
             canReview,
             canRequestChanges,
             canApprove,
             canPublish,
-            unlocked && granted.Contains(PermissionCodes.ArticlesDelete),
+            active && unlocked && granted.Contains(PermissionCodes.ArticlesDelete),
             canViewVersions,
             canRestore,
-            editable && canEditPermission && unlocked,
-            draft.IsLocked && draft.LockedById == actorId,
-            granted.Contains(PermissionCodes.CommentsCreate),
-            granted.Contains(PermissionCodes.SuggestionsCreate),
+            active && editable && canEditPermission && unlocked,
+            active && draft.IsLocked && draft.LockedById == actorId,
+            active && granted.Contains(PermissionCodes.CommentsCreate),
+            active && granted.Contains(PermissionCodes.SuggestionsCreate),
             overrideTargets.Count > 0,
             overrideTargets);
     }
@@ -145,7 +146,7 @@ public sealed class ArticleLifecycleService
         Guid articleId,
         CancellationToken cancellationToken)
     {
-        await GetCurrentActiveAsync(articleId, cancellationToken);
+        await GetCurrentReadableAsync(articleId, cancellationToken);
         return await repository.GetReviewHistoryAsync(articleId, cancellationToken);
     }
 
@@ -159,7 +160,7 @@ public sealed class ArticleLifecycleService
             throw new BusinessRuleException("Page must be at least 1.");
         if (pageSize is < 1 or > MaxVersionPageSize)
             throw new BusinessRuleException($"Page size must be between 1 and {MaxVersionPageSize}.");
-        await GetCurrentActiveAsync(articleId, cancellationToken);
+        await GetCurrentReadableAsync(articleId, cancellationToken);
         await RequirePermissionAsync(PermissionCodes.VersionsView, cancellationToken);
         return await repository.GetVersionsAsync(articleId, page, pageSize, cancellationToken);
     }
@@ -170,7 +171,7 @@ public sealed class ArticleLifecycleService
         CancellationToken cancellationToken)
     {
         EnsureId(versionId, "Version");
-        await GetCurrentActiveAsync(articleId, cancellationToken);
+        await GetCurrentReadableAsync(articleId, cancellationToken);
         await RequirePermissionAsync(PermissionCodes.VersionsView, cancellationToken);
         var version = await repository.GetVersionSummaryAsync(articleId, versionId, cancellationToken)
             ?? throw new NotFoundException("The article version was not found.");
@@ -182,7 +183,7 @@ public sealed class ArticleLifecycleService
         Guid articleId,
         CancellationToken cancellationToken)
     {
-        await GetCurrentActiveAsync(articleId, cancellationToken);
+        await GetCurrentReadableAsync(articleId, cancellationToken);
         var version = await repository.GetPublishedVersionAsync(articleId, cancellationToken)
             ?? throw new NotFoundException("The article does not have a published version.");
         return new(version, await DownloadContentAsync(version.ContentJsonPath, cancellationToken));
@@ -198,7 +199,7 @@ public sealed class ArticleLifecycleService
         EnsureId(targetVersionId, "Target version");
         if (baseVersionId == targetVersionId)
             throw new BusinessRuleException("Select two different article versions to compare.");
-        await GetCurrentActiveAsync(articleId, cancellationToken);
+        await GetCurrentReadableAsync(articleId, cancellationToken);
         await RequirePermissionAsync(PermissionCodes.VersionsView, cancellationToken);
 
         var summaries = await Task.WhenAll(
@@ -589,13 +590,14 @@ public sealed class ArticleLifecycleService
         if (draft.IsDeleted)
             throw new NotFoundException("The article was not found.");
         if (draft.ArticleStatus == ArticleStatuses.Archived)
-            throw new NotFoundException("The article was not found.");
+            throw new ConflictException(
+                "An archived article must be restored before changing its workflow state.");
         if (!draft.RowVersion.AsSpan().SequenceEqual(expectedRowVersion))
             throw new ConcurrencyConflictException();
         return draft;
     }
 
-    private async Task<LifecycleDraftData> GetCurrentActiveAsync(
+    private async Task<LifecycleDraftData> GetCurrentReadableAsync(
         Guid articleId,
         CancellationToken cancellationToken)
     {
@@ -604,8 +606,6 @@ public sealed class ArticleLifecycleService
         var draft = await repository.GetCurrentAsync(articleId, cancellationToken)
             ?? throw new NotFoundException("The article or its current draft was not found.");
         if (draft.IsDeleted)
-            throw new NotFoundException("The article was not found.");
-        if (draft.ArticleStatus == ArticleStatuses.Archived)
             throw new NotFoundException("The article was not found.");
         return draft;
     }

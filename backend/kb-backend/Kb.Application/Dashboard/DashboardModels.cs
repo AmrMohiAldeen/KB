@@ -71,3 +71,7 @@ public sealed record DashboardReorderAudit(
     string Action,
     string MetadataJson,
     DateTime CreatedAt);
+
+public sealed record DashboardBulkActionData(
+    IReadOnlyList<Guid> ArticleIds,
+    IReadOnlyList<Guid> CategoryIds);
