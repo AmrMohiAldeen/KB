@@ -8,7 +8,12 @@ export default async function KbArticlePage({
   params: Promise<{ lang: string; slug: string }>
 }) {
   const { lang, slug } = await params
-  const accessToken = await getServerAccessToken()
+  const accessToken = process.env.KB_DEV_ACCESS_TOKEN
+
+  if (!accessToken) {
+    throw new Error("KB_DEV_ACCESS_TOKEN is not set");
+  }
+
 
   return <PublicArticleViewerPage lang={lang} slug={slug} accessToken={accessToken} />
 }

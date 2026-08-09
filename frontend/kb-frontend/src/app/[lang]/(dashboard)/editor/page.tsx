@@ -11,7 +11,12 @@ export default async function Page({
 }) {
   const { lang } = await params
   const { articleId = '', restoredFromVersion } = await searchParams
-  const accessToken = await getServerAccessToken()
+  const accessToken = process.env.KB_DEV_ACCESS_TOKEN
+
+  if (!accessToken) {
+    throw new Error("KB_DEV_ACCESS_TOKEN is not set");
+  }
+
 
   return (
     <ArticleEditorShell

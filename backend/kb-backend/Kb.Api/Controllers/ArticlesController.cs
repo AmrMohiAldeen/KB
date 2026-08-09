@@ -31,7 +31,7 @@ public sealed class ArticlesController(ArticleService articles) : ControllerBase
             result.Page, result.PageSize, result.TotalCount));
     }
 
-    [HttpGet("{id:guid}", Name = nameof(GetById))]
+    [HttpGet("{id:guid}", Name = "GetArticleById")]
     [ProducesResponseType<ArticleDetailsResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]

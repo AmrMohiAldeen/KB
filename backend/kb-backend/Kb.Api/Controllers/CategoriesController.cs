@@ -26,7 +26,7 @@ public sealed class CategoriesController(CategoryService categories) : Controlle
         return Ok(tree.Select(ToTreeResponse).ToArray());
     }
 
-    [HttpGet("{id:guid}", Name = nameof(GetById))]
+    [HttpGet("{id:guid}", Name = "GetCategoryById")]
 
     [ProducesResponseType<CategoryDetailsResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
