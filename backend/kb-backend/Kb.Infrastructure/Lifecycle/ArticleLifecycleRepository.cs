@@ -55,6 +55,11 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
                 article.CurrentDraftIdFkNavigation.LockedByFk,
                 article.CurrentDraftIdFkNavigation.CreatedByFk,
                 article.CurrentDraftIdFkNavigation.UpdatedAt,
+                article.ArticleReviewEvents
+                    .Where(review => review.Action == ReviewActions.Archive)
+                    .OrderByDescending(review => review.CreatedAt)
+                    .Select(review => review.FromStatus)
+                    .FirstOrDefault(),
                 article.DeletedAt != null || article.Status == ArticleStatuses.Deleted))
             .SingleOrDefaultAsync(cancellationToken);
 
@@ -196,10 +201,9 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
             var (article, draft) = await LoadForMutationAsync(
                 articleId, draftId, expectedRowVersion, token);
             EnsureUnlocked(draft);
-            if (draft.Status != ArticleStatuses.Approved || article.Status != ArticleStatuses.Approved ||
-                !ArticleWorkflow.CanTransition(draft.Status, ArticleStatuses.Published))
+            if (!ArticleWorkflow.CanPublish(article.Status, draft.Status))
                 throw new ConflictException(
-                    $"The article cannot transition from {draft.Status} to {ArticleStatuses.Published}.");
+                    $"The article cannot transition from {article.Status} to {ArticleStatuses.Published}.");
 
             var version = await AddSnapshot(article, draft, content, snapshotAudit,
                 audit.ActorId, audit.CreatedAt, token);
@@ -208,7 +212,6 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
             article.Status = ArticleStatuses.Published;
             article.LastPublishedVersionIdFk = content.VersionId;
             article.UpdatedAt = audit.CreatedAt;
-            draft.Status = ArticleStatuses.Published;
             draft.UpdatedByFk = audit.ActorId;
             draft.UpdatedAt = audit.CreatedAt;
             AdvanceSqliteRowVersion(draft);
@@ -243,11 +246,9 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
             var (article, currentDraft) = await LoadForMutationAsync(
                 articleId, currentDraftId, expectedRowVersion, token);
             EnsureUnlocked(currentDraft);
-            if (currentDraft.Status != article.Status ||
-                currentDraft.Status is not (
-                    ArticleStatuses.Published or
-                    ArticleStatuses.Draft or
-                    ArticleStatuses.ChangesRequested))
+            if (!ArticleWorkflow.HasConsistentDraftState(article.Status, currentDraft.Status) ||
+                article.Status is not (
+                    ArticleStatuses.Published or ArticleStatuses.Draft or ArticleStatuses.ChangesRequested))
                 throw new ConflictException(
                     "A version can only replace a published, draft, or changes-requested current draft.");
             if (!await dbContext.ArticleVersions.AnyAsync(version =>
@@ -357,7 +358,10 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
                 ?? throw new NotFoundException("The article draft was not found.");
             EnsureUnlocked(draft);
 
-            article.Status = draft.Status;
+            if (!ArticleWorkflow.HasConsistentDraftState(review.ToStatus, draft.Status))
+                throw new ConflictException("The archived article does not have a restorable workflow state.");
+
+            article.Status = review.ToStatus;
             article.UpdatedAt = audit.CreatedAt;
             draft.UpdatedByFk = audit.ActorId;
             draft.UpdatedAt = audit.CreatedAt;
@@ -469,7 +473,7 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
         dbContext.ChangeTracker.Clear();
         var current = await GetCurrentAsync(articleId, cancellationToken)
             ?? throw new ConcurrencyConflictException("The changed article could not be read back.");
-        return new(articleId, current.DraftId, current.DraftStatus, current.RowVersion,
+        return new(articleId, current.DraftId, current.ArticleStatus, current.RowVersion,
             versionId, versionNumber, changedAt);
     }
 

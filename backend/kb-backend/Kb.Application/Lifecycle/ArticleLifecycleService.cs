@@ -87,27 +87,28 @@ public sealed class ArticleLifecycleService
         var canEditPermission = granted.Contains(PermissionCodes.ArticlesEditAnyDraft) ||
                                 isOwner && granted.Contains(PermissionCodes.ArticlesEditOwnDraft);
         var active = draft.ArticleStatus != ArticleStatuses.Archived;
+        var workflowActive = active && draft.ArticleStatus == draft.DraftStatus;
         var unlocked = !draft.IsLocked;
         var editable = draft.DraftStatus is ArticleStatuses.Draft or ArticleStatuses.ChangesRequested;
         var reviewable = IsReviewable(draft.DraftStatus);
-        var canSubmit = active && isOwner && unlocked &&
+        var canSubmit = workflowActive && isOwner && unlocked &&
                         granted.Contains(PermissionCodes.ArticlesSubmitForReview) &&
                         draft.DraftStatus == ArticleStatuses.Draft;
-        var canSubmitChanges = active && isOwner && unlocked &&
+        var canSubmitChanges = workflowActive && isOwner && unlocked &&
                           granted.Contains(PermissionCodes.ArticlesSubmitForReview) &&
                           draft.DraftStatus == ArticleStatuses.ChangesRequested;
-        var canReview = active && unlocked && hasReviewPermission &&
+        var canReview = workflowActive && unlocked && hasReviewPermission &&
                         draft.DraftStatus == ArticleStatuses.SubmittedForReview;
-        var canRequestChanges = active && unlocked && hasReviewPermission && reviewable;
+        var canRequestChanges = workflowActive && unlocked && hasReviewPermission && reviewable;
         var canApprove = canRequestChanges && (!isOwner || isAdmin);
         var canPublish = active && unlocked && hasPublishPermission &&
-                         draft.DraftStatus == ArticleStatuses.Approved;
+                         ArticleWorkflow.CanPublish(draft.ArticleStatus, draft.DraftStatus);
         var canViewVersions = granted.Contains(PermissionCodes.VersionsView);
         var canRestore = active && unlocked && granted.Contains(PermissionCodes.VersionsRestore) &&
-                         IsReplaceableByRestore(draft.DraftStatus);
+                         IsReplaceableByRestore(draft);
 
         var overrideTargets = new List<string>();
-        if (active && unlocked && (isAdmin || granted.Contains(PermissionCodes.ArticlesEditAnyDraft)))
+        if (workflowActive && unlocked && (isAdmin || granted.Contains(PermissionCodes.ArticlesEditAnyDraft)))
         {
             if (isAdmin || granted.Contains(PermissionCodes.ArticlesSubmitForReview))
                 overrideTargets.AddRange([
@@ -125,7 +126,7 @@ public sealed class ArticleLifecycleService
         overrideTargets.RemoveAll(status => status == draft.DraftStatus);
 
         return new(
-            active && editable && canEditPermission,
+            workflowActive && editable && canEditPermission,
             canSubmit || canSubmitChanges,
             canReview,
             canRequestChanges,
@@ -275,7 +276,8 @@ public sealed class ArticleLifecycleService
     {
         var draft = await LoadAndValidateAsync(articleId, command.RowVersion, cancellationToken);
         await RequirePermissionOrAdminAsync(PermissionCodes.ArticlesPublish, cancellationToken);
-        EnsureTransition(draft.DraftStatus, ArticleStatuses.Published);
+        if (!ArticleWorkflow.CanPublish(draft.ArticleStatus, draft.DraftStatus))
+            throw InvalidTransition(draft.ArticleStatus, ArticleStatuses.Published);
         EnsureUnlocked(draft);
         if (string.IsNullOrWhiteSpace(draft.ContentJsonPath))
             throw new ConflictException("An empty draft cannot be published.");
@@ -303,10 +305,10 @@ public sealed class ArticleLifecycleService
             var actorId = currentUser.UserId;
             var now = timeProvider.GetUtcNow().UtcDateTime;
             var result = await repository.PublishAsync(articleId, draft.DraftId, command.RowVersion, staged,
-                Review(actorId, ReviewActions.Publish, command.Comment, draft.DraftStatus,
+                Review(actorId, ReviewActions.Publish, command.Comment, draft.ArticleStatus,
                     ArticleStatuses.Published, now),
                 Audit(actorId, ArticleAuditActions.Published, articleId, draft.DraftId,
-                    draft.DraftStatus, ArticleStatuses.Published, command.Comment,
+                    draft.ArticleStatus, ArticleStatuses.Published, command.Comment,
                     new { versionId = staged.VersionId }, false, now),
                 SnapshotAudit(actorId, articleId, draft, staged, now),
                 cancellationToken);
@@ -371,7 +373,7 @@ public sealed class ArticleLifecycleService
         await RequirePermissionAsync(PermissionCodes.VersionsRestore, cancellationToken);
         if (current.IsLocked)
             throw new ConflictException("The current draft must be unlocked before restoring a version.");
-        if (!IsReplaceableByRestore(current.DraftStatus))
+        if (!IsReplaceableByRestore(current))
             throw new ConflictException(
                 "A version can only replace a published, draft, or changes-requested current draft.");
 
@@ -411,9 +413,9 @@ public sealed class ArticleLifecycleService
             var now = timeProvider.GetUtcNow().UtcDateTime;
             var result = await repository.RestoreAsync(articleId, current.DraftId, command.RowVersion,
                 versionId, staged,
-                Review(actorId, ReviewActions.Restore, null, current.DraftStatus, ArticleStatuses.Draft, now),
+                Review(actorId, ReviewActions.Restore, null, current.ArticleStatus, ArticleStatuses.Draft, now),
                 Audit(actorId, ArticleAuditActions.Restored, articleId, newDraftId,
-                    current.DraftStatus, ArticleStatuses.Draft, null,
+                    current.ArticleStatus, ArticleStatuses.Draft, null,
                     new { sourceVersionId = versionId, sourceVersionNumber = version.VersionNumber }, false, now),
                 cancellationToken);
             if (notificationService is not null)
@@ -439,7 +441,7 @@ public sealed class ArticleLifecycleService
         EnsureUnlocked(draft);
         var now = timeProvider.GetUtcNow().UtcDateTime;
         await repository.ArchiveAsync(articleId, draft.DraftId, expectedRowVersion,
-            Review(currentUser.UserId, ReviewActions.Archive, null, draft.DraftStatus, ArticleStatuses.Archived, now),
+            Review(currentUser.UserId, ReviewActions.Archive, null, draft.ArticleStatus, ArticleStatuses.Archived, now),
             Audit(currentUser.UserId, ArticleAuditActions.Archived, articleId, draft.DraftId,
                 draft.ArticleStatus, ArticleStatuses.Archived, null, null, false, now), cancellationToken);
         if (notificationService is not null)
@@ -464,14 +466,16 @@ public sealed class ArticleLifecycleService
             throw new ConflictException("Only an archived article can be unarchived.");
         await RequirePermissionAsync(PermissionCodes.ArticlesDelete, cancellationToken);
         EnsureUnlocked(draft);
-        if (!IsRestorableWorkflowStatus(draft.DraftStatus))
+        var restoredStatus = draft.ArchivedFromStatus ?? draft.DraftStatus;
+        if (!IsRestorableWorkflowStatus(restoredStatus) ||
+            !ArticleWorkflow.HasConsistentDraftState(restoredStatus, draft.DraftStatus))
             throw new ConflictException("The archived article does not have a restorable workflow state.");
 
         var now = timeProvider.GetUtcNow().UtcDateTime;
         var result = await repository.UnarchiveAsync(articleId, draft.DraftId,
-            Review(currentUser.UserId, ReviewActions.Unarchive, null, ArticleStatuses.Archived, draft.DraftStatus, now),
+            Review(currentUser.UserId, ReviewActions.Unarchive, null, ArticleStatuses.Archived, restoredStatus, now),
             Audit(currentUser.UserId, ArticleAuditActions.Unarchived, articleId, draft.DraftId,
-                ArticleStatuses.Archived, draft.DraftStatus, null, null, false, now), cancellationToken);
+                ArticleStatuses.Archived, restoredStatus, null, null, false, now), cancellationToken);
         if (notificationService is not null)
             await notificationService.NotifyWorkflowAsync(articleId, NotificationTypes.ArticleWorkflowChanged,
                 currentUser.UserId, null, cancellationToken);
@@ -853,8 +857,10 @@ public sealed class ArticleLifecycleService
         _ => throw new BusinessRuleException("The workflow override target status is not supported.")
     };
 
-    private static bool IsReplaceableByRestore(string status) =>
-        status is ArticleStatuses.Published or ArticleStatuses.Draft or ArticleStatuses.ChangesRequested;
+    private static bool IsReplaceableByRestore(LifecycleDraftData draft) =>
+        ArticleWorkflow.HasConsistentDraftState(draft.ArticleStatus, draft.DraftStatus) &&
+        draft.ArticleStatus is
+            ArticleStatuses.Published or ArticleStatuses.Draft or ArticleStatuses.ChangesRequested;
 
     private static bool IsReviewable(string status) =>
         status is ArticleStatuses.SubmittedForReview or ArticleStatuses.InReview;

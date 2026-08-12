@@ -19,6 +19,8 @@ public sealed class HelpJuiceImportWriterTests
         f.Context.ChangeTracker.Clear();
         Assert.Equal(ArticleStatuses.Published,(await f.Context.Articles.SingleAsync(x=>x.ArticleId==published.InternalId)).Status);
         Assert.Equal(ArticleStatuses.Draft,(await f.Context.Articles.SingleAsync(x=>x.ArticleId==draft.InternalId)).Status);
+        Assert.Equal(ArticleStatuses.Approved,(await f.Context.ArticleDrafts.SingleAsync(x=>x.ArticleIdFk==published.InternalId)).Status);
+        Assert.Equal(ArticleStatuses.Draft,(await f.Context.ArticleDrafts.SingleAsync(x=>x.ArticleIdFk==draft.InternalId)).Status);
         var version=Assert.Single(await f.Context.ArticleVersions.ToListAsync());Assert.Equal(published.VersionId,version.VersionId);Assert.Equal(ArticleSnapshotReasons.Published,version.SnapshotReason);
         var search=Assert.Single(await f.Context.SearchIndexJobs.ToListAsync());Assert.Equal(published.InternalId,search.ArticleIdFk);Assert.Equal(JobStatuses.Pending,search.Status);
     }
@@ -37,7 +39,7 @@ public sealed class HelpJuiceImportWriterTests
         await using var f=await Fixture.CreateAsync();
         _=await f.Writer.WriteArticleAsync(f.OperationId,Article("first",false,f.UserId) with { Slug="same" },MigrationConflictBehaviors.CreateCopy,default);
         _=await f.Writer.WriteArticleAsync(f.OperationId,Article("second",false,f.UserId) with { Slug="same" },MigrationConflictBehaviors.CreateCopy,default);
-        Assert.Equal(["same","same-2"],await f.Context.Articles.OrderBy(x=>x.Slug).Select(x=>x.Slug).ToArrayAsync());
+        Assert.Equal(["same","same-second"],await f.Context.Articles.OrderBy(x=>x.Slug).Select(x=>x.Slug).ToArrayAsync());
     }
 
     [Fact]
@@ -56,7 +58,28 @@ public sealed class HelpJuiceImportWriterTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(()=>f.Writer.WriteArticleAsync(f.OperationId,Article("cancelled",false,f.UserId),MigrationConflictBehaviors.Skip,cancellation.Token));
     }
 
-    private static ImportedArticleData Article(string id,bool published,Guid user)=>new(id,id,null,null,user,published,DateTime.UtcNow.AddDays(-1),DateTime.UtcNow,new($"draft/{id}.json",$"draft/{id}.html",$"draft/{id}.txt","a".PadLeft(64,'0'),20,[],published?$"version/{id}.json":null,published?$"version/{id}.html":null,published?$"version/{id}.txt":null));
+    [Fact]
+    public async Task Archived_published_source_keeps_version_but_is_not_searchable()
+    {
+        await using var f=await Fixture.CreateAsync();
+        var archived=Article("archived",true,f.UserId) with { Status=ArticleStatuses.Archived };
+        var result=await f.Writer.WriteArticleAsync(f.OperationId,archived,MigrationConflictBehaviors.Skip,default);
+        Assert.Equal(ArticleStatuses.Archived,(await f.Context.Articles.SingleAsync(x=>x.ArticleId==result.InternalId)).Status);
+        Assert.Single(await f.Context.ArticleVersions.ToListAsync());
+        Assert.Empty(await f.Context.SearchIndexJobs.ToListAsync());
+    }
+
+    [Fact]
+    public async Task External_mapping_makes_retry_idempotent_even_when_requested_slug_changes()
+    {
+        await using var f=await Fixture.CreateAsync();
+        var first=await f.Writer.WriteArticleAsync(f.OperationId,Article("external-1",true,f.UserId) with { Slug="original" },MigrationConflictBehaviors.Skip,default);
+        var retry=await f.Writer.WriteArticleAsync(Guid.NewGuid(),Article("external-1",true,f.UserId) with { Slug="different-after-preview" },MigrationConflictBehaviors.CreateCopy,default);
+        Assert.Equal(first.InternalId,retry.InternalId);Assert.Equal(MigrationWriteDisposition.Skipped,retry.Disposition);
+        Assert.Single(await f.Context.Articles.ToListAsync());Assert.Single(await f.Context.MigrationExternalMappings.Where(x=>x.ExternalEntityType=="Article").ToListAsync());
+    }
+
+    private static ImportedArticleData Article(string id,bool published,Guid user)=>new(id,id,id,null,null,user,published?ArticleStatuses.Published:ArticleStatuses.Draft,published,DateTime.UtcNow.AddDays(-1),DateTime.UtcNow,null,new($"draft/{id}.json",$"draft/{id}.html",$"draft/{id}.txt","a".PadLeft(64,'0'),20,[],published?$"version/{id}.json":null,published?$"version/{id}.html":null,published?$"version/{id}.txt":null));
 
     private sealed class Fixture : IAsyncDisposable
     {

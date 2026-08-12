@@ -24,6 +24,8 @@ using Kb.Application.Migrations.HelpJuice;
 using Kb.Infrastructure.Migrations.HelpJuice;
 using Kb.Application.Notifications;
 using Kb.Infrastructure.Notifications;
+using Kb.Application.ExportJobs;
+using Kb.Infrastructure.ExportJobs;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -55,7 +57,16 @@ public static class DependencyInjection
         services.AddScoped<IArticleCommentRepository, ArticleCommentRepository>();
         services.AddScoped<IDashboardRepository, DashboardRepository>();
         services.AddScoped<IHelpJuiceImportWriter, HelpJuiceImportWriter>();
+        services.AddHttpClient("HelpJuiceMigration", client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(45);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("GamaLearn-KB-HelpJuice-Migration/1.0");
+        });
         services.AddScoped<INotificationRepository, NotificationRepository>();
+        services.AddScoped<IExportJobRepository, ExportJobRepository>();
+        services.AddScoped<IExportMediaResolver, ExportMediaResolver>();
+        services.AddSingleton<IPdfRenderer, ChromiumPdfRenderer>();
+        services.AddHostedService<ExportJobWorker>();
         services.Configure<DraftContentOptions>(options =>
         {
             options.ContainerName = configuration["Storage:Containers:ArticleContent"] ?? "article-content";
@@ -67,6 +78,17 @@ public static class DependencyInjection
             options.ContainerName = configuration["Storage:Containers:Media"] ?? "media";
             options.MaxFileSizeBytes = configuration.GetValue<long?>("Media:MaxFileSizeBytes")
                 ?? MediaOptions.DefaultMaxFileSizeBytes;
+        });
+        services.Configure<ExportOptions>(options =>
+        {
+            options.ContainerName = configuration["Storage:Containers:Exports"] ?? "exports";
+            options.ArticleContentContainerName = configuration["Storage:Containers:ArticleContent"] ?? "article-content";
+            options.MediaContainerName = configuration["Storage:Containers:Media"] ?? "media";
+            options.ChromiumExecutablePath = configuration["Exports:ChromiumExecutablePath"];
+            options.MaxEmbeddedMediaBytes = configuration.GetValue<int?>("Exports:MaxEmbeddedMediaBytes")
+                ?? 20 * 1024 * 1024;
+            options.PollInterval = TimeSpan.FromMilliseconds(
+                configuration.GetValue<int?>("Exports:PollIntervalMilliseconds") ?? 2000);
         });
         services.Configure<HelpJuiceMigrationLimits>(options =>
         {

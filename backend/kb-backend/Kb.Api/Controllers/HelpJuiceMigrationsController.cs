@@ -78,7 +78,7 @@ public sealed class HelpJuiceMigrationsController(HelpJuiceMigrationService migr
     }
 
     private static HelpJuiceMigrationResponse ToResponse(HelpJuiceMigrationExecutionResult result) => new(
-        result.Status, result.OriginalFileName, result.StartedAt, result.CompletedAt,
+        result.JobId, result.Status, result.OriginalFileName, result.StartedAt, result.CompletedAt,
         new(result.Options.ImportPublished, result.Options.ImportUnpublishedAsDrafts,
             result.Options.ImportCategories, result.Options.ImportMedia, result.Options.PreserveTimestamps,
             result.Options.ConflictBehavior),
@@ -92,7 +92,7 @@ public sealed class HelpJuiceMigrationsController(HelpJuiceMigrationService migr
         result.Result is null ? null : new(result.Result.ImportedItems, result.Result.UpdatedItems,
             result.Result.SkippedItems, result.Result.FailedItems, result.Result.CategoryImported,
             result.Result.CategoryUpdated, result.Result.CategorySkipped, result.Result.PublishedImported,
-            result.Result.DraftImported, result.Result.MediaImported, result.Result.MediaReused,
+            result.Result.DraftImported, result.Result.ArchivedImported, result.Result.MediaImported, result.Result.MediaReused,
             result.Result.UnresolvedMedia, result.Result.UnsupportedData, result.Result.WarningCount),
         result.Phases.Select(phase => new HelpJuiceMigrationPhaseResponse(phase.Phase, phase.Status,
             phase.TotalItems, phase.ProcessedItems, phase.ImportedItems, phase.UpdatedItems,
@@ -105,7 +105,7 @@ public sealed class HelpJuiceMigrationsController(HelpJuiceMigrationService migr
         result.PackageIssues.Select(ToIssueResponse).ToArray(),
         result.Articles.Select(article => new HelpJuiceMigrationPreviewArticleResponse(
             article.ExternalId, article.QuestionRowNumber, article.AnswerExternalId, article.AnswerRowNumber,
-            article.Title, article.Slug, article.Description, article.IsPublished, article.CreatedAt,
+            article.Title, article.Slug, article.Description, article.IsPublished, article.IsArchived, article.CreatedAt,
             article.UpdatedAt, article.CategoryExternalId, article.CategoryLocation, article.ContentHtml,
             article.ContentTextLength, article.SourceMetadata, article.Issues.Select(ToIssueResponse).ToArray()))
             .ToArray());

@@ -20,6 +20,7 @@ public sealed record LifecycleDraftData(
     Guid? LockedById,
     Guid CreatedById,
     DateTime UpdatedAt,
+    string? ArchivedFromStatus,
     bool IsDeleted);
 
 public sealed record LifecycleVersionData(

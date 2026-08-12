@@ -13,7 +13,7 @@ internal static class MediaFileInspector
 
     private enum SignatureFamily
     {
-        Jpeg, Png, Gif, Webp, Bmp, Tiff, Pdf, Mp4, Webm, Avi, Mpeg, Zip, Ole, Rtf, Text
+        Jpeg, Png, Gif, Webp, Bmp, Tiff, Svg, Pdf, Mp4, Webm, Avi, Mpeg, Zip, Ole, Rtf, Text
     }
 
     private static readonly IReadOnlyDictionary<string, Format> Formats =
@@ -27,6 +27,7 @@ internal static class MediaFileInspector
             [".bmp"] = new("image/bmp", MediaKind.Image, SignatureFamily.Bmp),
             [".tif"] = new("image/tiff", MediaKind.Image, SignatureFamily.Tiff),
             [".tiff"] = new("image/tiff", MediaKind.Image, SignatureFamily.Tiff),
+            [".svg"] = new("image/svg+xml", MediaKind.Image, SignatureFamily.Svg),
             [".pdf"] = new("application/pdf", MediaKind.Pdf, SignatureFamily.Pdf),
             [".mp4"] = new("video/mp4", MediaKind.Video, SignatureFamily.Mp4),
             [".mov"] = new("video/quicktime", MediaKind.Video, SignatureFamily.Mp4),
@@ -159,6 +160,7 @@ internal static class MediaFileInspector
         SignatureFamily.Bmp => StartsWithAscii(bytes, "BM"),
         SignatureFamily.Tiff => StartsWith(bytes, [0x49, 0x49, 0x2A, 0x00]) ||
                                 StartsWith(bytes, [0x4D, 0x4D, 0x00, 0x2A]),
+        SignatureFamily.Svg => LooksLikeSafeSvg(bytes),
         SignatureFamily.Pdf => StartsWithAscii(bytes, "%PDF-"),
         SignatureFamily.Mp4 => bytes.Length >= 12 && Encoding.ASCII.GetString(bytes.Slice(4, 4)) == "ftyp",
         SignatureFamily.Webm => StartsWith(bytes, [0x1A, 0x45, 0xDF, 0xA3]),
@@ -193,6 +195,19 @@ internal static class MediaFileInspector
         {
             return false;
         }
+    }
+
+    private static bool LooksLikeSafeSvg(ReadOnlySpan<byte> bytes)
+    {
+        try
+        {
+            var text = new UTF8Encoding(false, true).GetString(bytes).TrimStart('\uFEFF', ' ', '\t', '\r', '\n');
+            var lower = text.ToLowerInvariant();
+            return (lower.StartsWith("<svg") || lower.StartsWith("<?xml") && lower.Contains("<svg")) &&
+                   !lower.Contains("<script") && !lower.Contains("javascript:") &&
+                   !lower.Contains("<!entity") && !System.Text.RegularExpressions.Regex.IsMatch(lower, @"\son[a-z]+\s*=");
+        }
+        catch (DecoderFallbackException) { return false; }
     }
 
     private sealed class PrefixReplayStream(ReadOnlyMemory<byte> prefix, Stream remainder) : Stream

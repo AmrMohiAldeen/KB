@@ -26,7 +26,7 @@ public static class HelpJuicePreviewBuilder
                 : HelpJuiceHtmlConverter.Convert(answer?.Body);
 
             return new HelpJuiceMigrationPreviewArticle(question.Id, question.RowNumber, answer?.Id,
-                answer?.RowNumber, question.Name, question.Slug, question.Description, question.IsPublished,
+                answer?.RowNumber, question.Name, question.Slug, question.Description, question.IsPublished, question.IsArchived,
                 question.CreatedAt, question.UpdatedAt, categoryId, CategoryLocation(categoryIds, categories),
                 conversion.RenderedHtml, conversion.PlainText.Length, SourceMetadata(question, answer), issues);
         }).ToArray();

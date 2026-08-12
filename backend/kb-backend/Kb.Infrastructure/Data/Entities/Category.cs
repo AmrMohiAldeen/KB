@@ -25,6 +25,8 @@ public partial class Category
 
     public virtual ICollection<Article> Articles { get; set; } = new List<Article>();
 
+    public virtual ICollection<ExportJob> ExportJobs { get; set; } = new List<ExportJob>();
+
     public virtual ICollection<Category> InverseParentCategoryIdFkNavigation { get; set; } = new List<Category>();
 
     public virtual Category? ParentCategoryIdFkNavigation { get; set; }

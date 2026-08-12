@@ -12,7 +12,7 @@ public static class HelpJuicePackageReader
 
     private static readonly HashSet<string> MediaExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tif", ".tiff",
+        ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".svg",
         ".pdf", ".mp4", ".mov", ".webm", ".avi", ".mpeg", ".mpg",
         ".docx", ".xlsx", ".pptx", ".odt", ".ods", ".odp", ".doc", ".xls", ".ppt",
         ".rtf", ".txt", ".md", ".json", ".xml"

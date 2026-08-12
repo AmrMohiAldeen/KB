@@ -37,6 +37,12 @@ public partial class KbDbContext : DbContext
 
     public virtual DbSet<MediaReference> MediaReferences { get; set; }
 
+    public virtual DbSet<MigrationExternalMapping> MigrationExternalMappings { get; set; }
+
+    public virtual DbSet<MigrationJob> MigrationJobs { get; set; }
+
+    public virtual DbSet<MigrationJobIssue> MigrationJobIssues { get; set; }
+
     public virtual DbSet<Notification> Notifications { get; set; }
 
     public virtual DbSet<Role> Roles { get; set; }
@@ -69,7 +75,9 @@ public partial class KbDbContext : DbContext
     {
         modelBuilder.Entity<Article>(entity =>
         {
-            entity.ToTable("ARTICLES");
+            entity.ToTable("ARTICLES", table => table.HasCheckConstraint(
+                "CK_ARTICLES_Status",
+                "[Status] IN ('Draft', 'SubmittedForReview', 'InReview', 'ChangesRequested', 'Approved', 'Published', 'Archived', 'Deleted')"));
 
             entity.HasIndex(e => e.AuthorIdFk, "IX_ARTICLES_AuthorID_FK");
 
@@ -235,7 +243,9 @@ public partial class KbDbContext : DbContext
         {
             entity.HasKey(e => e.DraftId);
 
-            entity.ToTable("ARTICLE_DRAFTS");
+            entity.ToTable("ARTICLE_DRAFTS", table => table.HasCheckConstraint(
+                "CK_ARTICLE_DRAFTS_Status",
+                "[Status] IN ('Draft', 'SubmittedForReview', 'InReview', 'ChangesRequested', 'Approved', 'Archived', 'Deleted')"));
 
             entity.HasIndex(e => new { e.ArticleIdFk, e.UpdatedAt }, "IX_ARTICLE_DRAFTS_ArticleID_FK").IsDescending(false, true);
 
@@ -447,18 +457,25 @@ public partial class KbDbContext : DbContext
 
             entity.HasIndex(e => e.ArticleIdFk, "IX_EXPORT_JOBS_ArticleID_FK");
 
+            entity.HasIndex(e => e.CategoryIdFk, "IX_EXPORT_JOBS_CategoryID_FK");
+
             entity.HasIndex(e => new { e.Status, e.RequestedAt }, "IX_EXPORT_JOBS_Status_RequestedAt");
 
             entity.Property(e => e.ExportJobId)
                 .HasDefaultValueSql("(newsequentialid())", "DF_EXPORT_JOBS_ExportJobID")
                 .HasColumnName("ExportJobID");
             entity.Property(e => e.ArticleIdFk).HasColumnName("ArticleID_FK");
+            entity.Property(e => e.CategoryIdFk).HasColumnName("CategoryID_FK");
+            entity.Property(e => e.CompletedAt).HasPrecision(3);
+            entity.Property(e => e.EntityType).HasMaxLength(30);
             entity.Property(e => e.ExportType).HasMaxLength(30);
+            entity.Property(e => e.FileName).HasMaxLength(260);
             entity.Property(e => e.RequestedAt)
                 .HasPrecision(3)
                 .HasDefaultValueSql("(sysutcdatetime())", "DF_EXPORT_JOBS_RequestedAt");
             entity.Property(e => e.RequestedByFk).HasColumnName("RequestedBy_FK");
             entity.Property(e => e.ResultPath).HasMaxLength(1024);
+            entity.Property(e => e.StartedAt).HasPrecision(3);
             entity.Property(e => e.Status)
                 .HasMaxLength(50)
                 .HasDefaultValue("Pending", "DF_EXPORT_JOBS_Status");
@@ -466,8 +483,13 @@ public partial class KbDbContext : DbContext
 
             entity.HasOne(d => d.ArticleIdFkNavigation).WithMany(p => p.ExportJobs)
                 .HasForeignKey(d => d.ArticleIdFk)
-                .OnDelete(DeleteBehavior.ClientSetNull)
+                .OnDelete(DeleteBehavior.Restrict)
                 .HasConstraintName("FK_EXPORT_JOBS_ARTICLES");
+
+            entity.HasOne(d => d.CategoryIdFkNavigation).WithMany(p => p.ExportJobs)
+                .HasForeignKey(d => d.CategoryIdFk)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_EXPORT_JOBS_CATEGORIES");
 
             entity.HasOne(d => d.RequestedByFkNavigation).WithMany(p => p.ExportJobs)
                 .HasForeignKey(d => d.RequestedByFk)
@@ -476,7 +498,7 @@ public partial class KbDbContext : DbContext
 
             entity.HasOne(d => d.VersionIdFkNavigation).WithMany(p => p.ExportJobs)
                 .HasForeignKey(d => d.VersionIdFk)
-                .OnDelete(DeleteBehavior.ClientSetNull)
+                .OnDelete(DeleteBehavior.Restrict)
                 .HasConstraintName("FK_EXPORT_JOBS_ARTICLE_VERSIONS");
         });
 
@@ -571,6 +593,57 @@ public partial class KbDbContext : DbContext
                 .HasForeignKey(d => d.UserIdFk)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_NOTIFICATIONS_USERS");
+        });
+
+        modelBuilder.Entity<MigrationExternalMapping>(entity =>
+        {
+            entity.HasKey(e => e.MappingId);
+            entity.ToTable("MIGRATION_EXTERNAL_MAPPINGS");
+            entity.HasIndex(e => new { e.SourceSystem, e.ExternalEntityType, e.ExternalId }, "UX_MIGRATION_EXTERNAL_MAPPINGS_Source_Entity_ExternalId").IsUnique();
+            entity.Property(e => e.MappingId).HasDefaultValueSql("(newsequentialid())").HasColumnName("MappingID");
+            entity.Property(e => e.SourceSystem).HasMaxLength(50);
+            entity.Property(e => e.ExternalEntityType).HasMaxLength(50);
+            entity.Property(e => e.ExternalId).HasMaxLength(200);
+            entity.Property(e => e.InternalId).HasColumnName("InternalID");
+            entity.Property(e => e.ContentHash).HasMaxLength(128);
+            entity.Property(e => e.MetadataJson);
+            entity.Property(e => e.CreatedAt).HasPrecision(3);
+            entity.Property(e => e.UpdatedAt).HasPrecision(3);
+        });
+
+        modelBuilder.Entity<MigrationJob>(entity =>
+        {
+            entity.HasKey(e => e.MigrationJobId);
+            entity.ToTable("MIGRATION_JOBS");
+            entity.HasIndex(e => new { e.SourceSystem, e.PackageHash }, "IX_MIGRATION_JOBS_Source_PackageHash");
+            entity.Property(e => e.MigrationJobId).HasDefaultValueSql("(newsequentialid())").HasColumnName("MigrationJobID");
+            entity.Property(e => e.SourceSystem).HasMaxLength(50);
+            entity.Property(e => e.PackageHash).HasMaxLength(128);
+            entity.Property(e => e.Status).HasMaxLength(50);
+            entity.Property(e => e.RequestedByFk).HasColumnName("RequestedBy_FK");
+            entity.Property(e => e.OptionsJson);
+            entity.Property(e => e.SummaryJson);
+            entity.Property(e => e.StartedAt).HasPrecision(3);
+            entity.Property(e => e.CompletedAt).HasPrecision(3);
+            entity.HasOne(e => e.RequestedByFkNavigation).WithMany().HasForeignKey(e => e.RequestedByFk).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<MigrationJobIssue>(entity =>
+        {
+            entity.HasKey(e => e.MigrationIssueId);
+            entity.ToTable("MIGRATION_JOB_ERRORS");
+            entity.HasIndex(e => new { e.MigrationJobIdFk, e.Severity, e.ErrorCode }, "IX_MIGRATION_JOB_ERRORS_Job_Severity_Code");
+            entity.Property(e => e.MigrationIssueId).HasDefaultValueSql("(newsequentialid())").HasColumnName("MigrationIssueID");
+            entity.Property(e => e.MigrationJobIdFk).HasColumnName("MigrationJobID_FK");
+            entity.Property(e => e.Severity).HasMaxLength(20);
+            entity.Property(e => e.FileName).HasMaxLength(260);
+            entity.Property(e => e.ExternalEntityType).HasMaxLength(50);
+            entity.Property(e => e.ExternalId).HasMaxLength(200);
+            entity.Property(e => e.ErrorCode).HasMaxLength(100);
+            entity.Property(e => e.Message).HasMaxLength(4000);
+            entity.Property(e => e.SourceDataSummary);
+            entity.Property(e => e.CreatedAt).HasPrecision(3);
+            entity.HasOne(e => e.MigrationJobIdFkNavigation).WithMany(e => e.Issues).HasForeignKey(e => e.MigrationJobIdFk).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<ArticleNotificationPreference>(entity =>

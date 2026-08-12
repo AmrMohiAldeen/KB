@@ -8,6 +8,7 @@ using Kb.Application.Comments;
 using Kb.Application.Dashboard;
 using Kb.Application.Migrations.HelpJuice;
 using Kb.Application.Notifications;
+using Kb.Application.ExportJobs;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Kb.Application;
@@ -27,6 +28,9 @@ public static class DependencyInjection
         services.AddScoped<DashboardBulkService>();
         services.AddScoped<HelpJuiceMigrationService>();
         services.AddScoped<NotificationService>();
+        services.AddScoped<ExportService>();
+        services.AddScoped<ExportJobProcessor>();
+        services.AddScoped<ExportDocumentBuilder>();
         return services;
     }
 }

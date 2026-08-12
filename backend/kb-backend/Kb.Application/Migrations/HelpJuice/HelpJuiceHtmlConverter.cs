@@ -13,7 +13,8 @@ public static partial class HelpJuiceHtmlConverter
     {
         "p", "br", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "b", "em", "i", "u", "a",
         "ul", "ol", "li", "blockquote", "pre", "code", "table", "thead", "tbody", "tfoot", "tr", "th", "td",
-        "img", "figure", "figcaption", "div", "span", "hr", "iframe", "video", "source"
+        "img", "figure", "figcaption", "div", "span", "hr", "iframe", "video", "source",
+        "s", "strike", "del", "sup", "sub"
     };
     private static readonly HashSet<string> DropWithContent = new(StringComparer.OrdinalIgnoreCase)
         { "script", "style", "object", "embed", "form", "noscript", "template", "svg", "math" };
@@ -21,7 +22,8 @@ public static partial class HelpJuiceHtmlConverter
         { "br", "img", "hr", "source", "meta", "link", "input" };
 
     public static HelpJuiceHtmlConversion Convert(string? sourceHtml,
-        Func<string, (Guid MediaId, string Url)?>? resolveMedia = null)
+        Func<string, (Guid MediaId, string Url)?>? resolveMedia = null,
+        Func<string, HelpJuiceLinkResolution?>? resolveLink = null)
     {
         var warnings = new List<(string, string)>();
         var mediaSources = new List<string>();
@@ -51,7 +53,8 @@ public static partial class HelpJuiceHtmlConverter
             if (droppedDepth > 0) continue;
             if (closing)
             {
-                if (name is "strong" or "b" or "em" or "i" or "u" or "a" or "code")
+                if (!Supported.Contains(name)) continue;
+                if (name is "strong" or "b" or "em" or "i" or "u" or "a" or "code" or "s" or "strike" or "del" or "sup" or "sub")
                 {
                     if (marks.Count > 0) marks.Pop();
                     continue;
@@ -71,11 +74,17 @@ public static partial class HelpJuiceHtmlConverter
             if (name is "strong" or "b") { marks.Push(new("bold")); continue; }
             if (name is "em" or "i") { marks.Push(new("italic")); continue; }
             if (name == "u") { marks.Push(new("underline")); continue; }
+            if (name is "s" or "strike" or "del") { marks.Push(new("strike")); continue; }
+            if (name == "sup") { marks.Push(new("superscript")); continue; }
+            if (name == "sub") { marks.Push(new("subscript")); continue; }
             if (name == "code" && stack.Peek().Type != "codeBlock") { marks.Push(new("code")); continue; }
             if (name == "a")
             {
                 var href = attrs.GetValueOrDefault("href");
-                if (TrySafeUrl(href, allowRelative: true, out var safe))
+                var rewritten = href is null ? null : resolveLink?.Invoke(href);
+                if (rewritten?.WarningCode is not null)
+                    Warn(rewritten.WarningCode, rewritten.WarningMessage ?? "A HelpJuice link could not be rewritten safely.");
+                if (TrySafeUrl(rewritten?.Url ?? href, allowRelative: true, out var safe))
                     marks.Push(new("link", new() { ["href"] = safe, ["target"] = "_blank", ["rel"] = "noopener noreferrer nofollow" }));
                 else { marks.Push(new("invalidLink")); Warn("DANGEROUS_URL_REMOVED", "A link with an unsafe URL was converted to text."); }
                 continue;
@@ -85,11 +94,14 @@ public static partial class HelpJuiceHtmlConverter
             if (name == "img")
             {
                 var src = attrs.GetValueOrDefault("src") ?? attrs.GetValueOrDefault("data-src") ?? attrs.GetValueOrDefault("data-mce-src");
-                if (string.IsNullOrWhiteSpace(src) || src.StartsWith("data:", StringComparison.OrdinalIgnoreCase) ||
-                    src.StartsWith("blob:", StringComparison.OrdinalIgnoreCase))
-                { Warn("BROKEN_IMAGE", "An image without a safe source was omitted."); continue; }
+                if (string.IsNullOrWhiteSpace(src))
+                { AddImagePlaceholder(stack.Peek(), attrs, "An image without a source could not be recovered."); continue; }
                 mediaSources.Add(src);
                 var mapped = resolveMedia?.Invoke(src);
+                if (mapped is null && src.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                { AddImagePlaceholder(stack.Peek(), attrs, "An embedded image could not be decoded."); Warn("INVALID_INLINE_MEDIA", "An embedded Base64 image could not be decoded and was replaced with a text placeholder."); continue; }
+                if (mapped is null && src.StartsWith("blob:", StringComparison.OrdinalIgnoreCase))
+                { AddImagePlaceholder(stack.Peek(), attrs, "Temporary image unavailable after migration."); Warn("UNRESOLVED_TEMPORARY_MEDIA", "A temporary browser image URL cannot be recovered and was replaced with a text placeholder."); continue; }
                 if (mapped is null && !TrySafeUrl(src, allowRelative: true, out _))
                 { Warn("DANGEROUS_URL_REMOVED", "An image with an unsafe URL was omitted."); continue; }
                 var image = new Node("image") { Attributes = new()
@@ -143,18 +155,18 @@ public static partial class HelpJuiceHtmlConverter
     {
         return tag.ToLowerInvariant() switch
         {
-            "p" => new("paragraph", tag),
-            "h1" or "h2" or "h3" or "h4" => new("heading", tag) { Attributes = new() { ["level"] = int.Parse(tag[1..]) } },
+            "p" => WithDirection(new("paragraph", tag), attrs),
+            "h1" or "h2" or "h3" or "h4" => WithDirection(new("heading", tag) { Attributes = new() { ["level"] = int.Parse(tag[1..]) } }, attrs),
             "h5" or "h6" => HeadingFallback(tag, warning),
-            "ul" => new("bulletList", tag),
-            "ol" => new("orderedList", tag) { Attributes = new() { ["start"] = ParsePositive(attrs.GetValueOrDefault("start"), 1) } },
-            "li" => new("listItem", tag),
-            "blockquote" => new("blockquote", tag),
+            "ul" => WithDirection(new("bulletList", tag), attrs),
+            "ol" => WithDirection(new("orderedList", tag) { Attributes = new() { ["start"] = ParsePositive(attrs.GetValueOrDefault("start"), 1) } }, attrs),
+            "li" => WithDirection(new("listItem", tag), attrs),
+            "blockquote" => WithDirection(new("blockquote", tag), attrs),
             "pre" => new("codeBlock", tag),
-            "table" => new("table", tag),
+            "table" => WithDirection(new("table", tag), attrs),
             "tr" => new("tableRow", tag),
-            "th" => new("tableHeader", tag) { Attributes = CellAttrs(attrs) },
-            "td" => new("tableCell", tag) { Attributes = CellAttrs(attrs) },
+            "th" => WithDirection(new("tableHeader", tag) { Attributes = CellAttrs(attrs) }, attrs),
+            "td" => WithDirection(new("tableCell", tag) { Attributes = CellAttrs(attrs) }, attrs),
             "div" or "span" or "figure" or "figcaption" or "thead" or "tbody" or "tfoot" => new("fragment", tag),
             _ => null
         };
@@ -164,6 +176,12 @@ public static partial class HelpJuiceHtmlConverter
     { warning("HEADING_LEVEL_NORMALIZED", $"<{tag}> was normalized to a level-4 heading."); return new("heading", tag) { Attributes = new() { ["level"] = 4 } }; }
     private static Dictionary<string, object?> CellAttrs(Dictionary<string, string> attrs) => new()
         { ["colspan"] = ParsePositive(attrs.GetValueOrDefault("colspan"), 1), ["rowspan"] = ParsePositive(attrs.GetValueOrDefault("rowspan"), 1) };
+    private static Node WithDirection(Node node, IReadOnlyDictionary<string, string> attrs)
+    {
+        var direction = attrs.GetValueOrDefault("dir")?.ToLowerInvariant();
+        if (direction is "rtl" or "ltr") (node.Attributes ??= [])["dir"] = direction;
+        return node;
+    }
     private static int ParsePositive(string? value, int fallback) => int.TryParse(value, out var number) && number > 0 ? Math.Min(number, 100) : fallback;
 
     private static void AddText(Node parent, string value, IReadOnlyList<Mark> marks)
@@ -183,9 +201,31 @@ public static partial class HelpJuiceHtmlConverter
             if (child.Type == "fragment") { node.Children.RemoveAt(i); node.Children.InsertRange(i, child.Children); }
         }
         if (node.Type == "doc" && node.Children.Count == 0) node.Children.Add(new("paragraph"));
+        if (node.Type == "doc") WrapInlineRuns(node);
         if (node.Type is "listItem" or "tableCell" or "tableHeader" && node.Children.Count == 0) node.Children.Add(new("paragraph"));
         if (node.Type == "listItem" && node.Children.FirstOrDefault()?.Type is not ("paragraph" or "heading"))
         { var paragraph = new Node("paragraph"); while (node.Children.Count > 0 && node.Children[0].Type is not ("bulletList" or "orderedList")) { paragraph.Children.Add(node.Children[0]); node.Children.RemoveAt(0); } node.Children.Insert(0, paragraph); }
+        if (node.Type is "tableCell" or "tableHeader") WrapInlineRuns(node);
+    }
+
+    private static void WrapInlineRuns(Node parent)
+    {
+        for (var index = 0; index < parent.Children.Count;)
+        {
+            if (parent.Children[index].Type is not ("text" or "hardBreak" or "image")) { index++; continue; }
+            var paragraph = new Node("paragraph");
+            while (index < parent.Children.Count && parent.Children[index].Type is "text" or "hardBreak" or "image")
+            { paragraph.Children.Add(parent.Children[index]); parent.Children.RemoveAt(index); }
+            parent.Children.Insert(index++, paragraph);
+        }
+    }
+
+    private static void AddImagePlaceholder(Node parent, IReadOnlyDictionary<string, string> attrs, string fallback)
+    {
+        var label = attrs.GetValueOrDefault("alt") ?? attrs.GetValueOrDefault("title") ?? fallback;
+        var paragraph = new Node("paragraph");
+        paragraph.Children.Add(new("text") { Text = $"[Image: {label}]" });
+        parent.Children.Add(paragraph);
     }
 
     private static string Render(Node root)
@@ -216,6 +256,8 @@ public static partial class HelpJuiceHtmlConverter
         safe = WebUtility.HtmlDecode(value ?? string.Empty).Trim();
         if (safe.Length == 0 || safe.Length > 2048 || safe.Any(char.IsControl)) return false;
         if (safe.StartsWith('#') || allowRelative && safe.StartsWith('/')) return true;
+        if (allowRelative && Uri.TryCreate(safe, UriKind.Relative, out _) && !safe.StartsWith("//") &&
+            !safe.Split('/', StringSplitOptions.RemoveEmptyEntries).Any(segment => segment == "..")) return true;
         return Uri.TryCreate(safe, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https" or "mailto";
     }
     private static bool TryYoutubeUrl(string? value,out string canonical){canonical="";if(!Uri.TryCreate(WebUtility.HtmlDecode(value??"").Trim(),UriKind.Absolute,out var uri)||uri.Scheme!="https")return false;var host=uri.Host.ToLowerInvariant();string? id=null;if(host is "youtu.be" or "www.youtu.be")id=uri.AbsolutePath.Trim('/').Split('/')[0];else if(host is "youtube.com" or "www.youtube.com" or "m.youtube.com"){if(uri.AbsolutePath=="/watch")id=System.Web.HttpUtility.ParseQueryString(uri.Query)["v"];else if(uri.AbsolutePath.StartsWith("/embed/"))id=uri.AbsolutePath.Split('/',StringSplitOptions.RemoveEmptyEntries).ElementAtOrDefault(1);}else if(host is "youtube-nocookie.com" or "www.youtube-nocookie.com"&&uri.AbsolutePath.StartsWith("/embed/"))id=uri.AbsolutePath.Split('/',StringSplitOptions.RemoveEmptyEntries).ElementAtOrDefault(1);if(id is null||id.Length is < 6 or > 20||id.Any(ch=>!char.IsLetterOrDigit(ch)&&ch is not '-' and not '_'))return false;canonical=$"https://www.youtube.com/watch?v={id}";return true;}
@@ -244,8 +286,8 @@ public static partial class HelpJuiceHtmlConverter
     private sealed record Mark(string Type, Dictionary<string, object?>? Attrs = null)
     {
         public JsonObject ToJson() { var o = new JsonObject { ["type"] = Type }; if (Attrs?.Count > 0) o["attrs"] = JsonSerializer.SerializeToNode(Attrs); return o; }
-        public string OpenHtml() => Type switch { "bold" => "<strong>", "italic" => "<em>", "underline" => "<u>", "code" => "<code>", "link" => $"<a href=\"{WebUtility.HtmlEncode(Attrs?["href"]?.ToString())}\" rel=\"noopener noreferrer nofollow\">", _ => "" };
-        public string CloseHtml() => Type switch { "bold" => "</strong>", "italic" => "</em>", "underline" => "</u>", "code" => "</code>", "link" => "</a>", _ => "" };
+        public string OpenHtml() => Type switch { "bold" => "<strong>", "italic" => "<em>", "underline" => "<u>", "strike" => "<s>", "superscript" => "<sup>", "subscript" => "<sub>", "code" => "<code>", "link" => $"<a href=\"{WebUtility.HtmlEncode(Attrs?["href"]?.ToString())}\" rel=\"noopener noreferrer nofollow\">", _ => "" };
+        public string CloseHtml() => Type switch { "bold" => "</strong>", "italic" => "</em>", "underline" => "</u>", "strike" => "</s>", "superscript" => "</sup>", "subscript" => "</sub>", "code" => "</code>", "link" => "</a>", _ => "" };
     }
 
     [GeneratedRegex(@"<!--[\s\S]*?-->|<![^>]*>|</?[^>]+>|[^<]+", RegexOptions.Compiled)] private static partial Regex TokenRegex();

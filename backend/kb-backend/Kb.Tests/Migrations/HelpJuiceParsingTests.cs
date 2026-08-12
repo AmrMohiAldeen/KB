@@ -8,6 +8,43 @@ namespace Kb.Tests.Migrations;
 public sealed class HelpJuiceParsingTests
 {
     [Fact]
+    public async Task Supplied_export_is_fully_representable_without_blocking_legacy_data_errors()
+    {
+        var root = Environment.GetEnvironmentVariable("HELPJUICE_FIXTURE_DIR");
+        if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root)) return;
+        var known = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var name in new[] { "questions.csv", "answers.csv", "categories.csv", "categorizations.csv", "uploads.csv", "passes.csv", "groups.csv" })
+        {
+            var path = Path.Combine(root, name);
+            if (File.Exists(path)) known[name] = path;
+        }
+        var package = new PackageContents(root, known, [], known.Keys.ToArray(), []);
+        var source = await HelpJuiceSourceParser.ParseAndValidateAsync(package, new(), TimeProvider.System);
+        var preview = HelpJuicePreviewBuilder.Build(source, 100);
+        Console.WriteLine(JsonSerializer.Serialize(new
+        {
+            source.Summary,
+            PreviewArticles = preview.Articles.Count,
+            PreviewIssues = preview.Articles.SelectMany(x => x.Issues).DistinctBy(x => x.Id)
+                .GroupBy(x => new { x.Severity, x.ErrorCode }).OrderBy(x => x.Key.Severity).ThenBy(x => x.Key.ErrorCode)
+                .ToDictionary(x => $"{x.Key.Severity}:{x.Key.ErrorCode}", x => x.Count()),
+            AllIssues = source.Issues.GroupBy(x => new { x.Severity, x.ErrorCode })
+                .OrderBy(x => x.Key.Severity).ThenBy(x => x.Key.ErrorCode)
+                .ToDictionary(x => $"{x.Key.Severity}:{x.Key.ErrorCode}", x => x.Count())
+        }));
+
+        Assert.Equal(1262, source.Questions.Count);
+        Assert.Equal(1262, source.Answers.Count);
+        Assert.Equal(191, source.Categories.Count);
+        Assert.Equal(4728, source.Uploads?.Count);
+        Assert.Equal(0, source.Summary.BlockingErrorCount);
+        Assert.Equal(14, source.Issues.Count(x => x.ErrorCode == "EMPTY_SOURCE_BODY"));
+        Assert.Equal(415, source.Issues.Count(x => x.ErrorCode == "UNCATEGORIZED_ARTICLE"));
+        Assert.Equal(354, source.Issues.Count(x => x.ErrorCode == "CATEGORY_COUNT_MISMATCH"));
+        Assert.DoesNotContain(source.ConvertedAnswersById.Values, value => value.TiptapJson.Contains(";base64,", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public async Task Csv_supports_bom_utf8_and_quoted_multiline_html()
     {
         var path=TempFile("\uFEFFid,question_id,body\r\na1,q1,\"<p>مرحبا, world</p>\n<ul><li>two</li></ul>\"");
@@ -39,7 +76,7 @@ public sealed class HelpJuiceParsingTests
         using var package=Package("id,codename,name,is_published\nq1,one,One,TRUE",
             "id,question_id,body\na1,q1,\"<p>Body</p><img src='images/missing.png'>\"");
         var source=await HelpJuiceSourceParser.ParseAndValidateAsync(package,new(),TimeProvider.System);
-        Assert.Equal(1,source.Summary.MissingMedia);Assert.Contains(source.Issues,x=>x.ErrorCode=="MEDIA_UNRESOLVED");
+        Assert.Equal(1,source.Summary.MissingMedia);Assert.Contains(source.Issues,x=>x.ErrorCode=="EXTERNAL_MEDIA_LEFT_EXTERNAL");
     }
 
     [Fact]
@@ -47,7 +84,8 @@ public sealed class HelpJuiceParsingTests
     {
         using var package=Package("id,codename,name,is_published,category_id,user_id\nq1,one,One,TRUE,c1,u1\nq2,two,Two,FALSE,c2,u2",
             "id,question_id,body\na1,q1,\"<p>First body</p><img src='missing.png'>\"\na2,q2,\"<p>Second body</p><img src='also-missing.png'>\"",
-            "id,parent_id,name\nc0,,Guides\nc1,c0,Setup\nc2,,Other");
+            "id,parent_id,name\nc0,,Guides\nc1,c0,Setup\nc2,,Other",
+            "id,question_id,category_id,position\nx1,q1,c1,1\nx2,q2,c2,1");
         var source=await HelpJuiceSourceParser.ParseAndValidateAsync(package,new(),TimeProvider.System);
         var preview=HelpJuicePreviewBuilder.Build(source,1);
 
@@ -55,7 +93,7 @@ public sealed class HelpJuiceParsingTests
         Assert.True(preview.IsLimited);Assert.Equal(2,preview.SourceArticleCount);
         Assert.Equal("One",article.Title);Assert.Equal("Guides / Setup",article.CategoryLocation);
         Assert.Contains("First body",article.ContentHtml);Assert.Equal("u1",article.SourceMetadata["question.user_id"]);
-        Assert.Contains(article.Issues,issue=>issue.ErrorCode=="MEDIA_UNRESOLVED"&&issue.ExternalId=="a1");
+        Assert.Contains(article.Issues,issue=>issue.ErrorCode=="EXTERNAL_MEDIA_LEFT_EXTERNAL"&&issue.ExternalId=="a1");
         Assert.DoesNotContain(article.Issues,issue=>issue.ExternalId is "q2" or "a2");
     }
 
@@ -76,6 +114,44 @@ public sealed class HelpJuiceParsingTests
     }
 
     [Fact]
+    public async Task Legacy_states_categories_slugs_empty_bodies_languages_and_users_are_repaired_not_blocked()
+    {
+        using var package=Package(
+            "id,name,codename,is_published,archived,language_id,categories_count,created_by_id,updated_by_id\nq1,Published,same,true,false,1,1,11,12\nq2,Archived,same,true,true,1,0,11,12\nq3,Draft,,false,false,3,1,11,12",
+            "id,question_id,body\na1,q1,<p>Ready</p>\na2,q2,\na3,q3,<p dir='rtl'>مرحبا</p>",
+            "id,parent_id,name,codename,position\nc1,,Guides,guides,1",
+            "id,question_id,category_id,position\nx1,q1,c1,1");
+        var source=await HelpJuiceSourceParser.ParseAndValidateAsync(package,new(),TimeProvider.System);
+
+        Assert.Equal(0,source.Summary.BlockingErrorCount);
+        Assert.Equal("same",source.Questions.Single(x=>x.Id=="q1").Slug);
+        Assert.Equal("same-q2",source.Questions.Single(x=>x.Id=="q2").Slug);
+        Assert.Equal("draft",source.Questions.Single(x=>x.Id=="q3").Slug);
+        Assert.True(source.Questions.Single(x=>x.Id=="q2").IsArchived);
+        Assert.Null(source.Questions.Single(x=>x.Id=="q3").CategoryId);
+        Assert.Contains(source.Issues,x=>x.ErrorCode=="EMPTY_SOURCE_BODY"&&x.ExternalId=="q2");
+        Assert.Contains(source.Issues,x=>x.ErrorCode=="CATEGORY_COUNT_MISMATCH"&&x.ExternalId=="q3");
+        Assert.Contains(source.Issues,x=>x.ErrorCode=="HISTORICAL_USER_MAPPED_TO_MIGRATION_USER"&&x.ExternalId=="q1");
+        Assert.Contains("مرحبا",source.ConvertedAnswersById["a3"].PlainText);
+        Assert.Contains("\"dir\":\"rtl\"",source.ConvertedAnswersById["a3"].TiptapJson);
+    }
+
+    [Fact]
+    public void Word_nested_lists_tables_inline_media_and_temporary_media_remain_readable()
+    {
+        const string data="data:image/png;base64,iVBORw0KGgo=";
+        var mediaId=Guid.NewGuid();
+        var result=HelpJuiceHtmlConverter.Convert($"<o:p>Word text</o:p><ul><li>Outer<ul><li>Inner</li></ul></li></ul><table><tr><td>Cell</td></tr></table><img src='{data}' alt='Embedded'><img src='blob:https://teams.microsoft.com/temporary' alt='Teams image'>",
+            source=>source==data?(mediaId,$"/api/media/{mediaId}/content"):null);
+
+        Assert.Contains("Word text",result.PlainText);
+        Assert.Contains("Outer",result.PlainText);Assert.Contains("Inner",result.PlainText);Assert.Contains("Cell",result.PlainText);
+        Assert.Contains("bulletList",result.TiptapJson);Assert.Contains("tableCell",result.TiptapJson);
+        Assert.Contains(mediaId.ToString(),result.TiptapJson);Assert.DoesNotContain("base64",result.TiptapJson,StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Teams image",result.PlainText);Assert.Contains(result.Warnings,x=>x.Code=="UNRESOLVED_TEMPORARY_MEDIA");
+    }
+
+    [Fact]
     public async Task Zip_slip_and_decompression_limits_are_rejected()
     {
         await using var slip=new MemoryStream();using(var zip=new ZipArchive(slip,ZipArchiveMode.Create,true)){var e=zip.CreateEntry("../questions.csv");await using var w=new StreamWriter(e.Open(),leaveOpen:false);await w.WriteAsync("id,name\n1,A");}slip.Position=0;
@@ -85,5 +161,5 @@ public sealed class HelpJuiceParsingTests
     }
 
     private static string TempFile(string content){var path=Path.Combine(Path.GetTempPath(),$"hj-{Guid.NewGuid():N}.csv");File.WriteAllText(path,content,new UTF8Encoding(false));return path;}
-    private static PackageContents Package(string questions,string answers,string? categories=null){var root=Path.Combine(Path.GetTempPath(),$"hj-{Guid.NewGuid():N}");Directory.CreateDirectory(root);var q=Path.Combine(root,"questions.csv");var a=Path.Combine(root,"answers.csv");File.WriteAllText(q,questions);File.WriteAllText(a,answers);var files=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase){{"questions.csv",q},{"answers.csv",a}};if(categories is not null){var c=Path.Combine(root,"categories.csv");File.WriteAllText(c,categories);files["categories.csv"]=c;}return new(root,files,[],files.Keys.ToArray(),[]);}
+    private static PackageContents Package(string questions,string answers,string? categories=null,string? categorizations=null){var root=Path.Combine(Path.GetTempPath(),$"hj-{Guid.NewGuid():N}");Directory.CreateDirectory(root);var q=Path.Combine(root,"questions.csv");var a=Path.Combine(root,"answers.csv");File.WriteAllText(q,questions);File.WriteAllText(a,answers);var files=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase){{"questions.csv",q},{"answers.csv",a}};if(categories is not null){var c=Path.Combine(root,"categories.csv");File.WriteAllText(c,categories);files["categories.csv"]=c;}if(categorizations is not null){var c=Path.Combine(root,"categorizations.csv");File.WriteAllText(c,categorizations);files["categorizations.csv"]=c;}return new(root,files,[],files.Keys.ToArray(),[]);}
 }

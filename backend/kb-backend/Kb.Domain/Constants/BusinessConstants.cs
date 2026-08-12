@@ -11,6 +11,25 @@ public static class ArticleStatuses
 
     public const string Archived = "Archived";
     public const string Deleted = "Deleted";
+
+    public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
+    {
+        Draft, SubmittedForReview, InReview, ChangesRequested, Approved, Published, Archived, Deleted
+    };
+}
+
+public static class ArticleDraftStatuses
+{
+    public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
+    {
+        ArticleStatuses.Draft,
+        ArticleStatuses.SubmittedForReview,
+        ArticleStatuses.InReview,
+        ArticleStatuses.ChangesRequested,
+        ArticleStatuses.Approved,
+        ArticleStatuses.Archived,
+        ArticleStatuses.Deleted
+    };
 }
 
 public static class CategoryStatuses
@@ -76,8 +95,15 @@ public static class ContentBlockTypes
 public static class JobStatuses
 {
     public const string Pending = "Pending";
+    public const string Processing = "Processing";
     public const string Completed = "Completed";
     public const string Failed = "Failed";
+}
+
+public static class ExportEntityTypes
+{
+    public const string Article = "Article";
+    public const string Category = "Category";
 }
 
 public static class ExportTypes

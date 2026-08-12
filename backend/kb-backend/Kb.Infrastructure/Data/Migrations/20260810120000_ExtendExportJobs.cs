@@ -1,0 +1,70 @@
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
+
+namespace Kb.Infrastructure.Data.Migrations;
+
+[DbContext(typeof(KbDbContext))]
+[Migration("20260810120000_ExtendExportJobs")]
+public sealed class ExtendExportJobs : Migration
+{
+    protected override void Up(MigrationBuilder migrationBuilder) => migrationBuilder.Sql(Sql);
+
+    protected override void Down(MigrationBuilder migrationBuilder) => migrationBuilder.Sql("""
+        DELETE FROM dbo.EXPORT_JOBS WHERE ArticleID_FK IS NULL OR VersionID_FK IS NULL;
+        IF OBJECT_ID(N'dbo.CK_EXPORT_JOBS_Target', N'C') IS NOT NULL
+            ALTER TABLE dbo.EXPORT_JOBS DROP CONSTRAINT CK_EXPORT_JOBS_Target;
+        IF OBJECT_ID(N'dbo.FK_EXPORT_JOBS_CATEGORIES', N'F') IS NOT NULL
+            ALTER TABLE dbo.EXPORT_JOBS DROP CONSTRAINT FK_EXPORT_JOBS_CATEGORIES;
+        IF EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.EXPORT_JOBS') AND name=N'IX_EXPORT_JOBS_CategoryID_FK')
+            DROP INDEX IX_EXPORT_JOBS_CategoryID_FK ON dbo.EXPORT_JOBS;
+        ALTER TABLE dbo.EXPORT_JOBS ALTER COLUMN ArticleID_FK uniqueidentifier NOT NULL;
+        ALTER TABLE dbo.EXPORT_JOBS ALTER COLUMN VersionID_FK uniqueidentifier NOT NULL;
+        ALTER TABLE dbo.EXPORT_JOBS DROP COLUMN CategoryID_FK, EntityType, StartedAt, CompletedAt, SnapshotJson, FileName;
+        """);
+
+    internal const string Sql = """
+        IF COL_LENGTH('dbo.EXPORT_JOBS', 'CategoryID_FK') IS NULL
+            ALTER TABLE dbo.EXPORT_JOBS ADD CategoryID_FK uniqueidentifier NULL;
+        IF COL_LENGTH('dbo.EXPORT_JOBS', 'EntityType') IS NULL
+            ALTER TABLE dbo.EXPORT_JOBS ADD EntityType nvarchar(30) NULL;
+        IF COL_LENGTH('dbo.EXPORT_JOBS', 'StartedAt') IS NULL
+            ALTER TABLE dbo.EXPORT_JOBS ADD StartedAt datetime2(3) NULL;
+        IF COL_LENGTH('dbo.EXPORT_JOBS', 'CompletedAt') IS NULL
+            ALTER TABLE dbo.EXPORT_JOBS ADD CompletedAt datetime2(3) NULL;
+        IF COL_LENGTH('dbo.EXPORT_JOBS', 'SnapshotJson') IS NULL
+            ALTER TABLE dbo.EXPORT_JOBS ADD SnapshotJson nvarchar(max) NULL;
+        IF COL_LENGTH('dbo.EXPORT_JOBS', 'FileName') IS NULL
+            ALTER TABLE dbo.EXPORT_JOBS ADD FileName nvarchar(260) NULL;
+
+        UPDATE dbo.EXPORT_JOBS SET EntityType=N'Article' WHERE EntityType IS NULL;
+        UPDATE dbo.EXPORT_JOBS SET SnapshotJson=N'{}', Status=N'Failed',
+            ErrorMessage=COALESCE(ErrorMessage, N'This export predates stable snapshot support. Request it again.'),
+            CompletedAt=COALESCE(CompletedAt, sysutcdatetime())
+            WHERE SnapshotJson IS NULL;
+        UPDATE dbo.EXPORT_JOBS SET FileName=CONCAT(N'article-export.', CASE WHEN ExportType=N'PDF' THEN N'pdf' ELSE N'html' END)
+            WHERE FileName IS NULL;
+        ALTER TABLE dbo.EXPORT_JOBS ALTER COLUMN EntityType nvarchar(30) NOT NULL;
+        ALTER TABLE dbo.EXPORT_JOBS ALTER COLUMN SnapshotJson nvarchar(max) NOT NULL;
+        ALTER TABLE dbo.EXPORT_JOBS ALTER COLUMN FileName nvarchar(260) NOT NULL;
+
+        IF OBJECT_ID(N'dbo.FK_EXPORT_JOBS_ARTICLES', N'F') IS NOT NULL
+            ALTER TABLE dbo.EXPORT_JOBS DROP CONSTRAINT FK_EXPORT_JOBS_ARTICLES;
+        IF OBJECT_ID(N'dbo.FK_EXPORT_JOBS_ARTICLE_VERSIONS', N'F') IS NOT NULL
+            ALTER TABLE dbo.EXPORT_JOBS DROP CONSTRAINT FK_EXPORT_JOBS_ARTICLE_VERSIONS;
+        ALTER TABLE dbo.EXPORT_JOBS ALTER COLUMN ArticleID_FK uniqueidentifier NULL;
+        ALTER TABLE dbo.EXPORT_JOBS ALTER COLUMN VersionID_FK uniqueidentifier NULL;
+        ALTER TABLE dbo.EXPORT_JOBS WITH CHECK ADD CONSTRAINT FK_EXPORT_JOBS_ARTICLES
+            FOREIGN KEY (ArticleID_FK) REFERENCES dbo.ARTICLES(ArticleID);
+        ALTER TABLE dbo.EXPORT_JOBS WITH CHECK ADD CONSTRAINT FK_EXPORT_JOBS_ARTICLE_VERSIONS
+            FOREIGN KEY (VersionID_FK) REFERENCES dbo.ARTICLE_VERSIONS(VersionID);
+        IF OBJECT_ID(N'dbo.FK_EXPORT_JOBS_CATEGORIES', N'F') IS NULL
+            ALTER TABLE dbo.EXPORT_JOBS WITH CHECK ADD CONSTRAINT FK_EXPORT_JOBS_CATEGORIES
+                FOREIGN KEY (CategoryID_FK) REFERENCES dbo.CATEGORIES(CategoryID);
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.EXPORT_JOBS') AND name=N'IX_EXPORT_JOBS_CategoryID_FK')
+            CREATE INDEX IX_EXPORT_JOBS_CategoryID_FK ON dbo.EXPORT_JOBS(CategoryID_FK);
+        IF OBJECT_ID(N'dbo.CK_EXPORT_JOBS_Target', N'C') IS NULL
+            ALTER TABLE dbo.EXPORT_JOBS WITH CHECK ADD CONSTRAINT CK_EXPORT_JOBS_Target CHECK
+                ((EntityType=N'Article' AND ArticleID_FK IS NOT NULL AND VersionID_FK IS NOT NULL AND CategoryID_FK IS NULL)
+                 OR (EntityType=N'Category' AND CategoryID_FK IS NOT NULL AND ArticleID_FK IS NULL AND VersionID_FK IS NULL));
+        """;
+}

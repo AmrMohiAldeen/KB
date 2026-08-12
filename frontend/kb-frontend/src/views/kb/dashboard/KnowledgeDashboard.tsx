@@ -17,6 +17,7 @@ import Breadcrumbs from '@mui/material/Breadcrumbs'
 import Button from '@mui/material/Button'
 import ButtonGroup from '@mui/material/ButtonGroup'
 import Checkbox from '@mui/material/Checkbox'
+import CircularProgress from '@mui/material/CircularProgress'
 import Divider from '@mui/material/Divider'
 import Drawer from '@mui/material/Drawer'
 import IconButton from '@mui/material/IconButton'
@@ -109,6 +110,8 @@ import {
   reorderDashboardItem
 } from '@/lib/api/dashboardApi'
 import { describeApiError } from '@/lib/api/http'
+import { downloadExport, getExportJob, requestExport, saveExportBlob } from '@/lib/api/exportJobsApi'
+import type { ExportFormat } from '@/types/apps/exportJobTypes'
 import {
   canEditDashboardArticle,
   flattenDashboardCategories,
@@ -337,6 +340,8 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
   const [draggedItemId, setDraggedItemId] = useState<string>()
   const [dropTarget, setDropTarget] = useState<{ id: string; placement: 'before' | 'after' }>()
   const [reordering, setReordering] = useState(false)
+  const [exportingItemIds, setExportingItemIds] = useState<Set<string>>(() => new Set())
+  const exportingItemIdsRef = useRef<Set<string>>(new Set())
   const suppressNavigationRef = useRef(false)
 
   useEffect(() => {
@@ -942,6 +947,40 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
     })
   }
 
+  const startExport = async (item: DashboardItem, exportType: ExportFormat) => {
+    if (!accessToken || exportingItemIdsRef.current.has(item.id)) return
+
+    exportingItemIdsRef.current.add(item.id)
+    setExportingItemIds(new Set(exportingItemIdsRef.current))
+    setMutationErrors([])
+    setSuccessMessage('')
+
+    try {
+      let job = await requestExport(
+        item.kind,
+        item.kind === 'article' ? item.article.articleId : item.category.id,
+        exportType,
+        accessToken
+      )
+
+      for (let attempt = 0; attempt < 300 && job.status !== 'Completed' && job.status !== 'Failed'; attempt += 1) {
+        await new Promise(resolve => window.setTimeout(resolve, 1000))
+        job = await getExportJob(job.exportJobId, accessToken)
+      }
+
+      if (job.status === 'Failed') throw new Error(job.errorMessage || 'The export could not be generated.')
+      if (job.status !== 'Completed') throw new Error('The export is still processing. You can try again shortly.')
+
+      saveExportBlob(await downloadExport(job.exportJobId, accessToken), job.fileName)
+      setSuccessMessage(`${exportType} export downloaded.`)
+    } catch (error) {
+      setMutationErrors(describeApiError(error))
+    } finally {
+      exportingItemIdsRef.current.delete(item.id)
+      setExportingItemIds(new Set(exportingItemIdsRef.current))
+    }
+  }
+
   const itemActions = (item: DashboardItem) => {
     const label = item.kind === 'category' ? item.category.name : item.article.title
     const canEdit = item.kind === 'category'
@@ -954,6 +993,7 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
       ? canManageCategories
       : canCreateArticle && canEditOwnArticle
     const canRead = item.kind === 'category' || canViewArticles
+    const isExporting = exportingItemIds.has(item.id)
 
     const action = (
       title: string,
@@ -965,7 +1005,7 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
         <IconButton
           size='small'
           color={options.color}
-          disabled={mutating}
+          disabled={mutating || isExporting}
           onClick={event => {
             stopRowAction(event)
             onClick()
@@ -973,7 +1013,7 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
           onMouseDown={stopRowAction}
           aria-label={`${title} ${label}`}
         >
-          {icon}
+          {isExporting && title.startsWith('Export') ? <CircularProgress size={15} /> : icon}
         </IconButton>
       </Tooltip>
     )
@@ -999,10 +1039,8 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
         }, { color: 'error', hidden: !canDelete })}
         {action('Duplicate', <Copy size={15} />, () => void duplicateItem(item), { hidden: !canDuplicate })}
         {action('Copy link', <ExternalLink size={15} />, () => void copyItemLink(item), { hidden: !canRead })}
-        {/* TODO: Connect PDF export to the export-jobs API when dashboard item export is enabled. */}
-        {action('Export PDF', <Download size={15} />, () => setSuccessMessage('PDF export is coming soon.'), { hidden: !canRead })}
-        {/* TODO: Connect HTML export to the export-jobs API when dashboard item export is enabled. */}
-        {action('Export HTML', <FileCode2 size={15} />, () => setSuccessMessage('HTML export is coming soon.'), { hidden: !canRead })}
+        {action('Export PDF', <Download size={15} />, () => void startExport(item, 'PDF'), { hidden: !canRead })}
+        {action('Export HTML', <FileCode2 size={15} />, () => void startExport(item, 'HTML'), { hidden: !canRead })}
         {/* TODO: Connect preview to the localized preview surface when it is available. */}
         {action('Preview', <Eye size={15} />, () => setSuccessMessage('Preview is coming soon.'), { hidden: !canRead })}
         {item.kind === 'category' && action(

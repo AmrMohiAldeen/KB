@@ -19,4 +19,16 @@ public static class ArticleWorkflow
     public static bool CanTransition(string fromStatus, string toStatus) =>
         !string.IsNullOrWhiteSpace(fromStatus) && !string.IsNullOrWhiteSpace(toStatus) &&
         Transitions.Contains((fromStatus, toStatus));
+
+    public static bool CanPublish(string articleStatus, string draftStatus) =>
+        articleStatus == ArticleStatuses.Approved && draftStatus == ArticleStatuses.Approved;
+
+    public static bool HasConsistentDraftState(string articleStatus, string draftStatus) =>
+        articleStatus == draftStatus && draftStatus is
+            ArticleStatuses.Draft or
+            ArticleStatuses.SubmittedForReview or
+            ArticleStatuses.InReview or
+            ArticleStatuses.ChangesRequested or
+            ArticleStatuses.Approved ||
+        articleStatus == ArticleStatuses.Published && draftStatus == ArticleStatuses.Approved;
 }

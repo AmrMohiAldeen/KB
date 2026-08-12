@@ -65,6 +65,9 @@ public sealed class ArticleLifecycleSliceTests
         var article = await f.Context.Articles.AsNoTracking().SingleAsync();
         Assert.Equal(published.PublishedVersionId, article.LastPublishedVersionIdFk);
         Assert.Equal(ArticleStatuses.Published, article.Status);
+        Assert.Equal(f.DraftId, article.CurrentDraftIdFk);
+        Assert.Equal(ArticleStatuses.Approved,
+            (await f.Context.ArticleDrafts.AsNoTracking().SingleAsync()).Status);
         var versions = await f.Context.ArticleVersions.AsNoTracking()
             .OrderBy(version => version.VersionNumber).ToArrayAsync();
         Assert.Equal(
@@ -117,6 +120,76 @@ public sealed class ArticleLifecycleSliceTests
         Assert.Contains(notifications, value =>
             value.Type == NotificationTypes.ArticleApproved && value.UserIdFk == f.AuthorId);
         Assert.Contains(notifications, value => value.Type == NotificationTypes.ArticlePublished);
+    }
+
+    [Fact]
+    public async Task Publishing_approved_article_keeps_source_draft_approved_and_cannot_publish_it_twice()
+    {
+        await using var f = await Fixture.CreateApprovedAsync();
+        f.Grant(f.PublisherId, PermissionCodes.ArticlesPublish);
+        f.Current.UserId = f.PublisherId;
+        var commentId = Guid.NewGuid();
+        var mediaId = Guid.NewGuid();
+        var mediaReferenceId = Guid.NewGuid();
+        f.Context.ArticleComments.Add(new ArticleComment
+        {
+            CommentId = commentId,
+            ArticleIdFk = f.ArticleId,
+            Body = "Keep this review comment",
+            CurrentDraftIdFk = f.DraftId,
+            OriginDraftIdFk = f.DraftId,
+            AnchorStatus = CommentAnchorStatuses.Attached,
+            Status = CommentThreadStatuses.Open,
+            CreatedByFk = f.AuthorId,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+            RowVersion = Guid.NewGuid().ToByteArray()
+        });
+        f.Context.MediaFiles.Add(new MediaFile
+        {
+            MediaId = mediaId,
+            OriginalFileName = "publish-regression.png",
+            StoredFileName = "publish-regression.png",
+            MimeType = "image/png",
+            FileSizeBytes = 42,
+            StoragePath = "media/publish-regression.png",
+            Status = MediaStatuses.Active,
+            UploadedByFk = f.AuthorId,
+            UploadedAt = DateTime.UtcNow
+        });
+        f.Context.MediaReferences.Add(new MediaReference
+        {
+            ReferenceId = mediaReferenceId,
+            MediaIdFk = mediaId,
+            ArticleIdFk = f.ArticleId,
+            ReferenceEntityType = MediaReferenceTypes.Draft,
+            ReferenceEntityId = f.DraftId
+        });
+        await f.Context.SaveChangesAsync();
+        f.Context.ChangeTracker.Clear();
+
+        var published = await f.Service.PublishAsync(
+            f.ArticleId, new(f.RowVersion, "Publish once"), default);
+
+        f.Context.ChangeTracker.Clear();
+        var article = await f.Context.Articles.AsNoTracking().SingleAsync();
+        var draft = await f.Context.ArticleDrafts.AsNoTracking().SingleAsync();
+        var version = await f.Context.ArticleVersions.AsNoTracking().SingleAsync();
+        Assert.Equal(ArticleStatuses.Published, published.Status);
+        Assert.Equal(ArticleStatuses.Published, article.Status);
+        Assert.Equal(ArticleStatuses.Approved, draft.Status);
+        Assert.Equal(draft.DraftId, article.CurrentDraftIdFk);
+        Assert.Equal(version.VersionId, article.LastPublishedVersionIdFk);
+        Assert.Equal(draft.DraftId, version.SourceDraftIdFk);
+        Assert.False((await f.Service.GetPermissionsAsync(f.ArticleId, default)).CanPublish);
+        await Assert.ThrowsAsync<ConflictException>(() => f.Service.PublishAsync(
+            f.ArticleId, new(published.RowVersion, "Duplicate publish"), default));
+        Assert.Single(await f.Context.ArticleVersions.AsNoTracking().ToListAsync());
+        Assert.Single(await f.Context.SearchIndexJobs.AsNoTracking().ToListAsync());
+        Assert.True(await f.Context.ArticleComments.AsNoTracking()
+            .AnyAsync(comment => comment.CommentId == commentId));
+        Assert.True(await f.Context.MediaReferences.AsNoTracking()
+            .AnyAsync(reference => reference.ReferenceId == mediaReferenceId));
     }
 
     [Fact]
@@ -349,7 +422,7 @@ public sealed class ArticleLifecycleSliceTests
     }
 
     [Fact]
-    public async Task Published_draft_cannot_be_locked_or_edited_until_a_new_draft_is_created()
+    public async Task Published_article_source_draft_cannot_be_locked_or_edited_until_a_new_draft_is_created()
     {
         await using var f = await Fixture.CreatePublishedAsync();
         f.Grant(f.PublisherId, PermissionCodes.ArticlesEditAnyDraft);
@@ -467,7 +540,7 @@ public sealed class ArticleLifecycleSliceTests
         var draft = await f.CreateDraftService().GetAsync(f.ArticleId, default);
         Assert.Equal(f.DraftId, draft.Draft.DraftId);
         Assert.Equal(ArticleStatuses.Archived, draft.Draft.ArticleStatus);
-        Assert.Equal(ArticleStatuses.Published, draft.Draft.Status);
+        Assert.Equal(ArticleStatuses.Approved, draft.Draft.Status);
         Assert.False(draft.CanEdit);
 
         var permissions = await f.Service.GetPermissionsAsync(f.ArticleId, default);

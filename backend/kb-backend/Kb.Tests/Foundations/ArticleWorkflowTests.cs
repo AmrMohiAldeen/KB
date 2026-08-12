@@ -5,6 +5,25 @@ namespace Kb.Tests.Foundations;
 
 public sealed class ArticleWorkflowTests
 {
+    [Fact]
+    public void Article_and_draft_status_definitions_keep_published_separate_and_exclude_resubmitted()
+    {
+        Assert.Contains(ArticleStatuses.Published, ArticleStatuses.All);
+        Assert.DoesNotContain(ArticleStatuses.Published, ArticleDraftStatuses.All);
+        Assert.DoesNotContain("Resubmitted", ArticleStatuses.All);
+        Assert.DoesNotContain("Resubmitted", ArticleDraftStatuses.All);
+    }
+
+    [Theory]
+    [InlineData(ArticleStatuses.Approved, ArticleStatuses.Approved, true)]
+    [InlineData(ArticleStatuses.Published, ArticleStatuses.Approved, false)]
+    [InlineData(ArticleStatuses.Approved, ArticleStatuses.Draft, false)]
+    public void Publishing_requires_approved_article_and_draft_states(
+        string articleStatus,
+        string draftStatus,
+        bool expected) =>
+        Assert.Equal(expected, ArticleWorkflow.CanPublish(articleStatus, draftStatus));
+
     [Theory]
     [InlineData(ArticleStatuses.Draft, ArticleStatuses.SubmittedForReview)]
     [InlineData(ArticleStatuses.SubmittedForReview, ArticleStatuses.InReview)]

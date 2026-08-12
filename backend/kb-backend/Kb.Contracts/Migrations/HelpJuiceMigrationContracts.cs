@@ -29,6 +29,7 @@ public sealed record HelpJuiceMigrationPreviewArticleResponse(
     string Slug,
     string? Description,
     bool IsPublished,
+    bool IsArchived,
     DateTime? CreatedAt,
     DateTime? UpdatedAt,
     string? CategoryExternalId,
@@ -76,6 +77,7 @@ public sealed record HelpJuiceMigrationResultResponse(
     int CategorySkipped,
     int PublishedImported,
     int DraftImported,
+    int ArchivedImported,
     int MediaImported,
     int MediaReused,
     int UnresolvedMedia,
@@ -93,6 +95,7 @@ public sealed record HelpJuiceMigrationPhaseResponse(
     int FailedItems);
 
 public sealed record HelpJuiceMigrationResponse(
+    Guid JobId,
     string Status,
     string OriginalFileName,
     DateTime StartedAt,

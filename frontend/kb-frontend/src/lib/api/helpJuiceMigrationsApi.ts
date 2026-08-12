@@ -19,6 +19,7 @@ export type HelpJuiceMigrationPreviewArticle = {
   slug: string
   description?: string
   isPublished: boolean
+  isArchived: boolean
   createdAt?: string
   updatedAt?: string
   categoryExternalId?: string
@@ -40,9 +41,9 @@ export type HelpJuiceMigrationPreviewResponse = {
   articles: HelpJuiceMigrationPreviewArticle[]
 }
 export type HelpJuiceValidationSummary = { totalArticles: number; publishedArticles: number; unpublishedArticles: number; categories: number; categoryDepth: number; articlesMissingAnswers: number; duplicateIds: number; duplicateSlugs: number; invalidCategoryReferences: number; missingMedia: number; availableFiles: string[]; missingRequiredFiles: string[]; unsupportedFiles: string[]; blockingErrorCount: number; warningCount: number }
-export type HelpJuiceMigrationResult = { importedItems: number; updatedItems: number; skippedItems: number; failedItems: number; categoryImported: number; categoryUpdated: number; categorySkipped: number; publishedImported: number; draftImported: number; mediaImported: number; mediaReused: number; unresolvedMedia: number; unsupportedData: number; warningCount: number }
+export type HelpJuiceMigrationResult = { importedItems: number; updatedItems: number; skippedItems: number; failedItems: number; categoryImported: number; categoryUpdated: number; categorySkipped: number; publishedImported: number; draftImported: number; archivedImported: number; mediaImported: number; mediaReused: number; unresolvedMedia: number; unsupportedData: number; warningCount: number }
 export type HelpJuiceMigrationPhase = { phase: string; status: string; totalItems: number; processedItems: number; importedItems: number; updatedItems: number; skippedItems: number; failedItems: number }
-export type HelpJuiceMigrationResponse = { status: 'ValidationFailed'|'Completed'|'CompletedWithErrors'; originalFileName: string; startedAt: string; completedAt: string; options: HelpJuiceMigrationOptions; validation: HelpJuiceValidationSummary; result?: HelpJuiceMigrationResult; phases: HelpJuiceMigrationPhase[]; issues: MigrationIssue[] }
+export type HelpJuiceMigrationResponse = { jobId: string; status: 'ValidationFailed'|'Completed'|'CompletedWithErrors'; originalFileName: string; startedAt: string; completedAt: string; options: HelpJuiceMigrationOptions; validation: HelpJuiceValidationSummary; result?: HelpJuiceMigrationResult; phases: HelpJuiceMigrationPhase[]; issues: MigrationIssue[] }
 
 const parseJson = (value: string): unknown => { try { return value ? JSON.parse(value) : undefined } catch { return undefined } }
 
