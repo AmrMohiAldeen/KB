@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Threading.Channels;
 using Kb.Application.Abstractions.Storage;
 using Kb.Application.ExportJobs;
 using Kb.Domain.Constants;
@@ -61,10 +62,22 @@ public sealed class ChromiumPdfRenderer(IOptions<ExportOptions> options) : IPdfR
             start.ArgumentList.Add(new Uri(inputPath).AbsoluteUri);
             using var process = Process.Start(start)
                 ?? throw new InvalidOperationException("Chromium could not be started.");
-            await process.WaitForExitAsync(cancellationToken);
+            var standardOutput = process.StandardOutput.ReadToEndAsync(cancellationToken);
+            var standardError = process.StandardError.ReadToEndAsync(cancellationToken);
+            try
+            {
+                await process.WaitForExitAsync(cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                try { process.Kill(entireProcessTree: true); } catch { /* process already stopped */ }
+                await process.WaitForExitAsync(CancellationToken.None);
+                throw;
+            }
+            await standardOutput;
+            var error = await standardError;
             if (process.ExitCode != 0 || !File.Exists(outputPath))
             {
-                var error = await process.StandardError.ReadToEndAsync(cancellationToken);
                 throw new InvalidOperationException($"Chromium PDF rendering failed: {Safe(error)}");
             }
             return new MemoryStream(await File.ReadAllBytesAsync(outputPath, cancellationToken), writable: false);
@@ -95,8 +108,29 @@ public sealed class ChromiumPdfRenderer(IOptions<ExportOptions> options) : IPdfR
         : value.Replace('\r', ' ').Replace('\n', ' ').Trim()[..Math.Min(value.Trim().Length, 500)];
 }
 
+public sealed class ExportJobSignal : IExportJobSignal
+{
+    private readonly Channel<bool> channel = Channel.CreateBounded<bool>(new BoundedChannelOptions(1)
+    {
+        FullMode = BoundedChannelFullMode.DropWrite,
+        SingleReader = true,
+        SingleWriter = false
+    });
+
+    public void Notify() => channel.Writer.TryWrite(true);
+
+    public async Task WaitAsync(TimeSpan maximumDelay, CancellationToken cancellationToken)
+    {
+        var ready = channel.Reader.WaitToReadAsync(cancellationToken).AsTask();
+        var delay = Task.Delay(maximumDelay, cancellationToken);
+        if (await Task.WhenAny(ready, delay) == ready && await ready)
+            while (channel.Reader.TryRead(out _)) { }
+    }
+}
+
 public sealed class ExportJobWorker(
     IServiceScopeFactory scopeFactory,
+    IExportJobSignal jobSignal,
     IOptions<ExportOptions> options,
     ILogger<ExportJobWorker> logger) : BackgroundService
 {
@@ -109,7 +143,7 @@ public sealed class ExportJobWorker(
                 using var scope = scopeFactory.CreateScope();
                 var processed = await scope.ServiceProvider.GetRequiredService<ExportJobProcessor>()
                     .ProcessNextAsync(stoppingToken);
-                if (!processed) await Task.Delay(options.Value.PollInterval, stoppingToken);
+                if (!processed) await jobSignal.WaitAsync(options.Value.PollInterval, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
             catch (Exception exception)

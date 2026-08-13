@@ -107,10 +107,17 @@ import {
   getDashboardItems,
   getDashboardPermissionContext,
   moveDashboardItems,
-  reorderDashboardItem
+  reorderDashboardItem,
+  searchDashboard
 } from '@/lib/api/dashboardApi'
 import { describeApiError } from '@/lib/api/http'
-import { downloadExport, getExportJob, requestExport, saveExportBlob } from '@/lib/api/exportJobsApi'
+import {
+  downloadExport,
+  requestArticleExport,
+  requestCategoryExport,
+  saveExportBlob,
+  waitForExport
+} from '@/lib/api/exportJobsApi'
 import type { ExportFormat } from '@/types/apps/exportJobTypes'
 import {
   canEditDashboardArticle,
@@ -145,10 +152,23 @@ const sortOptions: Array<{ value: DashboardSort; label: string }> = [
   { value: 'createdAt', label: 'Date created' }
 ]
 
+const internalStatusOptions = [
+  'Draft', 'SubmittedForReview', 'InReview', 'ChangesRequested', 'Approved', 'Published', 'Archived'
+] as const
+
 const hasPermission = (
   context: DashboardPermissionContext | null,
   permission: DashboardPermissionContext['permissions'][number]
 ) => Boolean(context?.permissions.includes(permission))
+
+const HighlightedText = ({ value, fallback }: { value?: string | null; fallback: string }) => {
+  if (!value) return fallback
+  const parts = value.split(/(<mark>.*?<\/mark>)/gi)
+
+  return parts.map((part, index) => part.toLowerCase().startsWith('<mark>')
+    ? <Box component='mark' key={index} sx={{ bgcolor: 'warning.light', color: 'inherit', px: 0.15 }}>{part.slice(6, -7)}</Box>
+    : part)
+}
 
 const ItemName = ({ item }: { item: DashboardItem }) => (
   <Stack direction='row' spacing={1.75} sx={{ alignItems: 'center', minInlineSize: 220 }}>
@@ -170,12 +190,19 @@ const ItemName = ({ item }: { item: DashboardItem }) => (
     </Box>
     <Box sx={{ minInlineSize: 0 }}>
       <Typography color='text.primary' sx={{ fontWeight: 700, lineHeight: 1.35 }} noWrap>
-        {item.kind === 'category' ? item.category.name : item.article.title}
+        <HighlightedText
+          value={item.search?.titleHighlight}
+          fallback={item.kind === 'category' ? item.category.name : item.article.title}
+        />
       </Typography>
       <Typography variant='caption' color='text.secondary' noWrap sx={{ display: 'block', mt: 0.25 }}>
-        {item.kind === 'category'
-          ? `${item.category.articleCount} article${item.category.articleCount === 1 ? '' : 's'}`
-          : `Updated ${formatDate(item.article.updatedAt)}`}
+        {item.search?.snippet
+          ? <HighlightedText value={item.search.snippet} fallback={item.search.snippet} />
+          : item.search?.pathHighlight
+            ? <HighlightedText value={item.search.pathHighlight} fallback={item.search.pathHighlight} />
+            : item.kind === 'category'
+              ? item.search ? 'Category' : `${item.category.articleCount} article${item.category.articleCount === 1 ? '' : 's'}`
+              : `Updated ${formatDate(item.article.updatedAt)}`}
       </Typography>
     </Box>
   </Stack>
@@ -311,6 +338,9 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
   const [categoryId, setCategoryId] = useState(initialCategoryId)
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
+  const [searchStatus, setSearchStatus] = useState('')
+  const [ownerId, setOwnerId] = useState('')
+  const [searchOwners, setSearchOwners] = useState<Array<{ id: string; name: string; count: number }>>([])
   const [sort, setSort] = useState<DashboardSort>('position')
   const [view, setView] = useState<DashboardView>('list')
   const [filterCounts, setFilterCounts] = useState<Record<DashboardArticleFilter, number> | null>(null)
@@ -396,21 +426,42 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
 
     if (!accessToken) return () => controller.abort()
 
-    getDashboardItems({
-      accessToken,
-      filter: activeFilter,
-      search: debouncedSearch || undefined,
-      categoryId: categoryId || undefined,
-      sort,
-      page: page + 1,
-      pageSize,
-      signal: controller.signal
-    }).then(result => {
+    const request = debouncedSearch
+      ? searchDashboard({
+          accessToken,
+          query: debouncedSearch,
+          status: searchStatus || undefined,
+          categoryId: categoryId || undefined,
+          ownerId: ownerId || undefined,
+          page: page + 1,
+          pageSize,
+          signal: controller.signal
+        })
+      : getDashboardItems({
+          accessToken,
+          filter: activeFilter,
+          categoryId: categoryId || undefined,
+          sort,
+          page: page + 1,
+          pageSize,
+          signal: controller.signal
+        })
+
+    request.then(result => {
       if (controller.signal.aborted) return
 
       setItems(result.items)
-      setFilterCounts(result.filterCounts)
+      setFilterCounts('filterCounts' in result ? result.filterCounts : null)
       setTotalCount(result.totalCount)
+      if ('owners' in result) {
+        setSearchOwners(result.owners.flatMap(facet => {
+          const separator = facet.value.indexOf('|')
+
+          return separator > 0
+            ? [{ id: facet.value.slice(0, separator), name: facet.value.slice(separator + 1), count: facet.count }]
+            : []
+        }))
+      } else setSearchOwners([])
       setPageErrors([])
     }).catch(error => {
       if (error instanceof DOMException && error.name === 'AbortError') return
@@ -424,7 +475,7 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
     })
 
     return () => controller.abort()
-  }, [accessToken, activeFilter, categoryId, debouncedSearch, page, pageSize, refreshKey, sort])
+  }, [accessToken, activeFilter, categoryId, debouncedSearch, ownerId, page, pageSize, refreshKey, searchStatus, sort])
 
   const categoryOptions = useMemo(() => getCategoryOptions(categories), [categories])
   const selectedCategory = useMemo(
@@ -440,7 +491,7 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
   const canReorderArticles = hasPermission(permissionContext, 'articles.editAnyDraft')
   const canDuplicateArticles = canCreateArticle && canEditOwnArticle
   const selectableArticles = useMemo(
-    () => items.flatMap(item => item.kind === 'article' && item.article.status !== 'Archived' &&
+    () => items.flatMap(item => item.kind === 'article' && !item.search && item.article.status !== 'Archived' &&
       (canDeleteArticle || canReorderArticles || canDuplicateArticles)
       ? [item.article]
       : []),
@@ -451,7 +502,7 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
     [selectableArticles, selectedArticleIds]
   )
   const selectableCategories = useMemo(
-    () => items.flatMap(item => item.kind === 'category' && canManageCategories ? [item.category] : []),
+    () => items.flatMap(item => item.kind === 'category' && !item.search && canManageCategories ? [item.category] : []),
     [canManageCategories, items]
   )
   const selectedCategories = useMemo(
@@ -534,7 +585,7 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
   }
 
   const dragHandle = (item: DashboardItem) => {
-    if (!canReorderItem(item)) return null
+    if (item.search || !canReorderItem(item)) return null
 
     const label = item.kind === 'category' ? item.category.name : item.article.title
 
@@ -640,6 +691,12 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
     if (suppressNavigationRef.current) return
 
     if (item.kind === 'category') {
+      if (debouncedSearch) {
+        setSearch('')
+        setDebouncedSearch('')
+        setSearchStatus('')
+        setOwnerId('')
+      }
       selectCategory(item.category.id)
       return
     }
@@ -956,20 +1013,20 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
     setSuccessMessage('')
 
     try {
-      let job = await requestExport(
-        item.kind,
-        item.kind === 'article' ? item.article.articleId : item.category.id,
-        exportType,
-        accessToken
-      )
-
-      for (let attempt = 0; attempt < 300 && job.status !== 'Completed' && job.status !== 'Failed'; attempt += 1) {
-        await new Promise(resolve => window.setTimeout(resolve, 1000))
-        job = await getExportJob(job.exportJobId, accessToken)
-      }
-
-      if (job.status === 'Failed') throw new Error(job.errorMessage || 'The export could not be generated.')
-      if (job.status !== 'Completed') throw new Error('The export is still processing. You can try again shortly.')
+      const requested = item.kind === 'category'
+        ? await requestCategoryExport(item.category.id, exportType, accessToken)
+        : item.article.currentDraftId
+          ? await requestArticleExport(item.article.articleId, {
+              sourceType: 'Draft',
+              draftId: item.article.currentDraftId
+            }, exportType, accessToken)
+          : item.article.currentPublishedVersionId
+            ? await requestArticleExport(item.article.articleId, {
+                sourceType: 'Version',
+                versionId: item.article.currentPublishedVersionId
+              }, exportType, accessToken)
+            : (() => { throw new Error('This article has no draft or version available to export.') })()
+      const job = await waitForExport(requested, accessToken)
 
       saveExportBlob(await downloadExport(job.exportJobId, accessToken), job.fileName)
       setSuccessMessage(`${exportType} export downloaded.`)
@@ -982,6 +1039,7 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
   }
 
   const itemActions = (item: DashboardItem) => {
+    if (item.search) return null
     const label = item.kind === 'category' ? item.category.name : item.article.title
     const canEdit = item.kind === 'category'
       ? canManageCategories
@@ -994,6 +1052,9 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
       : canCreateArticle && canEditOwnArticle
     const canRead = item.kind === 'category' || canViewArticles
     const isExporting = exportingItemIds.has(item.id)
+    const exportSubject = item.kind === 'category'
+      ? 'category'
+      : item.article.currentDraftId ? 'current draft' : 'published version'
 
     const action = (
       title: string,
@@ -1039,8 +1100,8 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
         }, { color: 'error', hidden: !canDelete })}
         {action('Duplicate', <Copy size={15} />, () => void duplicateItem(item), { hidden: !canDuplicate })}
         {action('Copy link', <ExternalLink size={15} />, () => void copyItemLink(item), { hidden: !canRead })}
-        {action('Export PDF', <Download size={15} />, () => void startExport(item, 'PDF'), { hidden: !canRead })}
-        {action('Export HTML', <FileCode2 size={15} />, () => void startExport(item, 'HTML'), { hidden: !canRead })}
+        {action(`Export ${exportSubject} as PDF`, <Download size={15} />, () => void startExport(item, 'PDF'), { hidden: !canRead })}
+        {action(`Export ${exportSubject} as HTML`, <FileCode2 size={15} />, () => void startExport(item, 'HTML'), { hidden: !canRead })}
         {/* TODO: Connect preview to the localized preview surface when it is available. */}
         {action('Preview', <Eye size={15} />, () => setSuccessMessage('Preview is coming soon.'), { hidden: !canRead })}
         {item.kind === 'category' && action(
@@ -1078,7 +1139,7 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
     : debouncedSearch
       ? {
           title: 'No search results',
-          description: `No article or category names match “${debouncedSearch}”.`
+          description: `No article titles, draft content, or category paths match “${debouncedSearch}”.`
         }
       : {
           title: categoryId ? 'This category is empty' : 'Nothing to show',
@@ -1340,17 +1401,36 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
               sx={{ flex: '1 1 240px', minInlineSize: 180, maxInlineSize: 480 }}
             />
 
-            <KbTableFilter
-              select
-              value={activeFilter}
-              onChange={event => applyFilter(event.target.value as DashboardArticleFilter)}
-              slotProps={{ htmlInput: { 'aria-label': 'Filter by article status' } }}
-              sx={{ display: { xs: 'none', sm: 'block' }, inlineSize: 160 }}
-            >
-              {filterOptions.map(option => (
-                <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
-              ))}
-            </KbTableFilter>
+            {search.trim() ? (
+              <KbTableFilter
+                select
+                value={searchStatus}
+                onChange={event => {
+                  setContentLoading(true)
+                  setPage(0)
+                  setSearchStatus(event.target.value)
+                }}
+                slotProps={{ htmlInput: { 'aria-label': 'Filter search by status' } }}
+                sx={{ display: { xs: 'none', sm: 'block' }, inlineSize: 180 }}
+              >
+                <MenuItem value=''>All statuses</MenuItem>
+                {internalStatusOptions.map(status => (
+                  <MenuItem key={status} value={status}>{articleStatusLabel[status]}</MenuItem>
+                ))}
+              </KbTableFilter>
+            ) : (
+              <KbTableFilter
+                select
+                value={activeFilter}
+                onChange={event => applyFilter(event.target.value as DashboardArticleFilter)}
+                slotProps={{ htmlInput: { 'aria-label': 'Filter by article status' } }}
+                sx={{ display: { xs: 'none', sm: 'block' }, inlineSize: 160 }}
+              >
+                {filterOptions.map(option => (
+                  <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+                ))}
+              </KbTableFilter>
+            )}
 
             <KbTableFilter
               select
@@ -1367,7 +1447,26 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
               ))}
             </KbTableFilter>
 
-            <KbTableFilter
+            {search.trim() && (
+              <KbTableFilter
+                select
+                value={ownerId}
+                onChange={event => {
+                  setContentLoading(true)
+                  setPage(0)
+                  setOwnerId(event.target.value)
+                }}
+                slotProps={{ htmlInput: { 'aria-label': 'Filter search by owner' } }}
+                sx={{ display: { xs: 'none', lg: 'block' }, inlineSize: 180 }}
+              >
+                <MenuItem value=''>All owners</MenuItem>
+                {searchOwners.map(owner => (
+                  <MenuItem key={owner.id} value={owner.id}>{owner.name} ({owner.count})</MenuItem>
+                ))}
+              </KbTableFilter>
+            )}
+
+            {!search.trim() && <KbTableFilter
               select
               value={sort}
               onChange={event => {
@@ -1383,7 +1482,7 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
               {sortOptions.map(option => (
                 <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
               ))}
-            </KbTableFilter>
+            </KbTableFilter>}
 
             <ButtonGroup size='small' variant='outlined' aria-label='Dashboard view'>
               <Tooltip title='List view'>
@@ -1426,6 +1525,8 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
                 size='small'
                 onClick={() => {
                   setSearch('')
+                  setSearchStatus('')
+                  setOwnerId('')
                   setActiveFilter('Everything')
                   selectCategory('')
                 }}

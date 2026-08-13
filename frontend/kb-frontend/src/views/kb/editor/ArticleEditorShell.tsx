@@ -35,6 +35,7 @@ import type { ArticleCommentsApi } from '@/lib/api/articleCommentsApi'
 import { createArticle, getArticleById } from '@/lib/api/articlesApi'
 import { getArticleDraft, saveArticleDraftContent } from '@/lib/api/articleDraftsApi'
 import { describeApiError } from '@/lib/api/http'
+import ArticleExportActions from '@/features/articleExport/ArticleExportActions'
 
 const EditorCanvas = dynamic<KnowledgeBaseEditorProps>(() => import('@/features/editor/core/KnowledgeBaseEditor'), {
   ssr: false
@@ -189,6 +190,17 @@ const ArticleEditorShell = ({
           Dashboard
         </Button>
         <Typography variant='h5' sx={{ fontWeight: 750 }}>Edit article</Typography>
+        {editor.draft && (
+          <Box sx={{ marginInlineStart: 'auto' }}>
+            <ArticleExportActions
+              articleId={articleId}
+              source={{ sourceType: 'Draft', draftId: editor.draft.draftId }}
+              accessToken={accessToken}
+              beforeExport={editor.prepareForWorkflow}
+              disabled={pendingMediaUploads > 0 || editor.saveState.status === 'conflict'}
+            />
+          </Box>
+        )}
       </Stack>
 
       <Card variant='outlined' sx={{ borderRadius: 2, boxShadow: 'none' }}>

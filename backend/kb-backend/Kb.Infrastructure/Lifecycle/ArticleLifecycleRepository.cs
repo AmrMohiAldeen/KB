@@ -9,6 +9,7 @@ using Kb.Domain.Constants;
 using Kb.Infrastructure.Data;
 using Kb.Infrastructure.Data.Entities;
 using Microsoft.EntityFrameworkCore;
+using Kb.Infrastructure.Search;
 
 namespace Kb.Infrastructure.Lifecycle;
 
@@ -215,16 +216,6 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
             draft.UpdatedByFk = audit.ActorId;
             draft.UpdatedAt = audit.CreatedAt;
             AdvanceSqliteRowVersion(draft);
-            dbContext.SearchIndexJobs.Add(new SearchIndexJob
-            {
-                SearchJobId = NewId(),
-                ArticleIdFk = articleId,
-                VersionIdFk = content.VersionId,
-                JobType = SearchIndexJobTypes.Upsert,
-                Status = JobStatuses.Pending,
-                RetryCount = 0,
-                CreatedAt = audit.CreatedAt
-            });
             AddReview(articleId, draftId, review);
             AddAudit(articleId, draftId, audit);
             AddVersionAudit(version, snapshotAudit);
@@ -322,16 +313,6 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
             draft.UpdatedByFk = audit.ActorId;
             draft.UpdatedAt = audit.CreatedAt;
             AdvanceSqliteRowVersion(draft);
-            dbContext.SearchIndexJobs.Add(new SearchIndexJob
-            {
-                SearchJobId = NewId(),
-                ArticleIdFk = articleId,
-                VersionIdFk = null,
-                JobType = SearchIndexJobTypes.Delete,
-                Status = JobStatuses.Pending,
-                RetryCount = 0,
-                CreatedAt = audit.CreatedAt
-            });
             AddReview(articleId, draftId, review);
             AddAudit(articleId, draftId, audit);
             await SaveChangesAsync(token);
@@ -366,19 +347,6 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
             draft.UpdatedByFk = audit.ActorId;
             draft.UpdatedAt = audit.CreatedAt;
             AdvanceSqliteRowVersion(draft);
-            if (article.LastPublishedVersionIdFk is { } versionId)
-            {
-                dbContext.SearchIndexJobs.Add(new SearchIndexJob
-                {
-                    SearchJobId = NewId(),
-                    ArticleIdFk = articleId,
-                    VersionIdFk = versionId,
-                    JobType = SearchIndexJobTypes.Upsert,
-                    Status = JobStatuses.Pending,
-                    RetryCount = 0,
-                    CreatedAt = audit.CreatedAt
-                });
-            }
             AddReview(articleId, draftId, review);
             AddAudit(articleId, draftId, audit);
             await SaveChangesAsync(token);
@@ -453,6 +421,13 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
 
     private async Task SaveChangesAsync(CancellationToken cancellationToken)
     {
+        var changedArticles = dbContext.ChangeTracker.Entries<Article>()
+            .Where(entry => entry.State is EntityState.Added or EntityState.Modified)
+            .Select(entry => entry.Entity).Where(article => article.ArticleId != Guid.Empty)
+            .GroupBy(article => article.ArticleId).Select(group => group.First()).ToArray();
+        foreach (var article in changedArticles)
+            await SearchIndexJobQueue.EnqueueArticleAsync(dbContext, article.ArticleId, SearchIndexJobTypes.Upsert,
+                article.UpdatedAt, cancellationToken);
         try
         {
             await dbContext.SaveChangesAsync(cancellationToken);

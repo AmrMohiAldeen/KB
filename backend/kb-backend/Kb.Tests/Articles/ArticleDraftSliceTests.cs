@@ -103,6 +103,28 @@ public sealed class ArticleDraftSliceTests
     }
 
     [Fact]
+    public async Task Frequent_autosaves_coalesce_to_one_delayed_internal_search_job()
+    {
+        await using var f = await Fixture.CreateAsync();
+        f.Grant(f.AuthorId, PermissionCodes.ArticlesEditOwnDraft);
+        var initial = await f.Service.GetAsync(f.ArticleId, default);
+        var locked = await f.Service.AcquireLockAsync(f.ArticleId, initial.Draft.RowVersion, default);
+
+        var first = await f.Service.SaveContentAsync(f.ArticleId,
+            new(Tiptap("first draft"), null, "first draft", locked.Draft.RowVersion), default);
+        var second = await f.Service.SaveContentAsync(f.ArticleId,
+            new(Tiptap("latest draft"), null, "latest draft", first.RowVersion), default);
+
+        var job = Assert.Single(await f.Context.SearchIndexJobs.AsNoTracking().ToListAsync());
+        Assert.Equal(SearchIndexScopes.Internal, job.IndexScope);
+        Assert.Equal(SearchIndexTargets.Article, job.TargetType);
+        Assert.Equal(SearchIndexJobTypes.Upsert, job.JobType);
+        Assert.Equal(JobStatuses.Pending, job.Status);
+        Assert.Equal(f.ArticleId, job.ArticleIdFk);
+        Assert.True(job.AvailableAt > second.UpdatedAt);
+    }
+
+    [Fact]
     public async Task Force_release_requires_locks_manage_permission_in_application_layer()
     {
         await using var f = await Fixture.CreateAsync();

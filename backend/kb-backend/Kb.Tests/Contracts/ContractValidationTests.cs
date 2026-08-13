@@ -98,9 +98,14 @@ public sealed class ContractValidationTests
     [Theory]
     [InlineData("PDF")]
     [InlineData("HTML")]
-    public void Export_accepts_supported_immutable_version_formats(string format)
+    public void Export_accepts_supported_explicit_version_formats(string format)
     {
-        var request = new ExportArticleRequest { VersionId = Guid.NewGuid(), ExportType = format };
+        var request = new ExportArticleRequest
+        {
+            SourceType = ExportSourceTypes.Version,
+            VersionId = Guid.NewGuid(),
+            ExportType = format
+        };
         Assert.Empty(Validate(request));
     }
 

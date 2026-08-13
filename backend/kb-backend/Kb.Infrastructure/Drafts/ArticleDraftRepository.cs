@@ -6,10 +6,12 @@ using Kb.Domain.Constants;
 using Kb.Infrastructure.Data;
 using Kb.Infrastructure.Data.Entities;
 using Microsoft.EntityFrameworkCore;
+using Kb.Infrastructure.Search;
+using Microsoft.Extensions.Options;
 
 namespace Kb.Infrastructure.Drafts;
 
-public sealed class ArticleDraftRepository(KbDbContext dbContext) : IArticleDraftRepository
+public sealed class ArticleDraftRepository(KbDbContext dbContext, IOptions<InternalSearchOptions>? searchOptions = null) : IArticleDraftRepository
 {
     public Task<CurrentDraftData?> GetCurrentAsync(Guid articleId, CancellationToken cancellationToken) =>
         CurrentDrafts().Where(draft => draft.ArticleIdFk == articleId)
@@ -139,7 +141,11 @@ public sealed class ArticleDraftRepository(KbDbContext dbContext) : IArticleDraf
                         .SetProperty(draft => draft.UpdatedAt, changedAt)
                         .SetProperty(draft => draft.RowVersion, Guid.NewGuid().ToByteArray()), token);
                 if (changed == 1)
+                {
                     await SynchronizeDraftMediaReferencesAsync(articleId, draftId, mediaIds, token);
+                    await SearchIndexJobQueue.EnqueueArticleAsync(dbContext, articleId, SearchIndexJobTypes.Upsert,
+                        changedAt.Add(searchOptions?.Value.DraftDebounce ?? TimeSpan.FromSeconds(3)), token);
+                }
                 return changed;
             }, null,
             _ => new ConflictException("Only the current draft lock owner can save draft content."),

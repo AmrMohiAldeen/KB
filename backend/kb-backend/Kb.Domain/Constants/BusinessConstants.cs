@@ -100,10 +100,32 @@ public static class JobStatuses
     public const string Failed = "Failed";
 }
 
+public static class SearchIndexTargets
+{
+    public const string Article = "Article";
+    public const string Category = "Category";
+}
+
+public static class SearchIndexScopes
+{
+    // Never reuse this scope/collection for viewer-facing search: it intentionally contains drafts and archives.
+    public const string Internal = "Internal";
+}
+
 public static class ExportEntityTypes
 {
     public const string Article = "Article";
     public const string Category = "Category";
+}
+
+public static class ExportSourceTypes
+{
+    public const string Draft = "Draft";
+    public const string Version = "Version";
+    public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        Draft, Version
+    };
 }
 
 public static class ExportTypes

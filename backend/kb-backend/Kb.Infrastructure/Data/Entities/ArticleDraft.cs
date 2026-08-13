@@ -56,4 +56,6 @@ public partial class ArticleDraft
     public virtual User? UpdatedByFkNavigation { get; set; }
 
     public virtual ICollection<ArticleVersion> SourceArticleVersions { get; set; } = new List<ArticleVersion>();
+
+    public virtual ICollection<ExportJob> ExportJobs { get; set; } = new List<ExportJob>();
 }

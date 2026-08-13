@@ -7,8 +7,11 @@ import type {
   DashboardItemsResponse,
   DashboardPermissionContext,
   DashboardResult,
-  DashboardSort
+  DashboardSort,
+  InternalSearchResponse,
+  InternalSearchResult
 } from '@/types/apps/dashboardTypes'
+import type { ArticleStatus } from '@/types/apps/articleTypes'
 
 export const defaultDashboardPageSize = 25
 
@@ -96,6 +99,96 @@ export const getDashboardPermissionContext = async (
 
     throw error
   }
+}
+
+export const searchDashboard = async ({
+  accessToken,
+  query,
+  status,
+  categoryId,
+  ownerId,
+  page = 1,
+  pageSize = defaultDashboardPageSize,
+  signal
+}: {
+  accessToken: string
+  query: string
+  status?: string
+  categoryId?: string
+  ownerId?: string
+  page?: number
+  pageSize?: number
+  signal?: AbortSignal
+}): Promise<InternalSearchResult> => {
+  const parameters = new URLSearchParams({ query, page: page.toString(), pageSize: pageSize.toString() })
+
+  if (status) parameters.set('status', status)
+  if (categoryId) parameters.set('categoryId', categoryId)
+  if (ownerId) parameters.set('ownerId', ownerId)
+  const response = await apiRequest<InternalSearchResponse>(
+    `/api/dashboard/search?${parameters.toString()}`,
+    accessToken,
+    { signal }
+  )
+
+  const items = response.hits.map(hit => {
+    const search = {
+      titleHighlight: hit.titleHighlight,
+      pathHighlight: hit.pathHighlight,
+      snippet: hit.snippet
+    }
+
+    if (hit.kind === 'category') {
+      return {
+        kind: 'category' as const,
+        id: `category:${hit.id}`,
+        category: {
+          id: hit.id,
+          parentId: null,
+          name: hit.title,
+          slug: hit.slug,
+          description: '',
+          sortOrder: 0,
+          path: hit.categoryPath,
+          depth: 0,
+          articleCount: 0,
+          children: [],
+          status: hit.status === 'Archived' ? 'Archived' as const : 'Active' as const
+        },
+        search
+      }
+    }
+
+    return {
+      kind: 'article' as const,
+      id: `article:${hit.id}`,
+      article: {
+        articleId: hit.id,
+        title: hit.title,
+        slug: hit.slug,
+        status: hit.status as ArticleStatus,
+        category: hit.categoryId ? {
+          categoryId: hit.categoryId,
+          name: hit.categoryName ?? '',
+          slug: '',
+          path: hit.categoryPath
+        } : null,
+        owner: { userId: hit.ownerId ?? '', fullName: hit.ownerName ?? 'Unknown owner' },
+        currentDraftId: null,
+        currentPublishedVersionId: null,
+        createdAt: hit.updatedAt,
+        updatedAt: hit.updatedAt,
+        publishedAt: null,
+        isCurrentDraftLocked: false,
+        lockedBy: null,
+        position: 0
+      },
+      search
+    }
+  })
+
+  return { items, totalCount: response.totalCount, statuses: response.statuses,
+    categories: response.categories, owners: response.owners }
 }
 
 export const reorderDashboardItem = ({

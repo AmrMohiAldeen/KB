@@ -5,6 +5,7 @@ using Kb.Domain.Constants;
 using Kb.Infrastructure.Data;
 using Kb.Infrastructure.Data.Entities;
 using Microsoft.EntityFrameworkCore;
+using Kb.Infrastructure.Search;
 
 namespace Kb.Infrastructure.Articles;
 
@@ -200,6 +201,8 @@ public sealed class ArticleRepository(KbDbContext dbContext) : IArticleRepositor
 
             entity.CurrentDraftIdFk = draftId;
             AddAudit(entity.ArticleId, audit);
+            await SearchIndexJobQueue.EnqueueArticleAsync(dbContext, entity.ArticleId, SearchIndexJobTypes.Upsert,
+                audit.CreatedAt, cancellationToken);
             await dbContext.SaveChangesAsync(cancellationToken);
         }
         catch (DbUpdateException exception) when (IsSlugUniquenessViolation(exception))
@@ -233,6 +236,8 @@ public sealed class ArticleRepository(KbDbContext dbContext) : IArticleRepositor
         entity.CategoryIdFk = categoryId;
         entity.UpdatedAt = audit.CreatedAt;
         AddAudit(id, audit);
+        await SearchIndexJobQueue.EnqueueArticleAsync(dbContext, id, SearchIndexJobTypes.Upsert,
+            audit.CreatedAt, cancellationToken);
 
         try
         {
@@ -276,6 +281,8 @@ public sealed class ArticleRepository(KbDbContext dbContext) : IArticleRepositor
         entity.DeletedAt = audit.CreatedAt;
         entity.UpdatedAt = audit.CreatedAt;
         AddAudit(id, audit);
+        await SearchIndexJobQueue.EnqueueArticleAsync(dbContext, id, SearchIndexJobTypes.Delete,
+            audit.CreatedAt, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 

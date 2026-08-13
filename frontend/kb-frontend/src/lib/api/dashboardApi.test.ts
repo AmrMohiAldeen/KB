@@ -4,7 +4,8 @@ import {
   duplicateDashboardItems,
   getDashboardItems,
   moveDashboardItems,
-  reorderDashboardItem
+  reorderDashboardItem,
+  searchDashboard
 } from './dashboardApi'
 
 describe('dashboard API', () => {
@@ -116,6 +117,31 @@ describe('dashboard API', () => {
       method: 'PATCH',
       body: JSON.stringify({ targetId: 'target-id', placement: 'after' })
     })
+  })
+
+  it('searches only through the authenticated backend and maps typed highlighted hits', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      hits: [{
+        kind: 'article', id: 'article-id', title: 'Draft onboarding', slug: 'draft-onboarding', status: 'Draft',
+        categoryId: 'category-id', categoryName: 'Guides', categoryPath: 'Company / Guides',
+        ownerId: 'owner-id', ownerName: 'Owner', updatedAt: '2026-08-13T00:00:00Z',
+        titleHighlight: '<mark>Draft</mark> onboarding', pathHighlight: null,
+        snippet: 'Current <mark>draft</mark> content'
+      }],
+      totalCount: 1, page: 1, pageSize: 25,
+      statuses: [{ value: 'Draft', count: 1 }], categories: [{ value: 'category-id', count: 1 }],
+      owners: [{ value: 'owner-id|Owner', count: 1 }]
+    }), { status: 200, headers: { 'content-type': 'application/json' } }))
+
+    const result = await searchDashboard({ accessToken: 'secret-token', query: 'draft', status: 'Draft',
+      categoryId: 'category-id', ownerId: 'owner-id' })
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      'https://api.example.test/api/dashboard/search?query=draft&page=1&pageSize=25&status=Draft&categoryId=category-id&ownerId=owner-id'
+    )
+    expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get('Authorization')).toBe('Bearer secret-token')
+    expect(result.items[0]).toMatchObject({ kind: 'article', article: { status: 'Draft' },
+      search: { snippet: 'Current <mark>draft</mark> content' } })
   })
 
   it('sends mixed bulk move and duplicate selections to backend-authorized endpoints', async () => {

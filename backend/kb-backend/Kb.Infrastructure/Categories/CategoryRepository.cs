@@ -5,6 +5,7 @@ using Kb.Domain.Constants;
 using Kb.Infrastructure.Data;
 using Kb.Infrastructure.Data.Entities;
 using Microsoft.EntityFrameworkCore;
+using Kb.Infrastructure.Search;
 
 namespace Kb.Infrastructure.Categories;
 
@@ -108,6 +109,7 @@ public sealed class CategoryRepository(KbDbContext dbContext) : ICategoryReposit
         entity.Path = path;
         entity.Depth = depth;
         AddAudit(id, audit);
+        await SearchIndexJobQueue.EnqueueCategoryAsync(dbContext, id, SearchIndexJobTypes.Upsert, audit.CreatedAt, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
         return Map(entity);
     }
@@ -121,6 +123,21 @@ public sealed class CategoryRepository(KbDbContext dbContext) : ICategoryReposit
         entity.Description = description;
         entity.SortOrder = sortOrder;
         AddAudit(id, audit);
+        var affectedIds = string.IsNullOrWhiteSpace(entity.Path)
+            ? [id]
+            : await dbContext.Categories.AsNoTracking()
+                .Where(category => category.Path != null && category.Path.StartsWith(entity.Path))
+                .Select(category => category.CategoryId).ToArrayAsync(cancellationToken);
+        foreach (var affectedId in affectedIds)
+            await SearchIndexJobQueue.EnqueueCategoryAsync(dbContext, affectedId, SearchIndexJobTypes.Upsert,
+                audit.CreatedAt, cancellationToken);
+        var affectedArticleIds = await dbContext.Articles.AsNoTracking()
+            .Where(article => article.CategoryIdFk.HasValue && affectedIds.Contains(article.CategoryIdFk.Value) &&
+                              article.DeletedAt == null && article.Status != ArticleStatuses.Deleted)
+            .Select(article => article.ArticleId).ToArrayAsync(cancellationToken);
+        foreach (var articleId in affectedArticleIds)
+            await SearchIndexJobQueue.EnqueueArticleAsync(dbContext, articleId, SearchIndexJobTypes.Upsert,
+                audit.CreatedAt, cancellationToken);
         try
         {
             await dbContext.SaveChangesAsync(cancellationToken);
@@ -150,6 +167,16 @@ public sealed class CategoryRepository(KbDbContext dbContext) : ICategoryReposit
             entity.SortOrder = update.SortOrder;
         }
         AddAudit(updates[0].Id, audit);
+        foreach (var update in updates)
+            await SearchIndexJobQueue.EnqueueCategoryAsync(dbContext, update.Id, SearchIndexJobTypes.Upsert,
+                audit.CreatedAt, cancellationToken);
+        var articleIds = await dbContext.Articles.AsNoTracking()
+            .Where(article => article.CategoryIdFk.HasValue && ids.Contains(article.CategoryIdFk.Value) &&
+                              article.DeletedAt == null && article.Status != ArticleStatuses.Deleted)
+            .Select(article => article.ArticleId).ToListAsync(cancellationToken);
+        foreach (var articleId in articleIds)
+            await SearchIndexJobQueue.EnqueueArticleAsync(dbContext, articleId, SearchIndexJobTypes.Upsert,
+                audit.CreatedAt, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
         return Map(entities[updates[0].Id]);
     }
@@ -158,6 +185,7 @@ public sealed class CategoryRepository(KbDbContext dbContext) : ICategoryReposit
     {
         var entity = await dbContext.Categories.SingleAsync(category => category.CategoryId == id, cancellationToken);
         AddAudit(id, audit);
+        await SearchIndexJobQueue.EnqueueCategoryAsync(dbContext, id, SearchIndexJobTypes.Delete, audit.CreatedAt, cancellationToken);
         dbContext.Categories.Remove(entity);
         await dbContext.SaveChangesAsync(cancellationToken);
     }
@@ -168,6 +196,7 @@ public sealed class CategoryRepository(KbDbContext dbContext) : ICategoryReposit
         var entity = await dbContext.Categories.SingleAsync(category => category.CategoryId == id, cancellationToken);
         entity.Status = status;
         AddAudit(id, audit);
+        await SearchIndexJobQueue.EnqueueCategoryAsync(dbContext, id, SearchIndexJobTypes.Upsert, audit.CreatedAt, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
         return Map(entity);
     }

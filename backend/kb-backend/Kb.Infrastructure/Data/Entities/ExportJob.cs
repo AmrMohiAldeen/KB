@@ -11,9 +11,13 @@ public partial class ExportJob
 
     public Guid? VersionIdFk { get; set; }
 
+    public Guid? DraftIdFk { get; set; }
+
     public Guid? CategoryIdFk { get; set; }
 
     public string EntityType { get; set; } = null!;
+
+    public string? SourceType { get; set; }
 
     public string ExportType { get; set; } = null!;
 
@@ -38,6 +42,8 @@ public partial class ExportJob
     public virtual Article? ArticleIdFkNavigation { get; set; }
 
     public virtual Category? CategoryIdFkNavigation { get; set; }
+
+    public virtual ArticleDraft? DraftIdFkNavigation { get; set; }
 
     public virtual User RequestedByFkNavigation { get; set; } = null!;
 

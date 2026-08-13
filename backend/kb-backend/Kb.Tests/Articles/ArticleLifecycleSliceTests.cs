@@ -84,8 +84,9 @@ public sealed class ArticleLifecycleSliceTests
         Assert.NotEqual(f.DraftContentPath, version.ContentJsonStoragePath);
         Assert.Equal(f.Storage.Get(f.DraftContentPath), f.Storage.Get(version.ContentJsonStoragePath));
         var job = await f.Context.SearchIndexJobs.AsNoTracking().SingleAsync();
-        Assert.Equal((SearchIndexJobTypes.Upsert, JobStatuses.Pending, version.VersionId),
-            (job.JobType, job.Status, job.VersionIdFk));
+        Assert.Equal((SearchIndexJobTypes.Upsert, JobStatuses.Pending, SearchIndexScopes.Internal),
+            (job.JobType, job.Status, job.IndexScope));
+        Assert.Null(job.VersionIdFk);
         Assert.Equal(7, await f.Context.ArticleReviewEvents.CountAsync());
         var changeRequest = await f.Context.ArticleReviewEvents.AsNoTracking().SingleAsync(value =>
             value.Action == ReviewActions.RequestChanges);
@@ -500,7 +501,7 @@ public sealed class ArticleLifecycleSliceTests
     }
 
     [Fact]
-    public async Task Archive_sets_archived_status_and_queues_search_removal_without_deleting_content()
+    public async Task Archive_sets_archived_status_and_keeps_article_in_internal_search()
     {
         await using var f = await Fixture.CreateAsync();
         f.Grant(f.PublisherId, PermissionCodes.ArticlesDelete);
@@ -517,7 +518,7 @@ public sealed class ArticleLifecycleSliceTests
         Assert.Equal(ArticleAuditActions.Archived, audit.ActionType);
         Assert.Contains("\"newState\":\"Archived\"", audit.MetaDataJson);
         var job = await f.Context.SearchIndexJobs.AsNoTracking().SingleAsync();
-        Assert.Equal(SearchIndexJobTypes.Delete, job.JobType);
+        Assert.Equal(SearchIndexJobTypes.Upsert, job.JobType);
         Assert.Null(job.VersionIdFk);
     }
 
@@ -650,7 +651,7 @@ public sealed class ArticleLifecycleSliceTests
         Assert.True(await f.Context.ArticleComments.AnyAsync(comment => comment.CommentId == commentId));
         Assert.True(await f.Context.MediaReferences.AnyAsync(reference => reference.MediaIdFk == mediaId));
         Assert.Equal(
-            [SearchIndexJobTypes.Upsert, SearchIndexJobTypes.Delete, SearchIndexJobTypes.Upsert],
+            [SearchIndexJobTypes.Upsert],
             await f.Context.SearchIndexJobs.AsNoTracking()
                 .OrderBy(job => job.CreatedAt)
                 .ThenBy(job => job.SearchJobId)

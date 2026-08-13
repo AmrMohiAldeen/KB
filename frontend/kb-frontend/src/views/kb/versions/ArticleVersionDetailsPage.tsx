@@ -20,6 +20,7 @@ import {
   getArticleVersion
 } from '@/lib/api/articleLifecycleApi'
 import { formatVersionDate, snapshotReasonLabel, versionLabel } from './versionUi'
+import ArticleExportActions from '@/features/articleExport/ArticleExportActions'
 
 type ArticleVersionDetailsPageProps = {
   lang: string
@@ -79,9 +80,16 @@ export default function ArticleVersionDetailsPage({
         title={version ? versionLabel(version) : 'Version details'}
         description='Readable snapshot content and provenance. Editor JSON and storage paths are not displayed.'
         actions={
-          <Button variant='outlined' startIcon={<ArrowLeft />} onClick={() => navigate(historyUrl)}>
-            Back to history
-          </Button>
+          <>
+            <Button variant='outlined' startIcon={<ArrowLeft />} onClick={() => navigate(historyUrl)}>
+              Back to history
+            </Button>
+            <ArticleExportActions
+              articleId={articleId}
+              source={{ sourceType: 'Version', versionId }}
+              accessToken={accessToken}
+            />
+          </>
         }
       />
 
@@ -121,6 +129,18 @@ export default function ArticleVersionDetailsPage({
               <Typography variant='body2' color='text.secondary'>
                 Created by {version.createdBy.fullName} on {formatVersionDate(version.createdAt, lang)}
               </Typography>
+              {version.sourceDraftId && (
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ alignItems: { sm: 'center' } }}>
+                  <Typography variant='body2' color='text.secondary' sx={{ flex: 1 }}>
+                    Export the still-available source draft independently from this immutable version.
+                  </Typography>
+                  <ArticleExportActions
+                    articleId={articleId}
+                    source={{ sourceType: 'Draft', draftId: version.sourceDraftId }}
+                    accessToken={accessToken}
+                  />
+                </Stack>
+              )}
               <Divider />
               <Typography variant='subtitle1' sx={{ fontWeight: 700 }}>Snapshot content</Typography>
               <Typography

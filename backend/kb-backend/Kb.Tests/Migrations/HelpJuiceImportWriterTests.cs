@@ -11,7 +11,7 @@ namespace Kb.Tests.Migrations;
 public sealed class HelpJuiceImportWriterTests
 {
     [Fact]
-    public async Task Published_and_unpublished_imports_follow_lifecycle_and_queue_only_published_search()
+    public async Task Published_and_unpublished_imports_both_queue_internal_search()
     {
         await using var f=await Fixture.CreateAsync();
         var published=await f.Writer.WriteArticleAsync(f.OperationId,Article("published",true,f.UserId),MigrationConflictBehaviors.Skip,default);
@@ -22,7 +22,7 @@ public sealed class HelpJuiceImportWriterTests
         Assert.Equal(ArticleStatuses.Approved,(await f.Context.ArticleDrafts.SingleAsync(x=>x.ArticleIdFk==published.InternalId)).Status);
         Assert.Equal(ArticleStatuses.Draft,(await f.Context.ArticleDrafts.SingleAsync(x=>x.ArticleIdFk==draft.InternalId)).Status);
         var version=Assert.Single(await f.Context.ArticleVersions.ToListAsync());Assert.Equal(published.VersionId,version.VersionId);Assert.Equal(ArticleSnapshotReasons.Published,version.SnapshotReason);
-        var search=Assert.Single(await f.Context.SearchIndexJobs.ToListAsync());Assert.Equal(published.InternalId,search.ArticleIdFk);Assert.Equal(JobStatuses.Pending,search.Status);
+        var search=await f.Context.SearchIndexJobs.OrderBy(x=>x.ArticleIdFk).ToListAsync();Assert.Equal(2,search.Count);Assert.All(search,job=>{Assert.Equal(JobStatuses.Pending,job.Status);Assert.Equal(SearchIndexScopes.Internal,job.IndexScope);});
     }
 
     [Fact]
@@ -59,14 +59,15 @@ public sealed class HelpJuiceImportWriterTests
     }
 
     [Fact]
-    public async Task Archived_published_source_keeps_version_but_is_not_searchable()
+    public async Task Archived_published_source_keeps_version_and_is_internally_searchable()
     {
         await using var f=await Fixture.CreateAsync();
         var archived=Article("archived",true,f.UserId) with { Status=ArticleStatuses.Archived };
         var result=await f.Writer.WriteArticleAsync(f.OperationId,archived,MigrationConflictBehaviors.Skip,default);
         Assert.Equal(ArticleStatuses.Archived,(await f.Context.Articles.SingleAsync(x=>x.ArticleId==result.InternalId)).Status);
         Assert.Single(await f.Context.ArticleVersions.ToListAsync());
-        Assert.Empty(await f.Context.SearchIndexJobs.ToListAsync());
+        var job=Assert.Single(await f.Context.SearchIndexJobs.ToListAsync());
+        Assert.Equal(SearchIndexJobTypes.Upsert,job.JobType);
     }
 
     [Fact]

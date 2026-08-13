@@ -6,6 +6,7 @@ using Kb.Domain.Constants;
 using Kb.Infrastructure.Data;
 using Kb.Infrastructure.Data.Entities;
 using Microsoft.EntityFrameworkCore;
+using Kb.Infrastructure.Search;
 
 namespace Kb.Infrastructure.Dashboard;
 
@@ -224,6 +225,10 @@ public sealed class DashboardRepository(KbDbContext dbContext) : IDashboardRepos
                         })
                     });
             }
+
+            foreach (var article in articles)
+                await SearchIndexJobQueue.EnqueueArticleAsync(dbContext, article.ArticleId,
+                    SearchIndexJobTypes.Upsert, audit.CreatedAt, cancellationToken);
 
             await dbContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);

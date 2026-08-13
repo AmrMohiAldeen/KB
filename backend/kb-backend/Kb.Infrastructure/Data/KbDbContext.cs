@@ -459,6 +459,8 @@ public partial class KbDbContext : DbContext
 
             entity.HasIndex(e => e.CategoryIdFk, "IX_EXPORT_JOBS_CategoryID_FK");
 
+            entity.HasIndex(e => e.DraftIdFk, "IX_EXPORT_JOBS_DraftID_FK");
+
             entity.HasIndex(e => new { e.Status, e.RequestedAt }, "IX_EXPORT_JOBS_Status_RequestedAt");
 
             entity.Property(e => e.ExportJobId)
@@ -468,6 +470,7 @@ public partial class KbDbContext : DbContext
             entity.Property(e => e.CategoryIdFk).HasColumnName("CategoryID_FK");
             entity.Property(e => e.CompletedAt).HasPrecision(3);
             entity.Property(e => e.EntityType).HasMaxLength(30);
+            entity.Property(e => e.SourceType).HasMaxLength(30);
             entity.Property(e => e.ExportType).HasMaxLength(30);
             entity.Property(e => e.FileName).HasMaxLength(260);
             entity.Property(e => e.RequestedAt)
@@ -480,6 +483,7 @@ public partial class KbDbContext : DbContext
                 .HasMaxLength(50)
                 .HasDefaultValue("Pending", "DF_EXPORT_JOBS_Status");
             entity.Property(e => e.VersionIdFk).HasColumnName("VersionID_FK");
+            entity.Property(e => e.DraftIdFk).HasColumnName("DraftID_FK");
 
             entity.HasOne(d => d.ArticleIdFkNavigation).WithMany(p => p.ExportJobs)
                 .HasForeignKey(d => d.ArticleIdFk)
@@ -490,6 +494,11 @@ public partial class KbDbContext : DbContext
                 .HasForeignKey(d => d.CategoryIdFk)
                 .OnDelete(DeleteBehavior.Restrict)
                 .HasConstraintName("FK_EXPORT_JOBS_CATEGORIES");
+
+            entity.HasOne(d => d.DraftIdFkNavigation).WithMany(p => p.ExportJobs)
+                .HasForeignKey(d => d.DraftIdFk)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_EXPORT_JOBS_ARTICLE_DRAFTS");
 
             entity.HasOne(d => d.RequestedByFkNavigation).WithMany(p => p.ExportJobs)
                 .HasForeignKey(d => d.RequestedByFk)
@@ -700,14 +709,20 @@ public partial class KbDbContext : DbContext
 
             entity.HasIndex(e => new { e.Status, e.CreatedAt }, "IX_SEARCH_INDEX_JOBS_Status_CreatedAt");
 
+            entity.HasIndex(e => new { e.IndexScope, e.Status, e.AvailableAt }, "IX_SEARCH_INDEX_JOBS_Scope_Status_AvailableAt");
+
             entity.Property(e => e.SearchJobId)
                 .HasDefaultValueSql("(newsequentialid())", "DF_SEARCH_INDEX_JOBS_SearchJobID")
                 .HasColumnName("SearchJobID");
             entity.Property(e => e.ArticleIdFk).HasColumnName("ArticleID_FK");
+            entity.Property(e => e.CategoryIdFk).HasColumnName("CategoryID_FK");
+            entity.Property(e => e.AvailableAt).HasPrecision(3);
             entity.Property(e => e.CreatedAt)
                 .HasPrecision(3)
                 .HasDefaultValueSql("(sysutcdatetime())", "DF_SEARCH_INDEX_JOBS_CreatedAt");
             entity.Property(e => e.JobType).HasMaxLength(50);
+            entity.Property(e => e.TargetType).HasMaxLength(30);
+            entity.Property(e => e.IndexScope).HasMaxLength(30);
             entity.Property(e => e.ProcessedAt).HasPrecision(3);
             entity.Property(e => e.Status)
                 .HasMaxLength(50)
@@ -716,7 +731,7 @@ public partial class KbDbContext : DbContext
 
             entity.HasOne(d => d.ArticleIdFkNavigation).WithMany(p => p.SearchIndexJobs)
                 .HasForeignKey(d => d.ArticleIdFk)
-                .OnDelete(DeleteBehavior.ClientSetNull)
+                .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("FK_SEARCH_INDEX_JOBS_ARTICLES");
 
             entity.HasOne(d => d.VersionIdFkNavigation).WithMany(p => p.SearchIndexJobs)

@@ -13,34 +13,56 @@ public sealed class ExportJobRepository(KbDbContext db) : IExportJobRepository
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    public Task<ExportJobData> CreateArticleAsync(Guid articleId, string exportType, Guid requestedBy,
+    public Task<ExportJobData> CreateArticleAsync(Guid articleId, ExportArticleSource source,
+        string exportType, Guid requestedBy,
         DateTime requestedAt, CancellationToken cancellationToken) => InTransactionAsync(async token =>
     {
         await EnsureActiveUserAsync(requestedBy, token);
+        var normalizedSourceType = NormalizeSource(source);
         var article = await db.Articles.AsNoTracking()
             .Where(item => item.ArticleId == articleId && item.DeletedAt == null &&
                            item.Status != ArticleStatuses.Deleted)
             .Select(item => new
             {
-                item.ArticleId, item.Title, item.Slug, item.CategoryIdFk, item.Position,
-                Version = item.LastPublishedVersionIdFkNavigation
+                item.ArticleId, item.Title, item.Slug, item.CategoryIdFk, item.Position
             }).SingleOrDefaultAsync(token) ?? throw new NotFoundException("The article was not found.");
-        if (article.Version is null || article.Version.PublishedAt is null)
-            throw new BusinessRuleException("The article has no published stable version to export.");
+
+        SourceRecord selected;
+        if (normalizedSourceType == ExportSourceTypes.Draft)
+        {
+            selected = await db.ArticleDrafts.AsNoTracking()
+                .Where(item => item.DraftId == source.DraftId && item.ArticleIdFk == articleId)
+                .Select(item => new SourceRecord(item.DraftId, item.ContentJsonStoragePath,
+                    item.RenderedHtmlStoragePath, item.PlainTextStoragePath, null))
+                .SingleOrDefaultAsync(token)
+                ?? throw new NotFoundException("The selected article draft was not found.");
+        }
+        else
+        {
+            selected = await db.ArticleVersions.AsNoTracking()
+                .Where(item => item.VersionId == source.VersionId && item.ArticleIdFk == articleId)
+                .Select(item => new SourceRecord(item.VersionId, item.ContentJsonStoragePath,
+                    item.RenderedHtmlStoragePath, item.PlainTextStoragePath, item.PublishedAt))
+                .SingleOrDefaultAsync(token)
+                ?? throw new NotFoundException("The selected article version was not found.");
+        }
+        if (string.IsNullOrWhiteSpace(selected.ContentJsonPath))
+            throw new BusinessRuleException("The selected export source has no stored content.");
 
         var duplicate = await FindDuplicateAsync(ExportEntityTypes.Article, articleId, null,
-            exportType, requestedBy, token);
+            normalizedSourceType, source.DraftId, source.VersionId, exportType, requestedBy, token);
         if (duplicate is not null) return duplicate;
 
         var snapshot = new ExportSnapshot(ExportEntityTypes.Article, article.Title, article.Slug, [],
         [
-            new(article.ArticleId, article.Version.VersionId, article.CategoryIdFk, article.Title,
-                article.Slug, article.Position, article.Version.ContentJsonStoragePath,
-                article.Version.RenderedHtmlStoragePath, article.Version.PlainTextStoragePath,
-                article.Version.PublishedAt)
+            new(article.ArticleId, normalizedSourceType, source.DraftId, source.VersionId,
+                article.CategoryIdFk, article.Title, article.Slug, article.Position,
+                selected.ContentJsonPath, selected.RenderedHtmlPath, selected.PlainTextPath,
+                selected.PublishedAt)
         ]);
-        var entity = NewJob(ExportEntityTypes.Article, articleId, null, article.Version.VersionId,
-            exportType, requestedBy, requestedAt, snapshot, FileName(article.Slug, exportType));
+        var entity = NewJob(ExportEntityTypes.Article, articleId, null, normalizedSourceType,
+            source.DraftId, source.VersionId, exportType, requestedBy, requestedAt, snapshot,
+            FileName(article.Slug, exportType));
         db.ExportJobs.Add(entity);
         await db.SaveChangesAsync(token);
         return await RequiredAsync(entity.ExportJobId, token);
@@ -70,17 +92,17 @@ public sealed class ExportJobRepository(KbDbContext db) : IExportJobRepository
                 $"The category contains article(s) without a published stable version: {string.Join(", ", unstable)}.");
 
         var duplicate = await FindDuplicateAsync(ExportEntityTypes.Category, null, categoryId,
-            exportType, requestedBy, token);
+            null, null, null, exportType, requestedBy, token);
         if (duplicate is not null) return duplicate;
 
         var snapshot = new ExportSnapshot(ExportEntityTypes.Category, root.Name, root.Slug,
             included.Select(item => new ExportSnapshotCategory(item.CategoryId, item.ParentCategoryIdFk,
                 item.Name, item.Slug, item.SortOrder, item.Depth)).ToArray(),
-            articles.Select(item => new ExportSnapshotArticle(item.ArticleId, item.Version!.VersionId,
-                item.CategoryIdFk, item.Title, item.Slug, item.Position,
+            articles.Select(item => new ExportSnapshotArticle(item.ArticleId, ExportSourceTypes.Version,
+                null, item.Version!.VersionId, item.CategoryIdFk, item.Title, item.Slug, item.Position,
                 item.Version.ContentJsonStoragePath, item.Version.RenderedHtmlStoragePath,
                 item.Version.PlainTextStoragePath, item.Version.PublishedAt)).ToArray());
-        var entity = NewJob(ExportEntityTypes.Category, null, categoryId, null, exportType,
+        var entity = NewJob(ExportEntityTypes.Category, null, categoryId, null, null, null, exportType,
             requestedBy, requestedAt, snapshot, FileName(root.Slug, exportType));
         db.ExportJobs.Add(entity);
         await db.SaveChangesAsync(token);
@@ -95,10 +117,11 @@ public sealed class ExportJobRepository(KbDbContext db) : IExportJobRepository
         db.Users.AsNoTracking().AnyAsync(item => item.UserId == userId && item.IsActive,
             cancellationToken);
 
-    public Task<ExportJobData?> ClaimNextAsync(DateTime startedAt, CancellationToken cancellationToken) =>
+    public Task<ExportJobData?> ClaimNextAsync(DateTime startedAt, TimeSpan staleAfter,
+        CancellationToken cancellationToken) =>
         InTransactionAsync<ExportJobData?>(async token =>
         {
-            var staleBefore = startedAt.AddHours(-2);
+            var staleBefore = startedAt.Subtract(staleAfter);
             await db.ExportJobs
                 .Where(item => item.Status == JobStatuses.Processing && item.StartedAt < staleBefore)
                 .ExecuteUpdateAsync(setters => setters
@@ -140,9 +163,11 @@ public sealed class ExportJobRepository(KbDbContext db) : IExportJobRepository
     }
 
     private async Task<ExportJobData?> FindDuplicateAsync(string entityType, Guid? articleId,
-        Guid? categoryId, string exportType, Guid userId, CancellationToken token) =>
+        Guid? categoryId, string? sourceType, Guid? draftId, Guid? versionId, string exportType,
+        Guid userId, CancellationToken token) =>
         await Project(db.ExportJobs.AsNoTracking().Where(item => item.EntityType == entityType &&
             item.ArticleIdFk == articleId && item.CategoryIdFk == categoryId &&
+            item.SourceType == sourceType && item.DraftIdFk == draftId && item.VersionIdFk == versionId &&
             item.ExportType == exportType && item.RequestedByFk == userId &&
             (item.Status == JobStatuses.Pending || item.Status == JobStatuses.Processing))
             .OrderByDescending(item => item.RequestedAt))
@@ -168,13 +193,16 @@ public sealed class ExportJobRepository(KbDbContext db) : IExportJobRepository
         }
     }
 
-    private ExportJob NewJob(string entityType, Guid? articleId, Guid? categoryId, Guid? versionId,
+    private ExportJob NewJob(string entityType, Guid? articleId, Guid? categoryId, string? sourceType,
+        Guid? draftId, Guid? versionId,
         string exportType, Guid requestedBy, DateTime requestedAt, ExportSnapshot snapshot, string fileName) => new()
     {
         ExportJobId = db.Database.IsSqlServer() ? Guid.Empty : Guid.NewGuid(),
         EntityType = entityType,
         ArticleIdFk = articleId,
         CategoryIdFk = categoryId,
+        SourceType = sourceType,
+        DraftIdFk = draftId,
         VersionIdFk = versionId,
         ExportType = exportType,
         Status = JobStatuses.Pending,
@@ -189,7 +217,8 @@ public sealed class ExportJobRepository(KbDbContext db) : IExportJobRepository
 
     private static IQueryable<ExportJobData> Project(IQueryable<ExportJob> source) =>
         source.Select(item => new ExportJobData(item.ExportJobId, item.EntityType, item.ArticleIdFk,
-            item.CategoryIdFk, item.VersionIdFk, item.ExportType, item.Status, item.RequestedByFk,
+            item.CategoryIdFk, item.SourceType, item.DraftIdFk, item.VersionIdFk, item.ExportType,
+            item.Status, item.RequestedByFk,
             item.RequestedByFkNavigation.FullName, item.RequestedAt, item.StartedAt, item.CompletedAt,
             item.SnapshotJson, item.FileName, item.ResultPath, item.ErrorMessage));
 
@@ -200,6 +229,21 @@ public sealed class ExportJobRepository(KbDbContext db) : IExportJobRepository
         if (string.IsNullOrWhiteSpace(safe)) safe = "knowledge-base-export";
         return $"{safe[..Math.Min(safe.Length, 220)]}.{(exportType == ExportTypes.Pdf ? "pdf" : "html")}";
     }
+
+    private static string NormalizeSource(ExportArticleSource source)
+    {
+        var isDraft = string.Equals(source.SourceType, ExportSourceTypes.Draft, StringComparison.OrdinalIgnoreCase);
+        var isVersion = string.Equals(source.SourceType, ExportSourceTypes.Version, StringComparison.OrdinalIgnoreCase);
+        if (isDraft && source.DraftId is { } draftId && draftId != Guid.Empty && source.VersionId is null)
+            return ExportSourceTypes.Draft;
+        if (isVersion && source.VersionId is { } versionId && versionId != Guid.Empty && source.DraftId is null)
+            return ExportSourceTypes.Version;
+        throw new BusinessRuleException(
+            "Select exactly one valid export source: a DraftID for Draft or a VersionID for Version.");
+    }
+
+    private sealed record SourceRecord(Guid Id, string ContentJsonPath, string? RenderedHtmlPath,
+        string? PlainTextPath, DateTime? PublishedAt);
 
     private async Task<T> InTransactionAsync<T>(Func<CancellationToken, Task<T>> action,
         CancellationToken cancellationToken)

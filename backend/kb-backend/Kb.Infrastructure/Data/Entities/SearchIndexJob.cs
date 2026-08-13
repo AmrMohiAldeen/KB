@@ -7,11 +7,17 @@ public partial class SearchIndexJob
 {
     public Guid SearchJobId { get; set; }
 
-    public Guid ArticleIdFk { get; set; }
+    public Guid? ArticleIdFk { get; set; }
+
+    public Guid? CategoryIdFk { get; set; }
 
     public Guid? VersionIdFk { get; set; }
 
     public string JobType { get; set; } = null!;
+
+    public string TargetType { get; set; } = "Article";
+
+    public string IndexScope { get; set; } = "Internal";
 
     public string Status { get; set; } = null!;
 
@@ -21,9 +27,11 @@ public partial class SearchIndexJob
 
     public DateTime CreatedAt { get; set; }
 
+    public DateTime AvailableAt { get; set; }
+
     public DateTime? ProcessedAt { get; set; }
 
-    public virtual Article ArticleIdFkNavigation { get; set; } = null!;
+    public virtual Article? ArticleIdFkNavigation { get; set; }
 
     public virtual ArticleVersion? VersionIdFkNavigation { get; set; }
 }

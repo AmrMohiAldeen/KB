@@ -16,11 +16,76 @@ namespace Kb.Tests.ExportJobs;
 
 public sealed class ExportJobSliceTests
 {
+    [Theory]
+    [InlineData(ExportTypes.Html)]
+    [InlineData(ExportTypes.Pdf)]
+    public async Task Current_draft_exports_the_exact_selected_content(string format)
+    {
+        await using var f = await Fixture.CreateAsync();
+        var job = await f.Repository.CreateArticleAsync(f.FirstArticleId,
+            new(ExportSourceTypes.Draft, f.CurrentDraftId, null), format, f.UserId, f.Now, default);
+
+        await f.Processor().ProcessNextAsync(default);
+
+        var completed = await f.Repository.GetAsync(job.Id, default);
+        Assert.Equal(ExportSourceTypes.Draft, completed!.SourceType);
+        Assert.Equal(f.CurrentDraftId, completed.DraftId);
+        Assert.Null(completed.VersionId);
+        Assert.Contains("current draft content", format == ExportTypes.Pdf
+            ? f.Pdf.LastHtml
+            : f.Storage.Text(f.Options.ContainerName, completed.ResultPath!));
+    }
+
+    [Theory]
+    [InlineData(ExportTypes.Html)]
+    [InlineData(ExportTypes.Pdf)]
+    public async Task Historical_draft_exports_the_exact_selected_content(string format)
+    {
+        await using var f = await Fixture.CreateAsync();
+        var job = await f.Repository.CreateArticleAsync(f.FirstArticleId,
+            new(ExportSourceTypes.Draft, f.HistoricalDraftId, null), format, f.UserId, f.Now, default);
+
+        await f.Processor().ProcessNextAsync(default);
+
+        var completed = await f.Repository.GetAsync(job.Id, default);
+        var output = format == ExportTypes.Pdf ? f.Pdf.LastHtml :
+            f.Storage.Text(f.Options.ContainerName, completed!.ResultPath!);
+        Assert.Contains("historical draft content", output);
+        Assert.DoesNotContain("current draft content", output);
+    }
+
+    [Theory]
+    [InlineData(ExportTypes.Html)]
+    [InlineData(ExportTypes.Pdf)]
+    public async Task Historical_unpublished_version_exports_the_exact_selected_content(string format)
+    {
+        await using var f = await Fixture.CreateAsync();
+        var job = await f.Repository.CreateArticleAsync(f.FirstArticleId,
+            new(ExportSourceTypes.Version, null, f.HistoricalVersionId), format, f.UserId, f.Now, default);
+
+        await f.Processor().ProcessNextAsync(default);
+
+        var completed = await f.Repository.GetAsync(job.Id, default);
+        var output = format == ExportTypes.Pdf ? f.Pdf.LastHtml :
+            f.Storage.Text(f.Options.ContainerName, completed!.ResultPath!);
+        Assert.Contains("historical version content", output);
+        Assert.DoesNotContain("stable article one", output);
+    }
+
+    [Fact]
+    public async Task Article_export_rejects_a_source_that_belongs_to_another_article()
+    {
+        await using var f = await Fixture.CreateAsync();
+        await Assert.ThrowsAsync<NotFoundException>(() => f.Repository.CreateArticleAsync(
+            f.FirstArticleId, new(ExportSourceTypes.Version, null, f.OtherArticleVersionId),
+            ExportTypes.Html, f.UserId, f.Now, default));
+    }
+
     [Fact]
     public async Task Html_article_export_uses_the_version_frozen_when_requested_and_stores_result_path()
     {
         await using var f = await Fixture.CreateAsync();
-        var job = await f.Repository.CreateArticleAsync(f.FirstArticleId, ExportTypes.Html, f.UserId,
+        var job = await f.Repository.CreateArticleAsync(f.FirstArticleId, f.VersionSource(), ExportTypes.Html, f.UserId,
             f.Now, default);
         await f.ReplacePublishedVersionAsync("<p>new live content</p>");
 
@@ -38,7 +103,7 @@ public sealed class ExportJobSliceTests
     public async Task Pdf_article_export_uses_the_html_renderer_and_stores_a_pdf()
     {
         await using var f = await Fixture.CreateAsync();
-        var job = await f.Repository.CreateArticleAsync(f.FirstArticleId, ExportTypes.Pdf, f.UserId,
+        var job = await f.Repository.CreateArticleAsync(f.FirstArticleId, f.VersionSource(), ExportTypes.Pdf, f.UserId,
             f.Now, default);
 
         await f.Processor().ProcessNextAsync(default);
@@ -47,6 +112,20 @@ public sealed class ExportJobSliceTests
         Assert.Equal(JobStatuses.Completed, completed!.Status);
         Assert.Equal("%PDF-fake", f.Storage.Text(f.Options.ContainerName, completed.ResultPath!));
         Assert.Contains("stable article one", f.Pdf.LastHtml);
+    }
+
+    [Fact]
+    public async Task Small_html_article_export_completes_in_under_two_seconds()
+    {
+        await using var f = await Fixture.CreateAsync();
+        var job = await f.Repository.CreateArticleAsync(f.FirstArticleId, f.VersionSource(),
+            ExportTypes.Html, f.UserId, f.Now, default);
+        var started = System.Diagnostics.Stopwatch.StartNew();
+
+        await f.Processor().ProcessNextAsync(default);
+
+        Assert.True(started.Elapsed < TimeSpan.FromSeconds(2));
+        Assert.Equal(JobStatuses.Completed, (await f.Repository.GetAsync(job.Id, default))!.Status);
     }
 
     [Fact]
@@ -90,7 +169,7 @@ public sealed class ExportJobSliceTests
     public async Task Another_non_admin_user_cannot_read_or_download_an_export_job()
     {
         await using var f = await Fixture.CreateAsync();
-        var job = await f.Repository.CreateArticleAsync(f.FirstArticleId, ExportTypes.Html, f.UserId,
+        var job = await f.Repository.CreateArticleAsync(f.FirstArticleId, f.VersionSource(), ExportTypes.Html, f.UserId,
             f.Now, default);
         f.Current.UserIdValue = f.OtherUserId;
 
@@ -103,7 +182,7 @@ public sealed class ExportJobSliceTests
     {
         await using var f = await Fixture.CreateAsync();
         f.Pdf.Fail = true;
-        var job = await f.Repository.CreateArticleAsync(f.FirstArticleId, ExportTypes.Pdf, f.UserId,
+        var job = await f.Repository.CreateArticleAsync(f.FirstArticleId, f.VersionSource(), ExportTypes.Pdf, f.UserId,
             f.Now, default);
 
         await f.Processor().ProcessNextAsync(default);
@@ -116,13 +195,31 @@ public sealed class ExportJobSliceTests
     }
 
     [Fact]
+    public async Task Stuck_renderer_is_cancelled_and_marks_the_job_failed_quickly()
+    {
+        await using var f = await Fixture.CreateAsync();
+        f.Options.JobTimeout = TimeSpan.FromMilliseconds(75);
+        f.Pdf.Hang = true;
+        var job = await f.Repository.CreateArticleAsync(f.FirstArticleId, f.VersionSource(),
+            ExportTypes.Pdf, f.UserId, f.Now, default);
+        var started = System.Diagnostics.Stopwatch.StartNew();
+
+        await f.Processor().ProcessNextAsync(default);
+
+        var failed = await f.Repository.GetAsync(job.Id, default);
+        Assert.Equal(JobStatuses.Failed, failed!.Status);
+        Assert.Contains("limit", failed.ErrorMessage);
+        Assert.True(started.Elapsed < TimeSpan.FromSeconds(2));
+    }
+
+    [Fact]
     public async Task Missing_media_is_represented_without_leaking_the_api_path_or_media_id()
     {
         await using var f = await Fixture.CreateAsync();
         var mediaId = Guid.NewGuid();
         f.Storage.Seed(f.Options.ArticleContentContainerName, "versions/one/content.html",
             $"<p>Text</p><img src=\"/api/media/{mediaId}/content\" data-media-id=\"{mediaId}\">");
-        var job = await f.Repository.CreateArticleAsync(f.FirstArticleId, ExportTypes.Html, f.UserId,
+        var job = await f.Repository.CreateArticleAsync(f.FirstArticleId, f.VersionSource(), ExportTypes.Html, f.UserId,
             f.Now, default);
 
         await f.Processor().ProcessNextAsync(default);
@@ -163,7 +260,7 @@ public sealed class ExportJobSliceTests
             <section class="kb-tabs__static-item" data-kb-tab-item>
             <h3 data-kb-tab-label-static>Second tab</h3><p>Second content</p></section></div>
             """);
-        var job = await f.Repository.CreateArticleAsync(f.FirstArticleId, ExportTypes.Html, f.UserId,
+        var job = await f.Repository.CreateArticleAsync(f.FirstArticleId, f.VersionSource(), ExportTypes.Html, f.UserId,
             f.Now, default);
 
         await f.Processor().ProcessNextAsync(default);
@@ -177,12 +274,44 @@ public sealed class ExportJobSliceTests
     }
 
     [Fact]
+    public async Task Canonical_tiptap_json_fallback_keeps_tables_callouts_tabs_and_accordions_readable()
+    {
+        await using var f = await Fixture.CreateAsync();
+        var contentPath = await f.Context.ArticleVersions.Where(item => item.VersionId == f.FirstVersionId)
+            .Select(item => item.ContentJsonStoragePath).SingleAsync();
+        await f.Context.Database.ExecuteSqlRawAsync(
+            "UPDATE ARTICLE_VERSIONS SET RenderedHtmlStoragePath = NULL, PlainTextStoragePath = NULL WHERE VersionID = {0}",
+            f.FirstVersionId);
+        f.Context.ChangeTracker.Clear();
+        f.Storage.Seed(f.Options.ArticleContentContainerName, contentPath, """
+            {"type":"doc","content":[
+              {"type":"callout","attrs":{"variant":"warning"},"content":[{"type":"paragraph","content":[{"type":"text","text":"Read me"}]}]},
+              {"type":"table","content":[{"type":"tableRow","content":[{"type":"tableHeader","content":[{"type":"paragraph","content":[{"type":"text","text":"Name"}]}]},{"type":"tableCell","content":[{"type":"paragraph","content":[{"type":"text","text":"Value"}]}]}]}]},
+              {"type":"tabs","content":[{"type":"tabItem","attrs":{"label":"First"},"content":[{"type":"paragraph","content":[{"type":"text","text":"Tab body"}]}]}]},
+              {"type":"accordion","content":[{"type":"accordionItem","attrs":{"title":"More"},"content":[{"type":"paragraph","content":[{"type":"text","text":"Expanded body"}]}]}]}
+            ]}
+            """);
+        var job = await f.Repository.CreateArticleAsync(f.FirstArticleId, f.VersionSource(),
+            ExportTypes.Html, f.UserId, f.Now, default);
+
+        await f.Processor().ProcessNextAsync(default);
+
+        var completed = await f.Repository.GetAsync(job.Id, default);
+        var html = f.Storage.Text(f.Options.ContainerName, completed!.ResultPath!);
+        Assert.Contains("<table>", html);
+        Assert.Contains("Read me", html);
+        Assert.Contains("First", html);
+        Assert.Contains("<details open>", html);
+        Assert.Contains("Expanded body", html);
+    }
+
+    [Fact]
     public async Task Repeated_pending_request_returns_the_existing_job()
     {
         await using var f = await Fixture.CreateAsync();
-        var first = await f.Repository.CreateArticleAsync(f.FirstArticleId, ExportTypes.Html, f.UserId,
+        var first = await f.Repository.CreateArticleAsync(f.FirstArticleId, f.VersionSource(), ExportTypes.Html, f.UserId,
             f.Now, default);
-        var second = await f.Repository.CreateArticleAsync(f.FirstArticleId, ExportTypes.Html, f.UserId,
+        var second = await f.Repository.CreateArticleAsync(f.FirstArticleId, f.VersionSource(), ExportTypes.Html, f.UserId,
             f.Now.AddSeconds(1), default);
         Assert.Equal(first.Id, second.Id);
         Assert.Single(await f.Context.ExportJobs.ToListAsync());
@@ -202,6 +331,11 @@ public sealed class ExportJobSliceTests
         public Guid RootCategoryId { get; } = Guid.NewGuid();
         public Guid ChildCategoryId { get; } = Guid.NewGuid();
         public Guid FirstArticleId { get; } = Guid.NewGuid();
+        public Guid FirstVersionId { get; private set; }
+        public Guid CurrentDraftId { get; } = Guid.NewGuid();
+        public Guid HistoricalDraftId { get; } = Guid.NewGuid();
+        public Guid HistoricalVersionId { get; private set; }
+        public Guid OtherArticleVersionId { get; private set; }
         public DateTime Now { get; } = new(2026, 8, 10, 8, 0, 0, DateTimeKind.Utc);
 
         private Fixture(SqliteConnection connection, KbDbContext context)
@@ -232,7 +366,11 @@ public sealed class ExportJobSliceTests
 
         public ExportService Service() => new(Repository, Storage, Current, new NeverAdmin(),
             Microsoft.Extensions.Options.Options.Create(Options), TimeProvider.System,
+            new FakeSignal(),
             NullLogger<ExportService>.Instance);
+
+        public ExportArticleSource VersionSource() =>
+            new(ExportSourceTypes.Version, null, FirstVersionId);
 
         public async Task ReplacePublishedVersionAsync(string html)
         {
@@ -266,12 +404,56 @@ public sealed class ExportJobSliceTests
                     .Where(version => version.ArticleIdFk == article.ArticleId)
                     .Select(version => version.VersionId).SingleAsync();
             await Context.SaveChangesAsync();
+
+            var historicalVersion = Version(FirstArticleId, 2, "versions/history/content.html");
+            historicalVersion.SnapshotReason = ArticleSnapshotReasons.SubmittedForReview;
+            historicalVersion.PublishedAt = null;
+            historicalVersion.PublishedByFk = null;
+            HistoricalVersionId = historicalVersion.VersionId;
+            Context.ArticleVersions.Add(historicalVersion);
+            Storage.Seed(Options.ArticleContentContainerName, historicalVersion.RenderedHtmlStoragePath!,
+                "<p>historical version content</p>");
+            Storage.Seed(Options.ArticleContentContainerName, historicalVersion.ContentJsonStoragePath,
+                "{\"type\":\"doc\",\"content\":[]}");
+
+            var first = await Context.Articles.SingleAsync(item => item.ArticleId == FirstArticleId);
+            var currentRowVersion = Guid.NewGuid().ToByteArray();
+            var historicalRowVersion = Guid.NewGuid().ToByteArray();
+            await Context.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO ARTICLE_DRAFTS
+                    (DraftID, ArticleID_FK, DraftNumber, ContentJsonStoragePath, RenderedHtmlStoragePath,
+                     ContentSizeBytes, RowVersion, IsLocked, CreatedBy_FK, UpdatedBy_FK, CreatedAt, UpdatedAt, Status)
+                VALUES ({CurrentDraftId}, {FirstArticleId}, {3}, {"drafts/current/content.json"},
+                        {"drafts/current/content.html"}, {10L}, {currentRowVersion}, {false}, {UserId},
+                        {UserId}, {Now}, {Now}, {ArticleStatuses.Draft})
+                """);
+            await Context.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO ARTICLE_DRAFTS
+                    (DraftID, ArticleID_FK, DraftNumber, ContentJsonStoragePath, RenderedHtmlStoragePath,
+                     ContentSizeBytes, RowVersion, IsLocked, CreatedBy_FK, UpdatedBy_FK, CreatedAt, UpdatedAt, Status)
+                VALUES ({HistoricalDraftId}, {FirstArticleId}, {2}, {"drafts/history/content.json"},
+                        {"drafts/history/content.html"}, {10L}, {historicalRowVersion}, {false}, {UserId},
+                        {UserId}, {Now}, {Now}, {ArticleStatuses.Approved})
+                """);
+            first.CurrentDraftIdFk = CurrentDraftId;
+            Storage.Seed(Options.ArticleContentContainerName, "drafts/current/content.html",
+                "<p>current draft content</p>");
+            Storage.Seed(Options.ArticleContentContainerName, "drafts/current/content.json",
+                "{\"type\":\"doc\",\"content\":[]}");
+            Storage.Seed(Options.ArticleContentContainerName, "drafts/history/content.html",
+                "<p>historical draft content</p>");
+            Storage.Seed(Options.ArticleContentContainerName, "drafts/history/content.json",
+                "{\"type\":\"doc\",\"content\":[]}");
+            OtherArticleVersionId = await Context.ArticleVersions
+                .Where(item => item.ArticleIdFk != FirstArticleId).Select(item => item.VersionId).FirstAsync();
+            await Context.SaveChangesAsync();
         }
 
         private void AddPublished(Guid articleId, Guid categoryId, string title, string slug, int position,
             string path, string html)
         {
             var version = Version(articleId, 1, path);
+            if (articleId == FirstArticleId) FirstVersionId = version.VersionId;
             Context.Articles.Add(new Article
             {
                 ArticleId = articleId, Title = title, Slug = slug, CategoryIdFk = categoryId,
@@ -319,15 +501,23 @@ public sealed class ExportJobSliceTests
             CancellationToken cancellationToken) => Task.FromResult<ExportMediaData?>(null);
     }
 
+    private sealed class FakeSignal : IExportJobSignal
+    {
+        public void Notify() { }
+        public Task WaitAsync(TimeSpan maximumDelay, CancellationToken cancellationToken) => Task.CompletedTask;
+    }
+
     private sealed class FakePdfRenderer : IPdfRenderer
     {
         public bool Fail { get; set; }
+        public bool Hang { get; set; }
         public string LastHtml { get; private set; } = string.Empty;
-        public Task<Stream> RenderAsync(string html, CancellationToken cancellationToken)
+        public async Task<Stream> RenderAsync(string html, CancellationToken cancellationToken)
         {
             LastHtml = html;
             if (Fail) throw new InvalidOperationException("renderer failed");
-            return Task.FromResult<Stream>(new MemoryStream(Encoding.UTF8.GetBytes("%PDF-fake")));
+            if (Hang) await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return new MemoryStream(Encoding.UTF8.GetBytes("%PDF-fake"));
         }
     }
 

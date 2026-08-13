@@ -18,14 +18,17 @@ public sealed class ExportService(
     IAdminChecker adminChecker,
     IOptions<ExportOptions> options,
     TimeProvider timeProvider,
+    IExportJobSignal jobSignal,
     ILogger<ExportService> logger)
 {
-    public async Task<ExportJobData> RequestArticleAsync(Guid articleId, string exportType,
+    public async Task<ExportJobData> RequestArticleAsync(Guid articleId, ExportArticleSource source,
+        string exportType,
         CancellationToken cancellationToken)
     {
         EnsureRequest(articleId, exportType);
-        var job = await repository.CreateArticleAsync(articleId, NormalizeType(exportType), UserId(),
+        var job = await repository.CreateArticleAsync(articleId, source, NormalizeType(exportType), UserId(),
             timeProvider.GetUtcNow().UtcDateTime, cancellationToken);
+        jobSignal.Notify();
         logger.LogInformation("Requested {ExportType} article export job {ExportJobId} for article {ArticleId}",
             job.ExportType, job.Id, articleId);
         return job;
@@ -37,6 +40,7 @@ public sealed class ExportService(
         EnsureRequest(categoryId, exportType);
         var job = await repository.CreateCategoryAsync(categoryId, NormalizeType(exportType), UserId(),
             timeProvider.GetUtcNow().UtcDateTime, cancellationToken);
+        jobSignal.Notify();
         logger.LogInformation("Requested {ExportType} category export job {ExportJobId} for category {CategoryId}",
             job.ExportType, job.Id, categoryId);
         return job;
@@ -106,25 +110,29 @@ public sealed class ExportJobProcessor(
 {
     public async Task<bool> ProcessNextAsync(CancellationToken cancellationToken)
     {
-        var job = await repository.ClaimNextAsync(timeProvider.GetUtcNow().UtcDateTime, cancellationToken);
+        var job = await repository.ClaimNextAsync(timeProvider.GetUtcNow().UtcDateTime,
+            options.Value.JobTimeout, cancellationToken);
         if (job is null) return false;
         logger.LogInformation("Processing {ExportType} export job {ExportJobId} for {EntityType}",
             job.ExportType, job.Id, job.EntityType);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(options.Value.JobTimeout);
+        var processingToken = timeout.Token;
         try
         {
             var snapshot = JsonSerializer.Deserialize<ExportSnapshot>(job.SnapshotJson,
                 new JsonSerializerOptions(JsonSerializerDefaults.Web))
                 ?? throw new InvalidOperationException("The export snapshot is invalid.");
-            var html = await documentBuilder.BuildAsync(snapshot, cancellationToken);
+            var html = await documentBuilder.BuildAsync(snapshot, processingToken);
             await using var content = job.ExportType == ExportTypes.Pdf
-                ? await pdfRenderer.RenderAsync(html, cancellationToken)
+                ? await pdfRenderer.RenderAsync(html, processingToken)
                 : new MemoryStream(Encoding.UTF8.GetBytes(html), writable: false);
             var objectName = $"{job.RequestedAt:yyyy/MM/dd}/{job.Id:D}/{job.FileName}";
             var path = await storage.UploadAsync(options.Value.ContainerName, objectName, content,
                 job.ExportType == ExportTypes.Pdf ? "application/pdf" : "text/html; charset=utf-8",
-                cancellationToken);
+                processingToken);
             await repository.CompleteAsync(job.Id, path, timeProvider.GetUtcNow().UtcDateTime,
-                cancellationToken);
+                processingToken);
             logger.LogInformation("Completed export job {ExportJobId}", job.Id);
             return true;
         }
@@ -133,7 +141,7 @@ public sealed class ExportJobProcessor(
             logger.LogError(exception, "Export job {ExportJobId} failed", job.Id);
             try
             {
-                await repository.FailAsync(job.Id, SafeError(exception),
+                await repository.FailAsync(job.Id, SafeError(exception, options.Value.JobTimeout),
                     timeProvider.GetUtcNow().UtcDateTime, CancellationToken.None);
             }
             catch (Exception stateException)
@@ -144,12 +152,21 @@ public sealed class ExportJobProcessor(
         }
     }
 
-    private static string SafeError(Exception exception) => exception switch
+    private static string SafeError(Exception exception, TimeSpan timeout) => exception switch
     {
+        OperationCanceledException =>
+            $"Export generation was cancelled or exceeded the {Math.Ceiling(timeout.TotalSeconds)} second limit.",
         FileNotFoundException => "Stored article content or media is missing.",
         InvalidDataException => "Stored article content is invalid.",
-        _ => "The export renderer or storage provider could not complete the export."
+        InvalidOperationException => SafeMessage(exception.Message),
+        _ => $"The export renderer or storage provider could not complete the export: {SafeMessage(exception.Message)}"
     };
+
+    private static string SafeMessage(string message)
+    {
+        var value = Regex.Replace(message, @"\s+", " ").Trim();
+        return string.IsNullOrWhiteSpace(value) ? "No diagnostic was returned." : value[..Math.Min(value.Length, 1000)];
+    }
 }
 
 public sealed partial class ExportDocumentBuilder(
@@ -250,12 +267,16 @@ public sealed partial class ExportDocumentBuilder(
 
     private async Task<string> FallbackTextAsync(ExportSnapshotArticle article, CancellationToken token)
     {
-        if (!string.IsNullOrWhiteSpace(article.PlainTextPath))
-            try { return $"<p>{E(await ReadTextAsync(article.PlainTextPath, token)).Replace("\n", "<br>")}</p>"; }
-            catch { /* fall through to the immutable JSON object */ }
-        var json = await ReadTextAsync(article.ContentJsonPath, token);
-        using var document = JsonDocument.Parse(json);
-        return $"<p>{E(ReadJsonText(document.RootElement)).Replace("\n", "<br>")}</p>";
+        try
+        {
+            var json = await ReadTextAsync(article.ContentJsonPath, token);
+            using var document = JsonDocument.Parse(json);
+            return RenderJsonNode(document.RootElement);
+        }
+        catch when (!string.IsNullOrWhiteSpace(article.PlainTextPath))
+        {
+            return $"<p>{E(await ReadTextAsync(article.PlainTextPath!, token)).Replace("\n", "<br>")}</p>";
+        }
     }
 
     private async Task<string> ReadTextAsync(string path, CancellationToken token)
@@ -265,20 +286,82 @@ public sealed partial class ExportDocumentBuilder(
         return await reader.ReadToEndAsync(token);
     }
 
-    private static string ReadJsonText(JsonElement root)
+    private static string RenderJsonNode(JsonElement node)
     {
-        var values = new List<string>();
-        Visit(root);
-        return string.Join(" ", values);
-        void Visit(JsonElement item)
+        if (node.ValueKind != JsonValueKind.Object) return string.Empty;
+        var type = StringProperty(node, "type") ?? string.Empty;
+        var content = node.TryGetProperty("content", out var children) && children.ValueKind == JsonValueKind.Array
+            ? string.Concat(children.EnumerateArray().Select(RenderJsonNode)) : string.Empty;
+        if (type == "text")
         {
-            if (item.ValueKind == JsonValueKind.Object && item.TryGetProperty("text", out var text) &&
-                text.ValueKind == JsonValueKind.String) values.Add(text.GetString()!);
-            if (item.ValueKind == JsonValueKind.Object && item.TryGetProperty("content", out var content) &&
-                content.ValueKind == JsonValueKind.Array)
-                foreach (var child in content.EnumerateArray()) Visit(child);
+            var value = E(StringProperty(node, "text") ?? string.Empty);
+            if (!node.TryGetProperty("marks", out var marks) || marks.ValueKind != JsonValueKind.Array) return value;
+            foreach (var mark in marks.EnumerateArray())
+            {
+                var markType = StringProperty(mark, "type");
+                value = markType switch
+                {
+                    "bold" => $"<strong>{value}</strong>",
+                    "italic" => $"<em>{value}</em>",
+                    "underline" => $"<u>{value}</u>",
+                    "strike" => $"<s>{value}</s>",
+                    "code" => $"<code>{value}</code>",
+                    "link" when Attributes(mark) is { } link && StringProperty(link, "href") is { } href =>
+                        $"<a href=\"{E(href)}\">{value}</a>",
+                    _ => value
+                };
+            }
+            return value;
         }
+
+        var attrs = Attributes(node);
+        return type switch
+        {
+            "doc" => content,
+            "paragraph" => $"<p>{content}</p>",
+            "heading" => $"<h{Math.Clamp(IntProperty(attrs, "level") ?? 2, 1, 6)}>{content}</h{Math.Clamp(IntProperty(attrs, "level") ?? 2, 1, 6)}>",
+            "hardBreak" => "<br>",
+            "horizontalRule" => "<hr>",
+            "blockquote" => $"<blockquote>{content}</blockquote>",
+            "codeBlock" => $"<pre><code>{content}</code></pre>",
+            "bulletList" => $"<ul>{content}</ul>",
+            "orderedList" => $"<ol{(IntProperty(attrs, "start") is { } start && start != 1 ? $" start=\"{start}\"" : string.Empty)}>{content}</ol>",
+            "listItem" or "taskItem" => $"<li>{content}</li>",
+            "taskList" => $"<ul class=\"task-list\">{content}</ul>",
+            "table" => $"<table><tbody>{content}</tbody></table>",
+            "tableRow" => $"<tr>{content}</tr>",
+            "tableHeader" => $"<th>{content}</th>",
+            "tableCell" => $"<td>{content}</td>",
+            "callout" => $"<aside class=\"kb-callout kb-callout--{E(StringProperty(attrs, "variant") ?? "info")}\"><strong>{E(StringProperty(attrs, "variant") ?? "info")}</strong>{content}</aside>",
+            "tabs" => $"<div class=\"kb-tabs\">{content}</div>",
+            "tabItem" => $"<section class=\"kb-tabs__static-item\"><h3>{E(StringProperty(attrs, "label") ?? "Tab")}</h3>{content}</section>",
+            "accordion" => $"<div class=\"kb-accordion\">{content}</div>",
+            "accordionItem" => $"<details open><summary>{E(StringProperty(attrs, "title") ?? "Section")}</summary>{content}</details>",
+            "image" or "blockImage" or "inlineImage" => RenderJsonImage(attrs),
+            _ => content
+        };
     }
+
+    private static string RenderJsonImage(JsonElement? attrs)
+    {
+        var src = E(StringProperty(attrs, "src") ?? string.Empty);
+        var alt = E(StringProperty(attrs, "alt") ?? string.Empty);
+        var mediaId = StringProperty(attrs, "mediaId");
+        var media = Guid.TryParse(mediaId, out var id) ? $" data-media-id=\"{id:D}\"" : string.Empty;
+        return $"<img src=\"{src}\" alt=\"{alt}\"{media}>";
+    }
+
+    private static JsonElement? Attributes(JsonElement node) =>
+        node.ValueKind == JsonValueKind.Object && node.TryGetProperty("attrs", out var attrs) &&
+        attrs.ValueKind == JsonValueKind.Object ? attrs : null;
+
+    private static string? StringProperty(JsonElement? node, string name) =>
+        node is { ValueKind: JsonValueKind.Object } value && value.TryGetProperty(name, out var property) &&
+        property.ValueKind == JsonValueKind.String ? property.GetString() : null;
+
+    private static int? IntProperty(JsonElement? node, string name) =>
+        node is { ValueKind: JsonValueKind.Object } value && value.TryGetProperty(name, out var property) &&
+        property.TryGetInt32(out var number) ? number : null;
 
     private static string BuildTableOfContents(ExportSnapshot snapshot)
     {

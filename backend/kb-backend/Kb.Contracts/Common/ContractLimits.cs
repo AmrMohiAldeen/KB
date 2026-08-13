@@ -46,6 +46,13 @@ public static class ExportTypes
     public static readonly IReadOnlySet<string> All = Kb.Domain.Constants.ExportTypes.All;
 }
 
+public static class ExportSourceTypes
+{
+    public const string Draft = Kb.Domain.Constants.ExportSourceTypes.Draft;
+    public const string Version = Kb.Domain.Constants.ExportSourceTypes.Version;
+    public static readonly IReadOnlySet<string> All = Kb.Domain.Constants.ExportSourceTypes.All;
+}
+
 public static class CommentAnchorTypes
 {
     public const string TextRange = "TextRange";

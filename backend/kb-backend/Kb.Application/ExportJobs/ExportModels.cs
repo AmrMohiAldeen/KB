@@ -10,30 +10,42 @@ public sealed record ExportSnapshot(
 public sealed record ExportSnapshotCategory(Guid Id, Guid? ParentId, string Name, string Slug,
     int SortOrder, int Depth);
 
-public sealed record ExportSnapshotArticle(Guid ArticleId, Guid VersionId, Guid? CategoryId,
+public sealed record ExportSnapshotArticle(Guid ArticleId, string SourceType, Guid? DraftId,
+    Guid? VersionId, Guid? CategoryId,
     string Title, string Slug, int Position, string ContentJsonPath, string? RenderedHtmlPath,
     string? PlainTextPath, DateTime? PublishedAt);
 
 public sealed record ExportJobData(Guid Id, string EntityType, Guid? ArticleId, Guid? CategoryId,
-    Guid? VersionId, string ExportType, string Status, Guid RequestedById, string RequestedByName,
+    string? SourceType, Guid? DraftId, Guid? VersionId, string ExportType, string Status,
+    Guid RequestedById, string RequestedByName,
     DateTime RequestedAt, DateTime? StartedAt, DateTime? CompletedAt, string SnapshotJson,
     string FileName, string? ResultPath, string? ErrorMessage);
+
+public sealed record ExportArticleSource(string SourceType, Guid? DraftId, Guid? VersionId);
 
 public sealed record ExportDownloadData(Stream Content, string ContentType, string FileName);
 
 public interface IExportJobRepository
 {
-    Task<ExportJobData> CreateArticleAsync(Guid articleId, string exportType, Guid requestedBy,
+    Task<ExportJobData> CreateArticleAsync(Guid articleId, ExportArticleSource source, string exportType,
+        Guid requestedBy,
         DateTime requestedAt, CancellationToken cancellationToken);
     Task<ExportJobData> CreateCategoryAsync(Guid categoryId, string exportType, Guid requestedBy,
         DateTime requestedAt, CancellationToken cancellationToken);
     Task<ExportJobData?> GetAsync(Guid jobId, CancellationToken cancellationToken);
     Task<bool> IsActiveUserAsync(Guid userId, CancellationToken cancellationToken);
-    Task<ExportJobData?> ClaimNextAsync(DateTime startedAt, CancellationToken cancellationToken);
+    Task<ExportJobData?> ClaimNextAsync(DateTime startedAt, TimeSpan staleAfter,
+        CancellationToken cancellationToken);
     Task CompleteAsync(Guid jobId, string resultPath, DateTime completedAt,
         CancellationToken cancellationToken);
     Task FailAsync(Guid jobId, string errorMessage, DateTime completedAt,
         CancellationToken cancellationToken);
+}
+
+public interface IExportJobSignal
+{
+    void Notify();
+    Task WaitAsync(TimeSpan maximumDelay, CancellationToken cancellationToken);
 }
 
 public interface IPdfRenderer
@@ -56,5 +68,6 @@ public sealed class ExportOptions
     public string MediaContainerName { get; set; } = "media";
     public string? ChromiumExecutablePath { get; set; }
     public TimeSpan PollInterval { get; set; } = TimeSpan.FromSeconds(2);
+    public TimeSpan JobTimeout { get; set; } = TimeSpan.FromSeconds(60);
     public int MaxEmbeddedMediaBytes { get; set; } = 20 * 1024 * 1024;
 }

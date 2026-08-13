@@ -26,6 +26,8 @@ using Kb.Application.Notifications;
 using Kb.Infrastructure.Notifications;
 using Kb.Application.ExportJobs;
 using Kb.Infrastructure.ExportJobs;
+using Kb.Application.Search;
+using Kb.Infrastructure.Search;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -42,7 +44,20 @@ public static class DependencyInjection
             ?? throw new InvalidOperationException(
                 "Storage connection string is missing.");
 
-        services.AddSingleton(new BlobServiceClient(connectionString));
+        var blobOptions = new BlobClientOptions
+        {
+            Retry =
+            {
+                MaxRetries = configuration.GetValue<int?>("Storage:Retry:MaxRetries") ?? 2,
+                Delay = TimeSpan.FromMilliseconds(
+                    configuration.GetValue<int?>("Storage:Retry:DelayMilliseconds") ?? 250),
+                MaxDelay = TimeSpan.FromSeconds(
+                    configuration.GetValue<int?>("Storage:Retry:MaxDelaySeconds") ?? 2),
+                NetworkTimeout = TimeSpan.FromSeconds(
+                    configuration.GetValue<int?>("Storage:Retry:NetworkTimeoutSeconds") ?? 5)
+            }
+        };
+        services.AddSingleton(new BlobServiceClient(connectionString, blobOptions));
         services.AddScoped<IObjectStorage, AzureBlobObjectStorage>();
         services.AddDbContext<KbDbContext>(options =>
             options.UseSqlServer(configuration.GetConnectionString("kbDatabase")));
@@ -65,8 +80,16 @@ public static class DependencyInjection
         services.AddScoped<INotificationRepository, NotificationRepository>();
         services.AddScoped<IExportJobRepository, ExportJobRepository>();
         services.AddScoped<IExportMediaResolver, ExportMediaResolver>();
+        services.AddSingleton<IExportJobSignal, ExportJobSignal>();
         services.AddSingleton<IPdfRenderer, ChromiumPdfRenderer>();
         services.AddHostedService<ExportJobWorker>();
+        services.AddHttpClient<TypesenseInternalSearchClient>();
+        services.AddScoped<IInternalSearchClient>(provider => provider.GetRequiredService<TypesenseInternalSearchClient>());
+        services.AddScoped<ITypesenseInternalIndex>(provider => provider.GetRequiredService<TypesenseInternalSearchClient>());
+        services.AddScoped<InternalSearchDocumentSource>();
+        services.AddSingleton<InternalSearchSynchronization>();
+        services.AddScoped<IInternalSearchMaintenance, InternalSearchMaintenance>();
+        services.AddHostedService<InternalSearchJobWorker>();
         services.Configure<DraftContentOptions>(options =>
         {
             options.ContainerName = configuration["Storage:Containers:ArticleContent"] ?? "article-content";
@@ -89,6 +112,8 @@ public static class DependencyInjection
                 ?? 20 * 1024 * 1024;
             options.PollInterval = TimeSpan.FromMilliseconds(
                 configuration.GetValue<int?>("Exports:PollIntervalMilliseconds") ?? 2000);
+            options.JobTimeout = TimeSpan.FromSeconds(
+                configuration.GetValue<int?>("Exports:JobTimeoutSeconds") ?? 60);
         });
         services.Configure<HelpJuiceMigrationLimits>(options =>
         {
@@ -100,6 +125,16 @@ public static class DependencyInjection
             options.MaxCsvRows = configuration.GetValue<int?>("Migrations:HelpJuice:MaxCsvRows") ?? HelpJuiceMigrationLimits.DefaultMaxCsvRows;
             options.BatchSize = configuration.GetValue<int?>("Migrations:HelpJuice:BatchSize") ?? HelpJuiceMigrationLimits.DefaultBatchSize;
             options.MaxCompressionRatio = configuration.GetValue<int?>("Migrations:HelpJuice:MaxCompressionRatio") ?? HelpJuiceMigrationLimits.DefaultMaxCompressionRatio;
+        });
+        services.Configure<InternalSearchOptions>(options =>
+        {
+            options.Endpoint = configuration["Typesense:Endpoint"] ?? string.Empty;
+            options.AdminApiKey = configuration["Typesense:AdminApiKey"] ?? string.Empty;
+            options.CollectionAlias = configuration["Typesense:InternalCollectionAlias"] ?? "internal_kb_documents";
+            options.ArticleContentContainerName = configuration["Storage:Containers:ArticleContent"] ?? "article-content";
+            options.PollInterval = TimeSpan.FromMilliseconds(configuration.GetValue<int?>("Typesense:PollIntervalMilliseconds") ?? 2000);
+            options.DraftDebounce = TimeSpan.FromMilliseconds(configuration.GetValue<int?>("Typesense:DraftDebounceMilliseconds") ?? 3000);
+            options.MaxRetries = configuration.GetValue<int?>("Typesense:MaxRetries") ?? 8;
         });
         services.AddSingleton<ISlugGenerator, SlugGenerator>();
         services.AddSingleton(TimeProvider.System);

@@ -15,11 +15,14 @@ public sealed class CreateExportRequest : IValidatableObject
     }
 }
 
-// Retained for compatibility with clients that explicitly selected an immutable version.
 public sealed class ExportArticleRequest : IValidatableObject
 {
-    [NonEmptyGuid]
-    public Guid VersionId { get; init; }
+    [Required, NonWhiteSpace, StringLength(30)]
+    public required string SourceType { get; init; }
+
+    public Guid? DraftId { get; init; }
+
+    public Guid? VersionId { get; init; }
 
     [Required, NonWhiteSpace, StringLength(30)]
     public required string ExportType { get; init; }
@@ -28,6 +31,19 @@ public sealed class ExportArticleRequest : IValidatableObject
     {
         if (!string.IsNullOrWhiteSpace(ExportType) && !ExportTypes.All.Contains(ExportType))
             yield return new ValidationResult("ExportType must be PDF or HTML.", [nameof(ExportType)]);
+        if (!string.IsNullOrWhiteSpace(SourceType) && !ExportSourceTypes.All.Contains(SourceType))
+            yield return new ValidationResult("SourceType must be Draft or Version.", [nameof(SourceType)]);
+
+        var isDraft = SourceType?.Equals(ExportSourceTypes.Draft, StringComparison.OrdinalIgnoreCase) == true;
+        var isVersion = SourceType?.Equals(ExportSourceTypes.Version, StringComparison.OrdinalIgnoreCase) == true;
+        if (isDraft && (DraftId is null || DraftId == Guid.Empty || VersionId is not null))
+            yield return new ValidationResult(
+                "Draft exports require one non-empty DraftId and no VersionId.",
+                [nameof(DraftId), nameof(VersionId)]);
+        if (isVersion && (VersionId is null || VersionId == Guid.Empty || DraftId is not null))
+            yield return new ValidationResult(
+                "Version exports require one non-empty VersionId and no DraftId.",
+                [nameof(DraftId), nameof(VersionId)]);
     }
 }
 
@@ -36,6 +52,8 @@ public sealed record ExportJobResponse(
     string EntityType,
     Guid? ArticleId,
     Guid? CategoryId,
+    string? SourceType,
+    Guid? DraftId,
     Guid? VersionId,
     string ExportType,
     string Status,
@@ -50,7 +68,8 @@ public sealed record ExportJobResponse(
     public ExportJobResponse(Guid exportJobId, Guid articleId, Guid versionId, string exportType,
         string status, UserSummaryResponse requestedBy, DateTime requestedAt, string? downloadUrl,
         string? errorMessage)
-        : this(exportJobId, "Article", articleId, null, versionId, exportType, status, requestedBy,
+        : this(exportJobId, "Article", articleId, null, ExportSourceTypes.Version, null, versionId,
+            exportType, status, requestedBy,
             requestedAt, null, null, $"article-export.{(exportType == ExportTypes.Pdf ? "pdf" : "html")}",
             downloadUrl, errorMessage) { }
 }

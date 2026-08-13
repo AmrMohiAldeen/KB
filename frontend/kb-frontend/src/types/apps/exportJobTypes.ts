@@ -1,11 +1,17 @@
 export type ExportFormat = 'PDF' | 'HTML'
 export type ExportJobStatus = 'Pending' | 'Processing' | 'Completed' | 'Failed'
+export type ExportSourceType = 'Draft' | 'Version'
+export type ArticleExportSource =
+  | { sourceType: 'Draft'; draftId: string; versionId?: never }
+  | { sourceType: 'Version'; versionId: string; draftId?: never }
 
 export type ExportJobResponse = {
   exportJobId: string
   entityType: 'Article' | 'Category'
   articleId: string | null
   categoryId: string | null
+  sourceType: ExportSourceType | null
+  draftId: string | null
   versionId: string | null
   exportType: ExportFormat
   status: ExportJobStatus

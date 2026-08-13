@@ -17,9 +17,10 @@ public sealed class ExportJobsController(ExportService exports) : ControllerBase
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ExportJobResponse>> ExportArticle(Guid articleId,
-        CreateExportRequest request, CancellationToken cancellationToken)
+        ExportArticleRequest request, CancellationToken cancellationToken)
     {
-        var job = await exports.RequestArticleAsync(articleId, request.ExportType, cancellationToken);
+        var job = await exports.RequestArticleAsync(articleId,
+            new(request.SourceType, request.DraftId, request.VersionId), request.ExportType, cancellationToken);
         return AcceptedAtAction(nameof(Get), new { jobId = job.Id }, ToResponse(job));
     }
 
@@ -54,7 +55,7 @@ public sealed class ExportJobsController(ExportService exports) : ControllerBase
     }
 
     private static ExportJobResponse ToResponse(ExportJobData job) => new(job.Id, job.EntityType,
-        job.ArticleId, job.CategoryId, job.VersionId, job.ExportType, job.Status,
+        job.ArticleId, job.CategoryId, job.SourceType, job.DraftId, job.VersionId, job.ExportType, job.Status,
         new UserSummaryResponse(job.RequestedById, job.RequestedByName), job.RequestedAt,
         job.StartedAt, job.CompletedAt, job.FileName,
         job.Status == Kb.Domain.Constants.JobStatuses.Completed

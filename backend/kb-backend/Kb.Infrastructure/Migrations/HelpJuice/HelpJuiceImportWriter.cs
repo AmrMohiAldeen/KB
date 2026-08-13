@@ -6,6 +6,7 @@ using Kb.Domain.Constants;
 using Kb.Infrastructure.Data;
 using Kb.Infrastructure.Data.Entities;
 using Microsoft.EntityFrameworkCore;
+using Kb.Infrastructure.Search;
 
 namespace Kb.Infrastructure.Migrations.HelpJuice;
 
@@ -85,11 +86,13 @@ public sealed class HelpJuiceImportWriter(KbDbContext db, TimeProvider timeProvi
             existing.Name=Normalize(source.Name,200); existing.ParentCategoryIdFk=source.ParentId; existing.Depth=source.Depth;
             existing.SortOrder=source.SortOrder; existing.Path=await BuildCategoryPath(source.ParentId,existing.CategoryId,ct);
             if(mapping is null)AddMapping("Category",source.ExternalId,existing.CategoryId,null,new{source.Name,source.Depth});
+            await SearchIndexJobQueue.EnqueueCategoryAsync(db,existing.CategoryId,SearchIndexJobTypes.Upsert,timeProvider.GetUtcNow().UtcDateTime,ct);
             AddAudit(actorId,"MigrationCategoryUpdated","Category",existing.CategoryId,null,operationId); await SaveAsync(ct); await tx.CommitAsync(ct); return new(existing.CategoryId,MigrationWriteDisposition.Updated);
         }
         var slug=await AllocateCategorySlugAsync(source.Slug,ct); var id=Guid.NewGuid();
         var category=new Category{CategoryId=id,Name=Normalize(source.Name,200),Slug=slug,ParentCategoryIdFk=source.ParentId,Depth=source.Depth,SortOrder=source.SortOrder,Path=await BuildCategoryPath(source.ParentId,id,ct)};
         db.Categories.Add(category); AddMapping("Category",source.ExternalId,id,null,new { source.Name, source.Depth }); AddAudit(actorId,"MigrationCategoryImported","Category",id,null,operationId);
+        await SearchIndexJobQueue.EnqueueCategoryAsync(db,id,SearchIndexJobTypes.Upsert,timeProvider.GetUtcNow().UtcDateTime,ct);
         await SaveAsync(ct); await tx.CommitAsync(ct); return new(id,MigrationWriteDisposition.Imported);
     }
 
@@ -115,7 +118,6 @@ public sealed class HelpJuiceImportWriter(KbDbContext db, TimeProvider timeProvi
             ? await db.Articles.Include(x=>x.CurrentDraftIdFkNavigation).SingleOrDefaultAsync(x=>x.Slug==source.Slug&&x.DeletedAt==null,ct)
             : await db.Articles.Include(x=>x.CurrentDraftIdFkNavigation).SingleOrDefaultAsync(x=>x.ArticleId==mapping.InternalId&&x.DeletedAt==null,ct)
                 ?? throw new ConflictException($"Mapped HelpJuice article '{source.ExternalId}' no longer exists.");
-        var wasViewerVisible=existing?.Status==ArticleStatuses.Published;
         if(mapping is null&&existing is not null&&!behavior.Equals(MigrationConflictBehaviors.UpdateExisting,StringComparison.OrdinalIgnoreCase)) existing=null;
         if(existing is not null&&(mapping is not null&&!behavior.Equals(MigrationConflictBehaviors.UpdateExisting,StringComparison.OrdinalIgnoreCase)||behavior.Equals(MigrationConflictBehaviors.Skip,StringComparison.OrdinalIgnoreCase)))
         { AddAudit(source.UserId,"MigrationArticleSkipped","Article",existing.ArticleId,existing.ArticleId,operationId);await SaveAsync(ct);await tx.CommitAsync(ct);return new(existing.ArticleId,MigrationWriteDisposition.Skipped,existing.CurrentDraftIdFk); }
@@ -165,13 +167,10 @@ public sealed class HelpJuiceImportWriter(KbDbContext db, TimeProvider timeProvi
                 AddAudit(source.UserId,"MigrationPublishedVersionCreated","ArticleVersion",versionId,article.ArticleId,operationId);
             }
             article.LastPublishedVersionIdFk=versionId;
-            if(source.Status==ArticleStatuses.Published&&!await db.SearchIndexJobs.AnyAsync(x=>x.ArticleIdFk==article.ArticleId&&x.VersionIdFk==versionId&&x.JobType==SearchIndexJobTypes.Upsert,ct))
-                db.SearchIndexJobs.Add(new SearchIndexJob{SearchJobId=NewId(),ArticleIdFk=article.ArticleId,VersionIdFk=versionId,JobType=SearchIndexJobTypes.Upsert,Status=JobStatuses.Pending,RetryCount=0,CreatedAt=timeProvider.GetUtcNow().UtcDateTime});
             await SynchronizeReferencesAsync(source.Content.MediaIds,article.ArticleId,"Version",versionId.Value,ct);
         }
         await SynchronizeReferencesAsync(source.Content.MediaIds,article.ArticleId,"Draft",draft.DraftId,ct);
-        if(wasViewerVisible&&source.Status!=ArticleStatuses.Published&&!await db.SearchIndexJobs.AnyAsync(x=>x.ArticleIdFk==article.ArticleId&&x.JobType==SearchIndexJobTypes.Delete&&x.Status==JobStatuses.Pending,ct))
-            db.SearchIndexJobs.Add(new SearchIndexJob{SearchJobId=NewId(),ArticleIdFk=article.ArticleId,VersionIdFk=null,JobType=SearchIndexJobTypes.Delete,Status=JobStatuses.Pending,RetryCount=0,CreatedAt=timeProvider.GetUtcNow().UtcDateTime});
+        await SearchIndexJobQueue.EnqueueArticleAsync(db,article.ArticleId,SearchIndexJobTypes.Upsert,timeProvider.GetUtcNow().UtcDateTime,ct);
         AddAudit(source.UserId,disposition==MigrationWriteDisposition.Updated?"MigrationArticleUpdated":"MigrationArticleImported","Article",article.ArticleId,article.ArticleId,operationId);
         await SaveAsync(ct);await tx.CommitAsync(ct);return new(article.ArticleId,disposition,draft.DraftId,versionId);
     }
