@@ -1,0 +1,26 @@
+services:
+  typesense:
+    image: typesense/typesense:27.1
+    command: >-
+      --data-dir /data
+      --api-key=kb-local-typesense-key-change-me
+      --enable-cors=false
+    ports:
+      - "8108:8108"
+    volumes:
+      - typesense-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - bash
+        - -c
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/8108 &&
+          printf 'GET /health HTTP/1.0\r\n\r\n' >&3 &&
+          grep -q '"ok":true' <&3
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+volumes:
+  typesense-data:

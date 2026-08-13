@@ -223,9 +223,22 @@ public sealed partial class ExportDocumentBuilder(
         if (!string.IsNullOrWhiteSpace(article.RenderedHtmlPath))
         {
             try { html = await ReadTextAsync(article.RenderedHtmlPath, cancellationToken); }
-            catch { html = await FallbackTextAsync(article, cancellationToken); }
+            catch (Exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                html = await FallbackTextAsync(article, cancellationToken);
+            }
         }
         else html = await FallbackTextAsync(article, cancellationToken);
+
+        // Older rendered-HTML objects were produced before callouts had a static
+        // renderer and silently omitted the node. The Tiptap JSON is canonical, so
+        // repair those exports from JSON while leaving unaffected historical HTML
+        // (and its richer custom-node rendering) untouched.
+        if (!html.Contains("kb-callout", StringComparison.OrdinalIgnoreCase))
+        {
+            var canonical = await TryRenderCalloutDocumentAsync(article.ContentJsonPath, cancellationToken);
+            if (canonical is not null) html = canonical;
+        }
 
         html = ScriptRegex().Replace(html, string.Empty);
         html = EventAttributeRegex().Replace(html, string.Empty);
@@ -279,6 +292,37 @@ public sealed partial class ExportDocumentBuilder(
         }
     }
 
+    private async Task<string?> TryRenderCalloutDocumentAsync(string path, CancellationToken token)
+    {
+        try
+        {
+            var json = await ReadTextAsync(path, token);
+            using var document = JsonDocument.Parse(json);
+            return ContainsNodeType(document.RootElement, "callout")
+                ? RenderJsonNode(document.RootElement)
+                : null;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            logger.LogWarning(exception, "Canonical article JSON could not be checked for export callouts");
+            return null;
+        }
+    }
+
+    private static bool ContainsNodeType(JsonElement element, string nodeType)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            if (StringProperty(element, "type") == nodeType) return true;
+            foreach (var property in element.EnumerateObject())
+                if (ContainsNodeType(property.Value, nodeType)) return true;
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+            foreach (var child in element.EnumerateArray())
+                if (ContainsNodeType(child, nodeType)) return true;
+        return false;
+    }
+
     private async Task<string> ReadTextAsync(string path, CancellationToken token)
     {
         await using var stream = await storage.DownloadAsync(options.Value.ArticleContentContainerName, path, token);
@@ -306,6 +350,9 @@ public sealed partial class ExportDocumentBuilder(
                     "underline" => $"<u>{value}</u>",
                     "strike" => $"<s>{value}</s>",
                     "code" => $"<code>{value}</code>",
+                    "subscript" => $"<sub>{value}</sub>",
+                    "superscript" => $"<sup>{value}</sup>",
+                    "highlight" => $"<mark>{value}</mark>",
                     "link" when Attributes(mark) is { } link && StringProperty(link, "href") is { } href =>
                         $"<a href=\"{E(href)}\">{value}</a>",
                     _ => value
@@ -332,15 +379,36 @@ public sealed partial class ExportDocumentBuilder(
             "tableRow" => $"<tr>{content}</tr>",
             "tableHeader" => $"<th>{content}</th>",
             "tableCell" => $"<td>{content}</td>",
-            "callout" => $"<aside class=\"kb-callout kb-callout--{E(StringProperty(attrs, "variant") ?? "info")}\"><strong>{E(StringProperty(attrs, "variant") ?? "info")}</strong>{content}</aside>",
+            "callout" => RenderJsonCallout(attrs, content),
             "tabs" => $"<div class=\"kb-tabs\">{content}</div>",
             "tabItem" => $"<section class=\"kb-tabs__static-item\"><h3>{E(StringProperty(attrs, "label") ?? "Tab")}</h3>{content}</section>",
             "accordion" => $"<div class=\"kb-accordion\">{content}</div>",
             "accordionItem" => $"<details open><summary>{E(StringProperty(attrs, "title") ?? "Section")}</summary>{content}</details>",
             "image" or "blockImage" or "inlineImage" => RenderJsonImage(attrs),
+            "video" => RenderJsonVideo(attrs),
+            "attachment" => RenderJsonAttachment(attrs),
+            "youtube" => RenderJsonYoutube(attrs),
             _ => content
         };
     }
+
+    private static string RenderJsonCallout(JsonElement? attrs, string content)
+    {
+        var variant = NormalizeCalloutVariant(StringProperty(attrs, "variant"));
+        var label = char.ToUpperInvariant(variant[0]) + variant[1..];
+        return $"<aside class=\"kb-callout kb-callout--{variant}\" role=\"note\">" +
+               $"<div class=\"kb-callout__header\"><span class=\"kb-callout__icon\" aria-hidden=\"true\"></span>" +
+               $"<strong>{label}</strong></div><div class=\"kb-callout__content\">{content}</div></aside>";
+    }
+
+    private static string NormalizeCalloutVariant(string? value) => value?.ToLowerInvariant() switch
+    {
+        "warning" => "warning",
+        "success" => "success",
+        "danger" or "error" => "danger",
+        "tip" => "tip",
+        _ => "info"
+    };
 
     private static string RenderJsonImage(JsonElement? attrs)
     {
@@ -349,6 +417,29 @@ public sealed partial class ExportDocumentBuilder(
         var mediaId = StringProperty(attrs, "mediaId");
         var media = Guid.TryParse(mediaId, out var id) ? $" data-media-id=\"{id:D}\"" : string.Empty;
         return $"<img src=\"{src}\" alt=\"{alt}\"{media}>";
+    }
+
+    private static string RenderJsonVideo(JsonElement? attrs)
+    {
+        var src = E(StringProperty(attrs, "src") ?? string.Empty);
+        var mediaId = StringProperty(attrs, "mediaId");
+        var media = Guid.TryParse(mediaId, out var id) ? $" data-media-id=\"{id:D}\"" : string.Empty;
+        return $"<video controls preload=\"metadata\" src=\"{src}\"{media}></video>";
+    }
+
+    private static string RenderJsonAttachment(JsonElement? attrs)
+    {
+        var src = E(StringProperty(attrs, "src") ?? string.Empty);
+        var name = E(StringProperty(attrs, "fileName") ?? "Download attachment");
+        var mediaId = StringProperty(attrs, "mediaId");
+        var media = Guid.TryParse(mediaId, out var id) ? $" data-media-id=\"{id:D}\"" : string.Empty;
+        return $"<a class=\"kb-attachment\" href=\"{src}\"{media}>{name}</a>";
+    }
+
+    private static string RenderJsonYoutube(JsonElement? attrs)
+    {
+        var src = E(StringProperty(attrs, "src") ?? string.Empty);
+        return $"<iframe class=\"kb-youtube\" src=\"{src}\" title=\"Embedded video\"></iframe>";
     }
 
     private static JsonElement? Attributes(JsonElement node) =>
@@ -446,6 +537,12 @@ public sealed partial class ExportDocumentBuilder(
         details { border:1px solid #dbe2ea; border-radius:5px; padding:8px 12px; margin:8px 0; }
         details > summary { font-weight:700; } .kb-tabs__static-item { display:block!important; border:1px solid #dbe2ea; padding:10px; margin:8px 0; }
         .kb-tabs__static-item > h3 { display:block!important; } .media-missing { display:inline-block; padding:8px; color:#7f1d1d; background:#fef2f2; }
+        .kb-callout { --callout-accent:#2563eb; --callout-bg:#eff6ff; break-inside:avoid; border:1px solid color-mix(in srgb,var(--callout-accent) 32%,white); border-left:5px solid var(--callout-accent); border-radius:7px; background:var(--callout-bg); margin:14px 0; padding:12px 14px; }
+        .kb-callout--warning { --callout-accent:#d97706; --callout-bg:#fffbeb; } .kb-callout--success { --callout-accent:#15803d; --callout-bg:#f0fdf4; }
+        .kb-callout--danger { --callout-accent:#b91c1c; --callout-bg:#fef2f2; } .kb-callout--tip { --callout-accent:#7e22ce; --callout-bg:#faf5ff; }
+        .kb-callout__header { display:flex; align-items:center; gap:7px; color:var(--callout-accent); margin-bottom:6px; }
+        .kb-callout__icon { display:inline-block; width:9px; height:9px; border-radius:50%; background:currentColor; flex:none; }
+        .kb-callout__content > :first-child { margin-top:0; } .kb-callout__content > :last-child { margin-bottom:0; }
         a { color:#1d4ed8; overflow-wrap:anywhere; } @media print { body { max-width:none; } }
         """;
 

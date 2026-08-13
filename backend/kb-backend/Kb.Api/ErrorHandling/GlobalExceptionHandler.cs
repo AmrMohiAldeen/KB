@@ -50,7 +50,8 @@ public sealed class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logge
         ConflictException conflict => (StatusCodes.Status409Conflict, "Conflict", conflict.Message),
         ConcurrencyConflictException concurrency => (StatusCodes.Status409Conflict, "Concurrency conflict", concurrency.Message),
         DbUpdateConcurrencyException => (StatusCodes.Status409Conflict, "Concurrency conflict", "The resource was changed by another request."),
-        ExternalServiceException => (StatusCodes.Status503ServiceUnavailable, "Service unavailable", "A required service is temporarily unavailable."),
+        ExternalServiceException external => (StatusCodes.Status503ServiceUnavailable, "Service unavailable",
+            external.Message),
         DbException => (StatusCodes.Status503ServiceUnavailable, "Service unavailable", "A required service is temporarily unavailable."),
         _ => (StatusCodes.Status500InternalServerError, "An unexpected error occurred.", "An unexpected error occurred. Contact support with the trace ID.")
     };

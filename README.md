@@ -35,6 +35,18 @@ Start the development server:
 npm run dev
 ```
 
+Start the local Typesense dependency before running the API:
+
+```bash
+cd backend/kb-backend
+docker compose -f compose.typesense.yml up -d
+```
+
+Development configuration points the API at `http://127.0.0.1:8108` with the key from that compose file.
+For non-development environments, set `Typesense__Endpoint`, `Typesense__AdminApiKey`, and optionally
+`Typesense__InternalCollectionAlias`. After the API and database migrations are running, an administrator can
+rebuild all retained article/category documents with `POST /api/dashboard/search/rebuild`.
+
 The frontend should then be available at the local development URL shown in the terminal.
 
 ## 2. Software Dependencies

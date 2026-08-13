@@ -83,13 +83,52 @@ public sealed class ExportJobRepository(KbDbContext db) : IExportJobRepository
             .Select(item => new
             {
                 item.ArticleId, item.Title, item.Slug, item.CategoryIdFk, item.Position,
-                Version = item.LastPublishedVersionIdFkNavigation
+                item.CurrentDraftIdFk
             }).ToListAsync(token);
-        var unstable = articles.Where(item => item.Version is null || item.Version.PublishedAt is null)
-            .Select(item => item.Title).Order().Take(5).ToArray();
-        if (unstable.Length > 0)
+
+        var articleIds = articles.Select(item => item.ArticleId).ToArray();
+        var drafts = await db.ArticleDrafts.AsNoTracking()
+            .Where(item => articleIds.Contains(item.ArticleIdFk))
+            .Select(item => new
+            {
+                item.ArticleIdFk,
+                Source = new SourceRecord(item.DraftId, item.ContentJsonStoragePath,
+                    item.RenderedHtmlStoragePath, item.PlainTextStoragePath, null),
+                item.DraftNumber,
+                item.UpdatedAt
+            }).ToListAsync(token);
+        var versions = await db.ArticleVersions.AsNoTracking()
+            .Where(item => articleIds.Contains(item.ArticleIdFk))
+            .Select(item => new
+            {
+                item.ArticleIdFk,
+                Source = new SourceRecord(item.VersionId, item.ContentJsonStoragePath,
+                    item.RenderedHtmlStoragePath, item.PlainTextStoragePath, item.PublishedAt),
+                item.VersionNumber,
+                item.CreatedAt
+            }).ToListAsync(token);
+
+        var selected = articles.Select(article =>
+        {
+            var draft = drafts.Where(item => item.ArticleIdFk == article.ArticleId)
+                .OrderByDescending(item => item.Source.Id == article.CurrentDraftIdFk)
+                .ThenByDescending(item => item.DraftNumber)
+                .ThenByDescending(item => item.UpdatedAt)
+                .Select(item => item.Source)
+                .FirstOrDefault(item => !string.IsNullOrWhiteSpace(item.ContentJsonPath));
+            var version = versions.Where(item => item.ArticleIdFk == article.ArticleId)
+                .OrderByDescending(item => item.VersionNumber)
+                .ThenByDescending(item => item.CreatedAt)
+                .Select(item => item.Source)
+                .FirstOrDefault(item => !string.IsNullOrWhiteSpace(item.ContentJsonPath));
+            return new { Article = article, SourceType = draft is null ? ExportSourceTypes.Version : ExportSourceTypes.Draft,
+                Source = draft ?? version };
+        }).ToArray();
+        var unavailable = selected.Where(item => item.Source is null).Select(item => item.Article.Title)
+            .Order().Take(5).ToArray();
+        if (unavailable.Length > 0)
             throw new BusinessRuleException(
-                $"The category contains article(s) without a published stable version: {string.Join(", ", unstable)}.");
+                $"Category export could not find stored draft or version content for: {string.Join(", ", unavailable)}.");
 
         var duplicate = await FindDuplicateAsync(ExportEntityTypes.Category, null, categoryId,
             null, null, null, exportType, requestedBy, token);
@@ -98,10 +137,12 @@ public sealed class ExportJobRepository(KbDbContext db) : IExportJobRepository
         var snapshot = new ExportSnapshot(ExportEntityTypes.Category, root.Name, root.Slug,
             included.Select(item => new ExportSnapshotCategory(item.CategoryId, item.ParentCategoryIdFk,
                 item.Name, item.Slug, item.SortOrder, item.Depth)).ToArray(),
-            articles.Select(item => new ExportSnapshotArticle(item.ArticleId, ExportSourceTypes.Version,
-                null, item.Version!.VersionId, item.CategoryIdFk, item.Title, item.Slug, item.Position,
-                item.Version.ContentJsonStoragePath, item.Version.RenderedHtmlStoragePath,
-                item.Version.PlainTextStoragePath, item.Version.PublishedAt)).ToArray());
+            selected.Select(item => new ExportSnapshotArticle(item.Article.ArticleId, item.SourceType,
+                item.SourceType == ExportSourceTypes.Draft ? item.Source!.Id : null,
+                item.SourceType == ExportSourceTypes.Version ? item.Source!.Id : null,
+                item.Article.CategoryIdFk, item.Article.Title, item.Article.Slug, item.Article.Position,
+                item.Source!.ContentJsonPath, item.Source.RenderedHtmlPath,
+                item.Source.PlainTextPath, item.Source.PublishedAt)).ToArray());
         var entity = NewJob(ExportEntityTypes.Category, null, categoryId, null, null, null, exportType,
             requestedBy, requestedAt, snapshot, FileName(root.Slug, exportType));
         db.ExportJobs.Add(entity);

@@ -126,6 +126,21 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
             .Select(VersionSummaryProjection)
             .SingleOrDefaultAsync(cancellationToken);
 
+    public Task<LifecycleVersionSummaryData?> GetMatchingVersionAsync(
+        Guid articleId,
+        Guid draftId,
+        string? contentHash,
+        CancellationToken cancellationToken) =>
+        ExistingVersions(articleId)
+            .Where(version => contentHash != null
+                ? version.ContentHash == contentHash
+                : version.SourceDraftIdFk == draftId &&
+                  version.SnapshotReason == ArticleSnapshotReasons.SubmittedForReview)
+            .OrderByDescending(version => version.VersionNumber)
+            .ThenByDescending(version => version.CreatedAt)
+            .Select(VersionSummaryProjection)
+            .FirstOrDefaultAsync(cancellationToken);
+
     public async Task<IReadOnlyList<LifecycleReviewEventData>> GetReviewHistoryAsync(
         Guid articleId,
         CancellationToken cancellationToken) =>
@@ -192,10 +207,10 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
         Guid articleId,
         Guid draftId,
         byte[] expectedRowVersion,
-        VersionSnapshotContentData content,
+        Guid submittedVersionId,
+        string? expectedContentHash,
         LifecycleReviewData review,
         LifecycleAuditData audit,
-        LifecycleAuditData snapshotAudit,
         CancellationToken cancellationToken) =>
         ExecuteAsync(async token =>
         {
@@ -206,21 +221,30 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
                 throw new ConflictException(
                     $"The article cannot transition from {article.Status} to {ArticleStatuses.Published}.");
 
-            var version = await AddSnapshot(article, draft, content, snapshotAudit,
-                audit.ActorId, audit.CreatedAt, token);
-            var nextNumber = version.VersionNumber;
+            var version = await dbContext.ArticleVersions.SingleOrDefaultAsync(item =>
+                    item.VersionId == submittedVersionId && item.ArticleIdFk == articleId &&
+                    (expectedContentHash != null
+                        ? item.ContentHash == expectedContentHash
+                        : item.SourceDraftIdFk == draftId &&
+                          item.SnapshotReason == ArticleSnapshotReasons.SubmittedForReview), token)
+                ?? throw new ConflictException(
+                    "The approved draft no longer matches its submitted version.");
 
             article.Status = ArticleStatuses.Published;
-            article.LastPublishedVersionIdFk = content.VersionId;
+            article.LastPublishedVersionIdFk = version.VersionId;
             article.UpdatedAt = audit.CreatedAt;
             draft.UpdatedByFk = audit.ActorId;
             draft.UpdatedAt = audit.CreatedAt;
+            if (version.PublishedAt is null)
+            {
+                version.PublishedByFk = audit.ActorId;
+                version.PublishedAt = audit.CreatedAt;
+            }
             AdvanceSqliteRowVersion(draft);
             AddReview(articleId, draftId, review);
             AddAudit(articleId, draftId, audit);
-            AddVersionAudit(version, snapshotAudit);
             await SaveChangesAsync(token);
-            return await ReadResultAsync(articleId, content.VersionId, nextNumber, audit.CreatedAt, token);
+            return await ReadResultAsync(articleId, version.VersionId, version.VersionNumber, audit.CreatedAt, token);
         }, cancellationToken);
 
     public Task<LifecycleResultData> RestoreAsync(

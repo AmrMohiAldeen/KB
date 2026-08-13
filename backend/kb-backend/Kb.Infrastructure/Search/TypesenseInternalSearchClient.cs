@@ -56,7 +56,7 @@ internal sealed class TypesenseInternalSearchClient : IInternalSearchClient, ITy
         var uri = $"collections/{Uri.EscapeDataString(options.CollectionAlias)}/documents/search?" +
                   string.Join("&", parameters.Select(item => $"{Uri.EscapeDataString(item.Key)}={Uri.EscapeDataString(item.Value)}"));
 
-        using var response = await http.GetAsync(uri, cancellationToken);
+        using var response = await SendAsync(() => http.GetAsync(uri, cancellationToken), cancellationToken);
         await EnsureSuccessAsync(response, "Internal search is temporarily unavailable.", cancellationToken);
         using var payload = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(cancellationToken));
         var root = payload.RootElement;
@@ -72,9 +72,9 @@ internal sealed class TypesenseInternalSearchClient : IInternalSearchClient, ITy
     {
         EnsureConfigured();
         await EnsureCollectionAsync(cancellationToken);
-        using var response = await http.PostAsJsonAsync(
+        using var response = await SendAsync(() => http.PostAsJsonAsync(
             $"collections/{Uri.EscapeDataString(options.CollectionAlias)}/documents?action=upsert", document,
-            cancellationToken);
+            cancellationToken), cancellationToken);
         await EnsureSuccessAsync(response, "The internal search document could not be indexed.", cancellationToken);
     }
 
@@ -82,9 +82,9 @@ internal sealed class TypesenseInternalSearchClient : IInternalSearchClient, ITy
     {
         EnsureConfigured();
         await EnsureCollectionAsync(cancellationToken);
-        using var response = await http.DeleteAsync(
+        using var response = await SendAsync(() => http.DeleteAsync(
             $"collections/{Uri.EscapeDataString(options.CollectionAlias)}/documents/{Uri.EscapeDataString(documentId)}",
-            cancellationToken);
+            cancellationToken), cancellationToken);
         if (response.StatusCode == HttpStatusCode.NotFound) return;
         await EnsureSuccessAsync(response, "The internal search document could not be removed.", cancellationToken);
     }
@@ -101,16 +101,17 @@ internal sealed class TypesenseInternalSearchClient : IInternalSearchClient, ITy
             {
                 var ndjson = string.Join('\n', documents.Select(document => JsonSerializer.Serialize(document)));
                 using var content = new StringContent(ndjson, Encoding.UTF8, "text/plain");
-                using var import = await http.PostAsync(
+                using var import = await SendAsync(() => http.PostAsync(
                     $"collections/{Uri.EscapeDataString(collection)}/documents/import?action=upsert", content,
-                    cancellationToken);
+                    cancellationToken), cancellationToken);
                 await EnsureSuccessAsync(import, "The replacement internal search index could not be populated.", cancellationToken);
                 var lines = (await import.Content.ReadAsStringAsync(cancellationToken)).Split('\n', StringSplitOptions.RemoveEmptyEntries);
                 if (lines.Any(line => !JsonDocument.Parse(line).RootElement.GetProperty("success").GetBoolean()))
                     throw new ExternalServiceException("At least one document failed during the internal search rebuild.");
             }
-            using var alias = await http.PutAsJsonAsync($"aliases/{Uri.EscapeDataString(options.CollectionAlias)}",
-                new { collection_name = collection }, cancellationToken);
+            using var alias = await SendAsync(() => http.PutAsJsonAsync(
+                $"aliases/{Uri.EscapeDataString(options.CollectionAlias)}",
+                new { collection_name = collection }, cancellationToken), cancellationToken);
             await EnsureSuccessAsync(alias, "The rebuilt internal search index could not be activated.", cancellationToken);
             return collection;
         }
@@ -124,16 +125,19 @@ internal sealed class TypesenseInternalSearchClient : IInternalSearchClient, ITy
 
     private async Task EnsureCollectionAsync(CancellationToken cancellationToken)
     {
-        using var alias = await http.GetAsync($"aliases/{Uri.EscapeDataString(options.CollectionAlias)}", cancellationToken);
+        using var alias = await SendAsync(() => http.GetAsync(
+            $"aliases/{Uri.EscapeDataString(options.CollectionAlias)}", cancellationToken), cancellationToken);
         if (alias.IsSuccessStatusCode) return;
         if (alias.StatusCode != HttpStatusCode.NotFound)
             await EnsureSuccessAsync(alias, "The internal search collection could not be resolved.", cancellationToken);
         var collection = $"{options.CollectionAlias}_initial";
-        using var exists = await http.GetAsync($"collections/{Uri.EscapeDataString(collection)}", cancellationToken);
+        using var exists = await SendAsync(() => http.GetAsync(
+            $"collections/{Uri.EscapeDataString(collection)}", cancellationToken), cancellationToken);
         if (exists.StatusCode == HttpStatusCode.NotFound) await CreateCollectionAsync(collection, cancellationToken);
         else await EnsureSuccessAsync(exists, "The internal search collection could not be resolved.", cancellationToken);
-        using var createAlias = await http.PutAsJsonAsync($"aliases/{Uri.EscapeDataString(options.CollectionAlias)}",
-            new { collection_name = collection }, cancellationToken);
+        using var createAlias = await SendAsync(() => http.PutAsJsonAsync(
+            $"aliases/{Uri.EscapeDataString(options.CollectionAlias)}",
+            new { collection_name = collection }, cancellationToken), cancellationToken);
         await EnsureSuccessAsync(createAlias, "The internal search alias could not be created.", cancellationToken);
     }
 
@@ -156,7 +160,8 @@ internal sealed class TypesenseInternalSearchClient : IInternalSearchClient, ITy
             },
             default_sorting_field = "updated_at"
         };
-        using var response = await http.PostAsJsonAsync("collections", schema, cancellationToken);
+        using var response = await SendAsync(() => http.PostAsJsonAsync("collections", schema, cancellationToken),
+            cancellationToken);
         if (response.StatusCode != HttpStatusCode.Conflict)
             await EnsureSuccessAsync(response, "The internal search collection could not be created.", cancellationToken);
     }
@@ -209,10 +214,32 @@ internal sealed class TypesenseInternalSearchClient : IInternalSearchClient, ITy
             throw new InvalidOperationException("The internal Typesense collection alias must not be a public/viewer collection.");
     }
 
-    private static async Task EnsureSuccessAsync(HttpResponseMessage response, string message, CancellationToken token)
+    private static async Task<HttpResponseMessage> SendAsync(
+        Func<Task<HttpResponseMessage>> send,
+        CancellationToken cancellationToken)
     {
-        if (response.IsSuccessStatusCode) return;
-        var detail = await response.Content.ReadAsStringAsync(token);
-        throw new ExternalServiceException($"{message} Typesense returned {(int)response.StatusCode}: {detail[..Math.Min(300, detail.Length)]}");
+        try
+        {
+            return await send();
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new ExternalServiceException(
+                "Internal search timed out while contacting Typesense. Verify the local Typesense service is running.");
+        }
+        catch (HttpRequestException exception)
+        {
+            throw new ExternalServiceException(
+                "Internal search could not reach Typesense. Verify the configured endpoint and that the service is running.",
+                exception);
+        }
+    }
+
+    private static Task EnsureSuccessAsync(HttpResponseMessage response, string message, CancellationToken token)
+    {
+        if (response.IsSuccessStatusCode) return Task.CompletedTask;
+        _ = token;
+        throw new ExternalServiceException(
+            $"{message} Typesense returned {(int)response.StatusCode} ({response.ReasonPhrase ?? "unknown error"}).");
     }
 }

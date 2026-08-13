@@ -352,6 +352,7 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
   const [mutating, setMutating] = useState(false)
   const [pageErrors, setPageErrors] = useState<string[]>(accessToken ? [] : [missingTokenMessage])
   const [mutationErrors, setMutationErrors] = useState<string[]>([])
+  const [exportErrors, setExportErrors] = useState<string[]>([])
   const [successMessage, setSuccessMessage] = useState('')
   const [categoryDialogOpen, setCategoryDialogOpen] = useState(false)
   const [articleDialogOpen, setArticleDialogOpen] = useState(false)
@@ -1009,7 +1010,7 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
 
     exportingItemIdsRef.current.add(item.id)
     setExportingItemIds(new Set(exportingItemIdsRef.current))
-    setMutationErrors([])
+    setExportErrors([])
     setSuccessMessage('')
 
     try {
@@ -1031,7 +1032,7 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
       saveExportBlob(await downloadExport(job.exportJobId, accessToken), job.fileName)
       setSuccessMessage(`${exportType} export downloaded.`)
     } catch (error) {
-      setMutationErrors(describeApiError(error))
+      setExportErrors(describeApiError(error))
     } finally {
       exportingItemIdsRef.current.delete(item.id)
       setExportingItemIds(new Set(exportingItemIdsRef.current))
@@ -1282,12 +1283,11 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
             </Stack>
           </Box>
 
-          {(pageErrors.length > 0 || mutationErrors.length > 0 || successMessage) && (
+          {(pageErrors.length > 0 || mutationErrors.length > 0 || exportErrors.length > 0 || successMessage) && (
             <Stack spacing={1.5} sx={{ px: { xs: 2.5, sm: 3.5, xl: 4.5 }, pt: 2.5 }}>
-              <KbValidationSummary
-                title='Dashboard could not be loaded or changed'
-                errors={[...pageErrors, ...mutationErrors]}
-              />
+              <KbValidationSummary title='Dashboard could not be loaded' errors={pageErrors} />
+              <KbValidationSummary title='Dashboard change could not be completed' errors={mutationErrors} />
+              <KbValidationSummary title='Export could not be completed' errors={exportErrors} />
               {pageErrors.length > 0 && (
                 <Button
                   size='small'

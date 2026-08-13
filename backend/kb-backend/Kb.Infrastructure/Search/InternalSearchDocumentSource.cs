@@ -22,13 +22,22 @@ internal sealed class InternalSearchDocumentSource(
                 item.ArticleId, item.Title, item.Slug, item.Status, item.CategoryIdFk, item.AuthorIdFk,
                 OwnerName = item.AuthorIdFkNavigation.FullName, item.UpdatedAt,
                 PlainTextPath = item.CurrentDraftIdFkNavigation == null ? null : item.CurrentDraftIdFkNavigation.PlainTextStoragePath,
-                JsonPath = item.CurrentDraftIdFkNavigation == null ? null : item.CurrentDraftIdFkNavigation.ContentJsonStoragePath
+                JsonPath = item.CurrentDraftIdFkNavigation == null ? null : item.CurrentDraftIdFkNavigation.ContentJsonStoragePath,
+                VersionPlainTextPath = item.ArticleVersions.OrderByDescending(version => version.VersionNumber)
+                    .Select(version => version.PlainTextStoragePath).FirstOrDefault(),
+                VersionJsonPath = item.ArticleVersions.OrderByDescending(version => version.VersionNumber)
+                    .Select(version => version.ContentJsonStoragePath).FirstOrDefault()
             }).SingleOrDefaultAsync(cancellationToken);
         if (article is null) return null;
 
         var categories = await LoadCategoriesAsync(cancellationToken);
         categories.TryGetValue(article.CategoryIdFk ?? Guid.Empty, out var category);
-        var body = await ReadDraftTextAsync(article.PlainTextPath, article.JsonPath, cancellationToken);
+        var hasDraftContent = !string.IsNullOrWhiteSpace(article.PlainTextPath) ||
+                              !string.IsNullOrWhiteSpace(article.JsonPath);
+        var body = await ReadDraftTextAsync(
+            hasDraftContent ? article.PlainTextPath : article.VersionPlainTextPath,
+            hasDraftContent ? article.JsonPath : article.VersionJsonPath,
+            cancellationToken);
         return new InternalSearchDocument($"article_{article.ArticleId:N}", "article", article.ArticleId.ToString("D"),
             article.Title, body, article.Slug, article.Status, article.CategoryIdFk?.ToString("D") ?? string.Empty,
             category?.Name ?? string.Empty, BuildCategoryPath(category, categories), article.AuthorIdFk.ToString("D"),

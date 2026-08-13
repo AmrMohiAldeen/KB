@@ -27,6 +27,7 @@ import {
   ChevronDown,
   Copy,
   FileClock,
+  FilePenLine,
   FilePlus2,
   MoreVertical,
   RotateCcw,
@@ -242,6 +243,7 @@ export default function ArticleLifecyclePanel({
         ? 'warning'
         : 'secondary'
   const activeChangeRequest = getActiveChangeRequest(status, lifecycle.reviewHistory)
+  const publishedVersionId = article?.currentPublishedVersion?.versionId
   const changeRequestedAt = activeChangeRequest
     ? new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' })
         .format(new Date(activeChangeRequest.createdAt))
@@ -321,6 +323,19 @@ export default function ArticleLifecyclePanel({
           <MenuItem disabled>No transitions available</MenuItem>
         )}
       </Menu>
+
+      {status === 'Published' && lifecycle.permissions?.canRestoreVersion && publishedVersionId && (
+        <Button
+          variant='contained'
+          startIcon={lifecycle.pendingAction === 'restore'
+            ? <CircularProgress size={14} color='inherit' />
+            : <FilePenLine size={16} />}
+          disabled={busy || actionsDisabled}
+          onClick={() => void lifecycle.restore(publishedVersionId)}
+        >
+          Start new draft
+        </Button>
+      )}
 
       <Tooltip title='More actions'>
         <IconButton aria-label='More actions' onClick={event => setMoreAnchor(event.currentTarget)}>
@@ -415,9 +430,11 @@ export default function ArticleLifecyclePanel({
   return (
     <>
       {actionsTarget ? createPortal(toolbar, actionsTarget) : toolbar}
-      {(lifecycle.messages.length > 0 || lifecycle.conflict || (actionsDisabled && actionsDisabledReason)) && (
+      {(lifecycle.messages.length > 0 || lifecycle.successMessage || lifecycle.conflict ||
+        (actionsDisabled && actionsDisabledReason)) && (
         <Stack spacing={1.5}>
           <KbValidationSummary title='Lifecycle action could not be completed' errors={lifecycle.messages} />
+          {lifecycle.successMessage && <Alert severity='success'>{lifecycle.successMessage}</Alert>}
           {lifecycle.conflict && <Alert severity='warning'>The article changed. Reload it before retrying the transition.</Alert>}
           {actionsDisabled && actionsDisabledReason && <Alert severity='info'>{actionsDisabledReason}</Alert>}
         </Stack>
@@ -453,7 +470,7 @@ export default function ArticleLifecyclePanel({
         </Stack>
       </KbFormDialog>
 
-      <KbConfirmDialog open={dialog === 'publish'} title='Publish approved article?' description='The approved draft will become a new immutable published version visible to readers.' confirmLabel='Publish' submitting={busy} onClose={resetDialog} onConfirm={() => void confirmDialog()} />
+      <KbConfirmDialog open={dialog === 'publish'} title='Publish approved article?' description='The approved submitted version will replace the currently published version. Publishing does not create a duplicate version.' confirmLabel='Publish' submitting={busy} onClose={resetDialog} onConfirm={() => void confirmDialog()} />
       <KbConfirmDialog open={dialog === 'archive'} title='Archive article?' description='The article will be removed from active results.' confirmLabel='Archive' confirmColor='error' submitting={busy} onClose={resetDialog} onConfirm={() => void confirmDialog()} />
       <WorkflowRecipientDialog
         open={Boolean(recipientAction)}

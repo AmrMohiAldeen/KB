@@ -104,8 +104,10 @@ public sealed class ArticleLifecycleService
         var canPublish = active && unlocked && hasPublishPermission &&
                          ArticleWorkflow.CanPublish(draft.ArticleStatus, draft.DraftStatus);
         var canViewVersions = granted.Contains(PermissionCodes.VersionsView);
-        var canRestore = active && unlocked && granted.Contains(PermissionCodes.VersionsRestore) &&
-                         IsReplaceableByRestore(draft);
+        var canStartPublishedRevision = draft.ArticleStatus == ArticleStatuses.Published &&
+                                        (isAdmin || canEditPermission);
+        var canRestore = active && unlocked && IsReplaceableByRestore(draft) &&
+                         (granted.Contains(PermissionCodes.VersionsRestore) || canStartPublishedRevision);
 
         var overrideTargets = new List<string>();
         if (workflowActive && unlocked && (isAdmin || granted.Contains(PermissionCodes.ArticlesEditAnyDraft)))
@@ -203,17 +205,17 @@ public sealed class ArticleLifecycleService
         await GetCurrentReadableAsync(articleId, cancellationToken);
         await RequirePermissionAsync(PermissionCodes.VersionsView, cancellationToken);
 
-        var summaries = await Task.WhenAll(
-            repository.GetVersionSummaryAsync(articleId, baseVersionId, cancellationToken),
-            repository.GetVersionSummaryAsync(articleId, targetVersionId, cancellationToken));
-        var baseVersion = summaries[0]
+        // The repository is backed by one scoped DbContext. EF Core does not allow two
+        // operations to run concurrently on the same context instance.
+        var baseVersion = await repository.GetVersionSummaryAsync(
+                              articleId, baseVersionId, cancellationToken)
             ?? throw new NotFoundException("The base article version was not found.");
-        var targetVersion = summaries[1]
+        var targetVersion = await repository.GetVersionSummaryAsync(
+                                articleId, targetVersionId, cancellationToken)
             ?? throw new NotFoundException("The target article version was not found.");
-        var contents = await Task.WhenAll(
-            DownloadContentAsync(baseVersion.ContentJsonPath, cancellationToken),
-            DownloadContentAsync(targetVersion.ContentJsonPath, cancellationToken));
-        return TiptapVersionDiff.Compare(baseVersion, contents[0], targetVersion, contents[1]);
+        var baseContent = await DownloadContentAsync(baseVersion.ContentJsonPath, cancellationToken);
+        var targetContent = await DownloadContentAsync(targetVersion.ContentJsonPath, cancellationToken);
+        return TiptapVersionDiff.Compare(baseVersion, baseContent, targetVersion, targetContent);
     }
 
     public Task<LifecycleResultData> SubmitAsync(
@@ -282,46 +284,24 @@ public sealed class ArticleLifecycleService
         if (string.IsNullOrWhiteSpace(draft.ContentJsonPath))
             throw new ConflictException("An empty draft cannot be published.");
 
-        var uploaded = new List<string>(3);
-        VersionSnapshotContentData staged;
-        try
-        {
-            staged = await StageSnapshotAsync(
-                articleId, draft, ArticleSnapshotReasons.Published, uploaded, cancellationToken);
-        }
-        catch (OperationCanceledException)
-        {
-            await DeleteBestEffortAsync(uploaded);
-            throw;
-        }
-        catch (Exception exception)
-        {
-            await DeleteBestEffortAsync(uploaded);
-            throw new ExternalServiceException("Approved draft content could not be copied for publishing.", exception);
-        }
-
-        try
-        {
-            var actorId = currentUser.UserId;
-            var now = timeProvider.GetUtcNow().UtcDateTime;
-            var result = await repository.PublishAsync(articleId, draft.DraftId, command.RowVersion, staged,
-                Review(actorId, ReviewActions.Publish, command.Comment, draft.ArticleStatus,
-                    ArticleStatuses.Published, now),
-                Audit(actorId, ArticleAuditActions.Published, articleId, draft.DraftId,
-                    draft.ArticleStatus, ArticleStatuses.Published, command.Comment,
-                    new { versionId = staged.VersionId }, false, now),
-                SnapshotAudit(actorId, articleId, draft, staged, now),
-                cancellationToken);
-            if (notificationService is not null)
-                await notificationService.NotifyWorkflowAsync(articleId, NotificationTypes.ArticlePublished,
-                    actorId, command.Comment, command.AdditionalRecipientIds, cancellationToken);
-            return result;
-        }
-        catch
-        {
-            await DeleteBestEffortAsync(uploaded);
-            throw;
-        }
+        var submittedVersion = await repository.GetMatchingVersionAsync(
+                                   articleId, draft.DraftId, draft.ContentHash, cancellationToken)
+            ?? throw new ConflictException(
+                "The approved draft does not have a matching submitted version. Submit it for review before publishing.");
+        var actorId = currentUser.UserId;
+        var now = timeProvider.GetUtcNow().UtcDateTime;
+        var result = await repository.PublishAsync(articleId, draft.DraftId, command.RowVersion,
+            submittedVersion.VersionId, draft.ContentHash,
+            Review(actorId, ReviewActions.Publish, command.Comment, draft.ArticleStatus,
+                ArticleStatuses.Published, now),
+            Audit(actorId, ArticleAuditActions.Published, articleId, draft.DraftId,
+                draft.ArticleStatus, ArticleStatuses.Published, command.Comment,
+                new { versionId = submittedVersion.VersionId }, false, now),
+            cancellationToken);
+        if (notificationService is not null)
+            await notificationService.NotifyWorkflowAsync(articleId, NotificationTypes.ArticlePublished,
+                actorId, command.Comment, command.AdditionalRecipientIds, cancellationToken);
+        return result;
     }
 
     public async Task<LifecycleResultData> OverrideAsync(
@@ -370,7 +350,6 @@ public sealed class ArticleLifecycleService
     {
         EnsureId(versionId, "Version");
         var current = await LoadAndValidateAsync(articleId, command.RowVersion, cancellationToken);
-        await RequirePermissionAsync(PermissionCodes.VersionsRestore, cancellationToken);
         if (current.IsLocked)
             throw new ConflictException("The current draft must be unlocked before restoring a version.");
         if (!IsReplaceableByRestore(current))
@@ -379,6 +358,13 @@ public sealed class ArticleLifecycleService
 
         var version = await repository.GetVersionAsync(articleId, versionId, cancellationToken)
             ?? throw new NotFoundException("The article version was not found.");
+        var published = current.ArticleStatus == ArticleStatuses.Published
+            ? await repository.GetPublishedVersionAsync(articleId, cancellationToken)
+            : null;
+        if (published?.VersionId == versionId)
+            await RequirePublishedRevisionPermissionAsync(current.ArticleOwnerId, cancellationToken);
+        else
+            await RequirePermissionAsync(PermissionCodes.VersionsRestore, cancellationToken);
         var newDraftId = Guid.NewGuid();
         var uploaded = new List<string>(3);
         RestoredDraftContentData staged;
@@ -547,9 +533,24 @@ public sealed class ArticleLifecycleService
         VersionSnapshotContentData? snapshot = null;
         try
         {
-            if (snapshotReason is not null)
-                snapshot = await StageSnapshotAsync(
-                    articleId, draft, snapshotReason, uploaded, cancellationToken);
+            if (snapshotReason is not null && await repository.GetMatchingVersionAsync(
+                    articleId, draft.DraftId, draft.ContentHash, cancellationToken) is null)
+            {
+                try
+                {
+                    snapshot = await StageSnapshotAsync(
+                        articleId, draft, snapshotReason, uploaded, cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception exception)
+                {
+                    throw new ExternalServiceException(
+                        "Draft content could not be copied into a version snapshot.", exception);
+                }
+            }
             var result = await repository.TransitionAsync(articleId, draft.DraftId, command.RowVersion,
                 draft.DraftStatus, newStatus,
                 Review(actorId, action, NormalizeComment(command.Comment), draft.DraftStatus, newStatus, now),
@@ -567,11 +568,6 @@ public sealed class ArticleLifecycleService
         {
             await DeleteBestEffortAsync(uploaded);
             throw;
-        }
-        catch (Exception exception) when (snapshotReason is not null && snapshot is null)
-        {
-            await DeleteBestEffortAsync(uploaded);
-            throw new ExternalServiceException("Draft content could not be copied into a version snapshot.", exception);
         }
         catch
         {
@@ -627,6 +623,20 @@ public sealed class ArticleLifecycleService
         if (!await permissionChecker.HasPermissionAsync(currentUser.UserId, permission, cancellationToken) &&
             !await adminChecker.IsAdminAsync(currentUser.UserId, cancellationToken))
             throw new ForbiddenException();
+    }
+
+    private async Task RequirePublishedRevisionPermissionAsync(Guid ownerId, CancellationToken cancellationToken)
+    {
+        EnsureAuthenticated();
+        var actorId = currentUser.UserId;
+        if (await adminChecker.IsAdminAsync(actorId, cancellationToken) ||
+            await permissionChecker.HasPermissionAsync(actorId, PermissionCodes.ArticlesEditAnyDraft,
+                cancellationToken) ||
+            ownerId == actorId && await permissionChecker.HasPermissionAsync(
+                actorId, PermissionCodes.ArticlesEditOwnDraft, cancellationToken) ||
+            await permissionChecker.HasPermissionAsync(actorId, PermissionCodes.VersionsRestore, cancellationToken))
+            return;
+        throw new ForbiddenException("You do not have permission to start a new revision of this article.");
     }
 
     private async Task<string> CopyAsync(

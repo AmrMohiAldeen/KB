@@ -24,6 +24,12 @@ public interface IArticleLifecycleRepository
         Guid articleId,
         CancellationToken cancellationToken);
 
+    Task<LifecycleVersionSummaryData?> GetMatchingVersionAsync(
+        Guid articleId,
+        Guid draftId,
+        string? contentHash,
+        CancellationToken cancellationToken);
+
     Task<IReadOnlyList<LifecycleReviewEventData>> GetReviewHistoryAsync(
         Guid articleId,
         CancellationToken cancellationToken);
@@ -45,10 +51,10 @@ public interface IArticleLifecycleRepository
         Guid articleId,
         Guid draftId,
         byte[] expectedRowVersion,
-        VersionSnapshotContentData content,
+        Guid submittedVersionId,
+        string? expectedContentHash,
         LifecycleReviewData review,
         LifecycleAuditData audit,
-        LifecycleAuditData snapshotAudit,
         CancellationToken cancellationToken);
 
     Task<LifecycleResultData> RestoreAsync(

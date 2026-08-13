@@ -128,17 +128,22 @@ public sealed class ExportJobSliceTests
         Assert.Equal(JobStatuses.Completed, (await f.Repository.GetAsync(job.Id, default))!.Status);
     }
 
-    [Fact]
-    public async Task Category_export_preserves_article_position_then_nested_category_hierarchy()
+    [Theory]
+    [InlineData(ExportTypes.Html)]
+    [InlineData(ExportTypes.Pdf)]
+    public async Task Category_export_prefers_current_drafts_and_preserves_nested_hierarchy(string format)
     {
         await using var f = await Fixture.CreateAsync();
-        var job = await f.Repository.CreateCategoryAsync(f.RootCategoryId, ExportTypes.Html, f.UserId,
+        var job = await f.Repository.CreateCategoryAsync(f.RootCategoryId, format, f.UserId,
             f.Now, default);
 
         await f.Processor().ProcessNextAsync(default);
 
         var completed = await f.Repository.GetAsync(job.Id, default);
-        var html = f.Storage.Text(f.Options.ContainerName, completed!.ResultPath!);
+        var html = format == ExportTypes.Pdf ? f.Pdf.LastHtml :
+            f.Storage.Text(f.Options.ContainerName, completed!.ResultPath!);
+        Assert.Contains("current draft content", html);
+        Assert.DoesNotContain("stable article one", html);
         Assert.True(html.IndexOf("Article zero", StringComparison.Ordinal) <
                     html.IndexOf("Article one", StringComparison.Ordinal));
         Assert.True(html.IndexOf("Article one", StringComparison.Ordinal) <
@@ -147,22 +152,45 @@ public sealed class ExportJobSliceTests
                     html.IndexOf("Nested article", StringComparison.Ordinal));
     }
 
-    [Fact]
-    public async Task Category_request_rejects_any_article_without_a_stable_published_version()
+    [Theory]
+    [InlineData(ExportTypes.Html)]
+    [InlineData(ExportTypes.Pdf)]
+    public async Task Category_export_includes_an_unpublished_draft_without_requiring_a_version(string format)
     {
         await using var f = await Fixture.CreateAsync();
+        var articleId = Guid.NewGuid();
+        var draftId = Guid.NewGuid();
         var article = new Article
         {
-            ArticleId = Guid.NewGuid(), Title = "Draft only", Slug = "draft-only",
+            ArticleId = articleId, Title = "Draft only", Slug = "draft-only",
             CategoryIdFk = f.RootCategoryId, AuthorIdFk = f.UserId, Status = ArticleStatuses.Draft,
-            Position = 9, CreatedAt = f.Now, UpdatedAt = f.Now
+            Position = 9, CurrentDraftIdFk = null, CreatedAt = f.Now, UpdatedAt = f.Now
         };
         f.Context.Articles.Add(article);
         await f.Context.SaveChangesAsync();
+        var rowVersion = Guid.NewGuid().ToByteArray();
+        await f.Context.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO ARTICLE_DRAFTS
+                (DraftID, ArticleID_FK, DraftNumber, ContentJsonStoragePath, RenderedHtmlStoragePath,
+                 ContentSizeBytes, RowVersion, IsLocked, CreatedBy_FK, UpdatedBy_FK, CreatedAt, UpdatedAt, Status)
+            VALUES ({draftId}, {articleId}, {1}, {"drafts/only/content.json"}, {"drafts/only/content.html"},
+                    {10L}, {rowVersion}, {false}, {f.UserId}, {f.UserId}, {f.Now}, {f.Now}, {ArticleStatuses.Draft})
+            """);
+        article.CurrentDraftIdFk = draftId;
+        await f.Context.SaveChangesAsync();
+        f.Context.ChangeTracker.Clear();
+        f.Storage.Seed(f.Options.ArticleContentContainerName, "drafts/only/content.json",
+            """{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"unpublished draft body"}]}]}""");
+        f.Storage.Seed(f.Options.ArticleContentContainerName, "drafts/only/content.html",
+            "<p>unpublished draft body</p>");
 
-        var error = await Assert.ThrowsAsync<BusinessRuleException>(() => f.Repository.CreateCategoryAsync(
-            f.RootCategoryId, ExportTypes.Html, f.UserId, f.Now, default));
-        Assert.Contains("Draft only", error.Message);
+        var job = await f.Repository.CreateCategoryAsync(
+            f.RootCategoryId, format, f.UserId, f.Now, default);
+        await f.Processor().ProcessNextAsync(default);
+        var completed = await f.Repository.GetAsync(job.Id, default);
+        var output = format == ExportTypes.Pdf ? f.Pdf.LastHtml :
+            f.Storage.Text(f.Options.ContainerName, completed!.ResultPath!);
+        Assert.Contains("unpublished draft body", output);
     }
 
     [Fact]
@@ -245,7 +273,7 @@ public sealed class ExportJobSliceTests
         var completed = await f.Repository.GetAsync(job.Id, default);
         var html = f.Storage.Text(f.Options.ContainerName, completed!.ResultPath!);
         Assert.Equal(JobStatuses.Completed, completed.Status);
-        Assert.Contains("stable article one", html);
+        Assert.Contains("current draft content", html);
         Assert.Contains("stored content is unavailable", html);
     }
 
@@ -273,36 +301,47 @@ public sealed class ExportJobSliceTests
         Assert.DoesNotContain("data-kb-", html);
     }
 
-    [Fact]
-    public async Task Canonical_tiptap_json_fallback_keeps_tables_callouts_tabs_and_accordions_readable()
+    [Theory]
+    [InlineData(ExportTypes.Html)]
+    [InlineData(ExportTypes.Pdf)]
+    public async Task Canonical_callout_export_repairs_legacy_html_and_keeps_rich_custom_content(string format)
     {
         await using var f = await Fixture.CreateAsync();
         var contentPath = await f.Context.ArticleVersions.Where(item => item.VersionId == f.FirstVersionId)
             .Select(item => item.ContentJsonStoragePath).SingleAsync();
-        await f.Context.Database.ExecuteSqlRawAsync(
-            "UPDATE ARTICLE_VERSIONS SET RenderedHtmlStoragePath = NULL, PlainTextStoragePath = NULL WHERE VersionID = {0}",
-            f.FirstVersionId);
-        f.Context.ChangeTracker.Clear();
+        f.Storage.Seed(f.Options.ArticleContentContainerName, "versions/one/content.html",
+            "<p>Legacy static renderer omitted the callout</p>");
         f.Storage.Seed(f.Options.ArticleContentContainerName, contentPath, """
             {"type":"doc","content":[
-              {"type":"callout","attrs":{"variant":"warning"},"content":[{"type":"paragraph","content":[{"type":"text","text":"Read me"}]}]},
+              {"type":"callout","attrs":{"variant":"warning"},"content":[
+                {"type":"paragraph","content":[{"type":"text","text":"Read me "},{"type":"text","text":"carefully","marks":[{"type":"bold"}]},{"type":"text","text":" docs","marks":[{"type":"link","attrs":{"href":"https://example.test/docs"}}]}]},
+                {"type":"bulletList","content":[{"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"Nested list"}]}]}]}
+              ]},
               {"type":"table","content":[{"type":"tableRow","content":[{"type":"tableHeader","content":[{"type":"paragraph","content":[{"type":"text","text":"Name"}]}]},{"type":"tableCell","content":[{"type":"paragraph","content":[{"type":"text","text":"Value"}]}]}]}]},
+              {"type":"codeBlock","content":[{"type":"text","text":"const value = 1;"}]},
               {"type":"tabs","content":[{"type":"tabItem","attrs":{"label":"First"},"content":[{"type":"paragraph","content":[{"type":"text","text":"Tab body"}]}]}]},
               {"type":"accordion","content":[{"type":"accordionItem","attrs":{"title":"More"},"content":[{"type":"paragraph","content":[{"type":"text","text":"Expanded body"}]}]}]}
             ]}
             """);
         var job = await f.Repository.CreateArticleAsync(f.FirstArticleId, f.VersionSource(),
-            ExportTypes.Html, f.UserId, f.Now, default);
+            format, f.UserId, f.Now, default);
 
         await f.Processor().ProcessNextAsync(default);
 
         var completed = await f.Repository.GetAsync(job.Id, default);
-        var html = f.Storage.Text(f.Options.ContainerName, completed!.ResultPath!);
+        var html = format == ExportTypes.Pdf ? f.Pdf.LastHtml :
+            f.Storage.Text(f.Options.ContainerName, completed!.ResultPath!);
         Assert.Contains("<table>", html);
-        Assert.Contains("Read me", html);
+        Assert.Contains("kb-callout--warning", html);
+        Assert.Contains(".kb-callout--warning", html);
+        Assert.Contains("<strong>carefully</strong>", html);
+        Assert.Contains("href=\"https://example.test/docs\"", html);
+        Assert.Contains("Nested list", html);
+        Assert.Contains("const value = 1;", html);
         Assert.Contains("First", html);
         Assert.Contains("<details open>", html);
         Assert.Contains("Expanded body", html);
+        Assert.DoesNotContain("Legacy static renderer omitted", html);
     }
 
     [Fact]

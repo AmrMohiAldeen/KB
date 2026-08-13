@@ -806,9 +806,24 @@ public partial class KbDbContext : DbContext
 
     private void EnsureArticleVersionsAreAppendOnly()
     {
-        if (ChangeTracker.Entries<ArticleVersion>().Any(entry =>
-                entry.State is EntityState.Modified or EntityState.Deleted))
-            throw new InvalidOperationException("Article versions are immutable and cannot be modified or deleted.");
+        foreach (var entry in ChangeTracker.Entries<ArticleVersion>())
+        {
+            if (entry.State == EntityState.Deleted)
+                throw new InvalidOperationException("Article versions are immutable and cannot be modified or deleted.");
+            if (entry.State != EntityState.Modified) continue;
+
+            var changed = entry.Properties.Where(property => property.IsModified)
+                .Select(property => property.Metadata.Name).ToHashSet(StringComparer.Ordinal);
+            var publicationMetadataOnly = changed.Count > 0 && changed.All(name =>
+                name is nameof(ArticleVersion.PublishedAt) or nameof(ArticleVersion.PublishedByFk));
+            var firstPublication = entry.OriginalValues.GetValue<DateTime?>(nameof(ArticleVersion.PublishedAt)) is null &&
+                                   entry.OriginalValues.GetValue<Guid?>(nameof(ArticleVersion.PublishedByFk)) is null &&
+                                   entry.CurrentValues.GetValue<DateTime?>(nameof(ArticleVersion.PublishedAt)) is not null &&
+                                   entry.CurrentValues.GetValue<Guid?>(nameof(ArticleVersion.PublishedByFk)) is not null;
+            if (!publicationMetadataOnly || !firstPublication)
+                throw new InvalidOperationException(
+                    "Article version snapshots are immutable; only their one-time publication metadata can be set.");
+        }
     }
 
     partial void OnModelCreatingPartial(ModelBuilder modelBuilder);
