@@ -29,6 +29,7 @@ public static class ArticleAuditActions
     public const string CommentResolved = "ArticleCommentResolved";
     public const string CommentReopened = "ArticleCommentReopened";
     public const string CommentAnchorChanged = "ArticleCommentAnchorChanged";
+    public const string VisibilityChanged = "ArticleVisibilityChanged";
 }
 
 public static class ArticleAuditEntityTypes

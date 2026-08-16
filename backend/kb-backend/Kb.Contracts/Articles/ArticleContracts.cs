@@ -13,6 +13,9 @@ public sealed class CreateArticleRequest
 
     [NonWhiteSpace, StringLength(350)]
     public string? Slug { get; init; }
+
+    [Required, RegularExpression("^(Public|Internal)$")]
+    public string Visibility { get; init; } = "Public";
 }
 
 public sealed class UpdateArticleMetadataRequest
@@ -28,6 +31,9 @@ public sealed class UpdateArticleMetadataRequest
 
     [Required, Base64RowVersion]
     public required string RowVersion { get; init; }
+
+    [RegularExpression("^(Public|Internal)$")]
+    public string? Visibility { get; init; }
 }
 
 public sealed record ArticleSummaryResponse(Guid ArticleId, string Title, string Slug,
@@ -36,12 +42,12 @@ public sealed record ArticleSummaryResponse(Guid ArticleId, string Title, string
 public sealed record ArticleListItemResponse(Guid ArticleId, string Title, string Slug, string Status,
     CategorySummaryResponse? Category, UserSummaryResponse Owner, Guid? CurrentDraftId,
     Guid? CurrentPublishedVersionId, DateTime CreatedAt, DateTime UpdatedAt, DateTime? PublishedAt,
-    bool IsCurrentDraftLocked, UserSummaryResponse? LockedBy, int Position);
+    bool IsCurrentDraftLocked, UserSummaryResponse? LockedBy, int Position, string Visibility);
 
 public sealed record ArticleDetailsResponse(Guid ArticleId, string Title, string Slug, string Status,
     CategorySummaryResponse? Category, UserSummaryResponse Owner, ArticleDraftMetadataResponse? CurrentDraft,
     ArticlePublishedVersionMetadataResponse? CurrentPublishedVersion, DateTime CreatedAt, DateTime UpdatedAt,
-    DateTime? SubmittedAt, DateTime? ApprovedAt, DateTime? PublishedAt);
+    DateTime? SubmittedAt, DateTime? ApprovedAt, DateTime? PublishedAt, string Visibility);
 
 public sealed record ArticleDraftMetadataResponse(Guid DraftId, string? ContentHash, long ContentSizeBytes,
     string RowVersion, string Status,

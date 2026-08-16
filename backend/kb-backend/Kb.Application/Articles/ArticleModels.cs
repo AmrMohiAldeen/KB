@@ -11,11 +11,12 @@ public sealed record UserReference(Guid Id, string Name);
 public sealed record ArticleListData(Guid Id, string Title, string Slug, string Status,
     CategoryReference? Category, UserReference Owner, Guid? CurrentDraftId, Guid? CurrentPublishedVersionId,
     DateTime CreatedAt, DateTime UpdatedAt, DateTime? PublishedAt, bool IsCurrentDraftLocked,
-    UserReference? LockedBy, int Position);
+    UserReference? LockedBy, int Position, string Visibility = "Public");
 
 public sealed record ArticleData(Guid Id, string Title, string Slug, string Status, CategoryReference? Category,
     UserReference Owner, DraftData? CurrentDraft, PublishedVersionData? CurrentPublishedVersion,
-    DateTime CreatedAt, DateTime UpdatedAt, DateTime? SubmittedAt, DateTime? ApprovedAt, DateTime? PublishedAt);
+    DateTime CreatedAt, DateTime UpdatedAt, DateTime? SubmittedAt, DateTime? ApprovedAt, DateTime? PublishedAt,
+    string Visibility = "Public");
 
 public sealed record DraftData(Guid Id, string ContentJsonPath, string? RenderedHtmlPath, string? PlainTextPath,
     string? ContentHash, long ContentSizeBytes, byte[] RowVersion, string Status, bool IsLocked,
@@ -28,8 +29,9 @@ public sealed record PublishedVersionData(Guid Id, int Number, string ContentJso
 
 public sealed record ArticleMutationData(Guid Id, Guid OwnerId, Guid? CategoryId, string Title, string Slug,
     int Position, Guid? CurrentDraftId,
-    byte[]? CurrentDraftRowVersion, string Status, bool IsDeleted);
-public sealed record CreateArticleCommand(string Title, Guid CategoryId, string? Slug);
-public sealed record UpdateArticleCommand(string Title, Guid CategoryId, string? Slug, byte[] RowVersion);
-public sealed record NewArticleData(string Title, string Slug, Guid CategoryId, Guid OwnerId, DateTime CreatedAt);
+    byte[]? CurrentDraftRowVersion, string Status, bool IsDeleted, string Visibility = "Public");
+public sealed record CreateArticleCommand(string Title, Guid CategoryId, string? Slug, string Visibility = "Public");
+public sealed record UpdateArticleCommand(string Title, Guid CategoryId, string? Slug, byte[] RowVersion, string? Visibility = null);
+public sealed record NewArticleData(string Title, string Slug, Guid CategoryId, Guid OwnerId, DateTime CreatedAt,
+    string Visibility = "Public");
 public sealed record ArticleAuditData(Guid ActorId, string Action, string MetadataJson, DateTime CreatedAt);

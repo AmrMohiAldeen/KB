@@ -16,15 +16,23 @@ public abstract class CategoryWriteRequest
 
     [NonWhiteSpace, StringLength(250)]
     public string? Slug { get; init; }
+
 }
 
 public sealed class CreateCategoryRequest : CategoryWriteRequest
 {
     [NonEmptyGuid]
     public Guid? ParentCategoryId { get; init; }
+
+    [Required, RegularExpression("^(Public|Internal)$")]
+    public string Visibility { get; init; } = "Public";
 }
 
-public sealed class UpdateCategoryRequest : CategoryWriteRequest;
+public sealed class UpdateCategoryRequest : CategoryWriteRequest
+{
+    [RegularExpression("^(Public|Internal)$")]
+    public string? Visibility { get; init; }
+}
 
 public sealed class MoveCategoryRequest
 {
@@ -46,7 +54,8 @@ public sealed record CategoryTreeNodeResponse(
     int Depth,
     int ArticleCount,
     IReadOnlyList<CategoryTreeNodeResponse> Children,
-    string Status);
+    string Status,
+    string Visibility);
 
 public sealed record CategoryDetailsResponse(
     Guid Id,
@@ -58,4 +67,5 @@ public sealed record CategoryDetailsResponse(
     string? Path,
     int Depth,
     int ArticleCount,
-    string Status);
+    string Status,
+    string Visibility);

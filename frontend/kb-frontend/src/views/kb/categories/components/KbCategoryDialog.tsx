@@ -116,6 +116,18 @@ export const KbCategoryDialog = ({
         />
         <CustomTextField
           select
+          label='Visibility'
+          value={form.visibility}
+          onChange={event => setForm(current => ({ ...current, visibility: event.target.value as 'Public' | 'Internal' }))}
+          helperText='Internal categories hide their entire subtree from public viewers.'
+          required
+          fullWidth
+        >
+          <MenuItem value='Public'>Public</MenuItem>
+          <MenuItem value='Internal'>Internal</MenuItem>
+        </CustomTextField>
+        <CustomTextField
+          select
           label='Parent Category'
           value={form.parentCategoryId}
           onChange={event => setForm(current => ({ ...current, parentCategoryId: event.target.value }))}

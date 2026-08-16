@@ -37,7 +37,8 @@ public sealed record DashboardCategoryData(
     string? Path,
     int Depth,
     int ArticleCount,
-    string Status);
+    string Status,
+    string Visibility);
 
 public sealed record DashboardItemData(
     string Kind,

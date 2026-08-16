@@ -1,6 +1,8 @@
 // View Imports
 import PublicArticleViewerPage from '@/views/kb/public/PublicArticleViewerPage'
-import { getServerAccessToken } from '@/lib/auth/serverAccessToken'
+import { notFound } from 'next/navigation'
+import { ApiError } from '@/lib/api/http'
+import { getPublicArticle } from '@/lib/api/publicKnowledgeBaseApi'
 
 export default async function KbArticlePage({
   params
@@ -8,12 +10,14 @@ export default async function KbArticlePage({
   params: Promise<{ lang: string; slug: string }>
 }) {
   const { lang, slug } = await params
-  const accessToken = process.env.KB_DEV_ACCESS_TOKEN
+  let article
 
-  if (!accessToken) {
-    throw new Error("KB_DEV_ACCESS_TOKEN is not set");
+  try {
+    article = await getPublicArticle(slug)
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) notFound()
+    throw error
   }
 
-
-  return <PublicArticleViewerPage lang={lang} slug={slug} accessToken={accessToken} />
+  return <PublicArticleViewerPage lang={lang} slug={slug} initialArticle={article} />
 }

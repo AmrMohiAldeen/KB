@@ -32,7 +32,8 @@ type KbArticleDialogProps = {
 const getInitialForm = (article?: ArticleDetailsResponse): ArticleFormState => ({
   title: article?.title ?? '',
   slug: article?.slug ?? '',
-  categoryId: article?.category?.categoryId ?? ''
+  categoryId: article?.category?.categoryId ?? '',
+  visibility: article?.visibility ?? 'Public'
 })
 
 export const KbArticleDialog = ({
@@ -75,7 +76,7 @@ export const KbArticleDialog = ({
     setClientErrors(validationErrors)
     if (validationErrors.length) return
 
-    await onSubmit({ title, slug, categoryId: form.categoryId })
+    await onSubmit({ title, slug, categoryId: form.categoryId, visibility: form.visibility ?? 'Public' })
   }
 
   return (
@@ -106,6 +107,18 @@ export const KbArticleDialog = ({
           helperText='Optional when creating. The backend generates a unique slug when left blank.'
           fullWidth
         />
+        <CustomTextField
+          select
+          label='Visibility'
+          value={form.visibility}
+          onChange={event => setForm(current => ({ ...current, visibility: event.target.value as 'Public' | 'Internal' }))}
+          helperText='Public content is available to anyone. Internal content requires an authenticated internal account.'
+          required
+          fullWidth
+        >
+          <MenuItem value='Public'>Public</MenuItem>
+          <MenuItem value='Internal'>Internal</MenuItem>
+        </CustomTextField>
         <CustomTextField
           select
           label='Category'

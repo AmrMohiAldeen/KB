@@ -75,9 +75,12 @@ public partial class KbDbContext : DbContext
     {
         modelBuilder.Entity<Article>(entity =>
         {
-            entity.ToTable("ARTICLES", table => table.HasCheckConstraint(
-                "CK_ARTICLES_Status",
-                "[Status] IN ('Draft', 'SubmittedForReview', 'InReview', 'ChangesRequested', 'Approved', 'Published', 'Archived', 'Deleted')"));
+            entity.ToTable("ARTICLES", table =>
+            {
+                table.HasCheckConstraint("CK_ARTICLES_Status",
+                    "[Status] IN ('Draft', 'SubmittedForReview', 'InReview', 'ChangesRequested', 'Approved', 'Published', 'Archived', 'Deleted')");
+                table.HasCheckConstraint("CK_ARTICLES_Visibility", "[Visibility] IN ('Public', 'Internal')");
+            });
 
             entity.HasIndex(e => e.AuthorIdFk, "IX_ARTICLES_AuthorID_FK");
 
@@ -108,6 +111,8 @@ public partial class KbDbContext : DbContext
                 .HasMaxLength(50)
                 .HasDefaultValue("Draft", "DF_ARTICLES_Status");
             entity.Property(e => e.Title).HasMaxLength(300);
+            entity.Property(e => e.Visibility).HasMaxLength(20)
+                .HasDefaultValue(ContentVisibilities.Public, "DF_ARTICLES_Visibility");
             entity.Property(e => e.UpdatedAt)
                 .HasPrecision(3)
                 .HasDefaultValueSql("(sysutcdatetime())", "DF_ARTICLES_UpdatedAt");
@@ -394,7 +399,8 @@ public partial class KbDbContext : DbContext
 
         modelBuilder.Entity<Category>(entity =>
         {
-            entity.ToTable("CATEGORIES");
+            entity.ToTable("CATEGORIES", table => table
+                .HasCheckConstraint("CK_CATEGORIES_Visibility", "[Visibility] IN ('Public', 'Internal')"));
 
             entity.HasIndex(e => new { e.ParentCategoryIdFk, e.SortOrder, e.Name }, "IX_CATEGORIES_ParentCategoryID_FK");
 
@@ -411,6 +417,8 @@ public partial class KbDbContext : DbContext
             entity.Property(e => e.Status)
                 .HasMaxLength(40)
                 .HasDefaultValue("Active", "DF_CATEGORIES_Status");
+            entity.Property(e => e.Visibility).HasMaxLength(20)
+                .HasDefaultValue(ContentVisibilities.Public, "DF_CATEGORIES_Visibility");
 
             entity.HasOne(d => d.ParentCategoryIdFkNavigation).WithMany(p => p.InverseParentCategoryIdFkNavigation)
                 .HasForeignKey(d => d.ParentCategoryIdFk)

@@ -62,7 +62,8 @@ public sealed class DashboardRepository(KbDbContext dbContext) : IDashboardRepos
                 category.Articles.Count(article =>
                     article.DeletedAt == null && article.Status != ArticleStatuses.Deleted &&
                     article.Status != ArticleStatuses.Archived),
-                category.Status))
+                category.Status,
+                category.Visibility))
             .ToListAsync(cancellationToken);
 
         var articleItems = await OrderArticles(articles, query.Sort)
@@ -92,7 +93,8 @@ public sealed class DashboardRepository(KbDbContext dbContext) : IDashboardRepos
                     : new UserReference(
                         article.CurrentDraftIdFkNavigation.LockedByFkNavigation.UserId,
                         article.CurrentDraftIdFkNavigation.LockedByFkNavigation.FullName),
-                article.Position))
+                article.Position,
+                article.Visibility))
             .ToListAsync(cancellationToken);
 
         var combined = categoryItems.Select(category => new DashboardItemData(

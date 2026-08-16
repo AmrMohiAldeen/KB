@@ -56,6 +56,41 @@ internal sealed class InternalSearchDocumentSource(
             BuildCategoryPath(category, categories), string.Empty, string.Empty, string.Empty, ToUnixTime(updatedAt));
     }
 
+    public async Task<InternalSearchDocument?> GetPublicArticleAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var article = await dbContext.Articles.AsNoTracking().Where(item => item.ArticleId == id &&
+                item.DeletedAt == null && item.Status == ArticleStatuses.Published &&
+                item.Visibility == ContentVisibilities.Public && item.LastPublishedVersionIdFk != null)
+            .Select(item => new
+            {
+                item.ArticleId, item.Title, item.Slug, item.Status, item.CategoryIdFk, item.AuthorIdFk,
+                OwnerName = item.AuthorIdFkNavigation.FullName, item.UpdatedAt,
+                PlainTextPath = item.LastPublishedVersionIdFkNavigation!.PlainTextStoragePath,
+                JsonPath = item.LastPublishedVersionIdFkNavigation.ContentJsonStoragePath
+            }).SingleOrDefaultAsync(cancellationToken);
+        if (article is null) return null;
+        var categories = await LoadCategoriesAsync(cancellationToken);
+        if (!categories.TryGetValue(article.CategoryIdFk ?? Guid.Empty, out var category) ||
+            !IsPubliclyVisible(category, categories)) return null;
+        var body = await ReadDraftTextAsync(article.PlainTextPath, article.JsonPath, cancellationToken);
+        return new InternalSearchDocument($"article_{article.ArticleId:N}", "article", article.ArticleId.ToString("D"),
+            article.Title, body, article.Slug, article.Status, article.CategoryIdFk?.ToString("D") ?? string.Empty,
+            category.Name, BuildCategoryPath(category, categories), article.AuthorIdFk.ToString("D"),
+            article.OwnerName, $"{article.AuthorIdFk:D}|{article.OwnerName}", ToUnixTime(article.UpdatedAt));
+    }
+
+    public async Task<InternalSearchDocument?> GetPublicCategoryAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var categories = await LoadCategoriesAsync(cancellationToken);
+        if (!categories.TryGetValue(id, out var category) || !IsPubliclyVisible(category, categories)) return null;
+        var updatedAt = await dbContext.ArticleAuditLogs.AsNoTracking()
+            .Where(log => log.EntityType == AuditEntityTypes.Category && log.EntityId == id)
+            .MaxAsync(log => (DateTime?)log.CreatedAt, cancellationToken) ?? DateTime.UnixEpoch;
+        return new InternalSearchDocument($"category_{id:N}", "category", id.ToString("D"), category.Name,
+            category.Description ?? string.Empty, category.Slug, category.Status, id.ToString("D"), category.Name,
+            BuildCategoryPath(category, categories), string.Empty, string.Empty, string.Empty, ToUnixTime(updatedAt));
+    }
+
     public async Task<IReadOnlyList<InternalSearchDocument>> GetAllAsync(CancellationToken cancellationToken)
     {
         var articleIds = await dbContext.Articles.AsNoTracking()
@@ -101,7 +136,21 @@ internal sealed class InternalSearchDocumentSource(
     private async Task<Dictionary<Guid, CategoryRow>> LoadCategoriesAsync(CancellationToken token) =>
         await dbContext.Categories.AsNoTracking().ToDictionaryAsync(category => category.CategoryId,
             category => new CategoryRow(category.CategoryId, category.ParentCategoryIdFk, category.Name,
-                category.Slug, category.Description, category.Status), token);
+                category.Slug, category.Description, category.Status, category.Visibility), token);
+
+    private static bool IsPubliclyVisible(CategoryRow category, IReadOnlyDictionary<Guid, CategoryRow> all)
+    {
+        var seen = new HashSet<Guid>();
+        for (var current = category; seen.Add(current.Id);)
+        {
+            if (current.Status != CategoryStatuses.Active || current.Visibility != ContentVisibilities.Public)
+                return false;
+            if (current.ParentId is not { } parentId) return true;
+            if (!all.TryGetValue(parentId, out var parent)) return false;
+            current = parent;
+        }
+        return false;
+    }
 
     private static string BuildCategoryPath(CategoryRow? category, IReadOnlyDictionary<Guid, CategoryRow> all)
     {
@@ -117,5 +166,6 @@ internal sealed class InternalSearchDocumentSource(
     }
 
     private static long ToUnixTime(DateTime value) => new DateTimeOffset(DateTime.SpecifyKind(value, DateTimeKind.Utc)).ToUnixTimeSeconds();
-    private sealed record CategoryRow(Guid Id, Guid? ParentId, string Name, string Slug, string? Description, string Status);
+    private sealed record CategoryRow(Guid Id, Guid? ParentId, string Name, string Slug, string? Description,
+        string Status, string Visibility);
 }

@@ -119,7 +119,8 @@ public sealed class DashboardController(DashboardService dashboard, DashboardBul
             item.Category.Path,
             item.Category.Depth,
             item.Category.ArticleCount,
-            item.Category.Status),
+            item.Category.Status,
+            item.Category.Visibility),
         item.Article is null ? null : ToArticleResponse(item.Article));
 
     private static ArticleListItemResponse ToArticleResponse(ArticleListData article) => new(
@@ -140,5 +141,6 @@ public sealed class DashboardController(DashboardService dashboard, DashboardBul
         article.PublishedAt,
         article.IsCurrentDraftLocked,
         article.LockedBy is null ? null : new UserSummaryResponse(article.LockedBy.Id, article.LockedBy.Name),
-        article.Position);
+        article.Position,
+        article.Visibility);
 }

@@ -58,7 +58,7 @@ public sealed class ArticlesController(ArticleService articles) : ControllerBase
     public async Task<ActionResult<ArticleDetailsResponse>> Create(CreateArticleRequest request,
         CancellationToken cancellationToken)
     {
-        var created = await articles.CreateAsync(new(request.Title, request.CategoryId, request.Slug), cancellationToken);
+        var created = await articles.CreateAsync(new(request.Title, request.CategoryId, request.Slug, request.Visibility), cancellationToken);
         return CreatedAtAction(nameof(GetById), new { id = created.Id }, ToDetailsResponse(created));
     }
 
@@ -73,7 +73,8 @@ public sealed class ArticlesController(ArticleService articles) : ControllerBase
         CancellationToken cancellationToken)
     {
         var updated = await articles.UpdateAsync(id,
-            new(request.Title, request.CategoryId, request.Slug, Convert.FromBase64String(request.RowVersion)),
+            new(request.Title, request.CategoryId, request.Slug, Convert.FromBase64String(request.RowVersion),
+                request.Visibility),
             cancellationToken);
         return Ok(ToDetailsResponse(updated));
     }
@@ -93,7 +94,8 @@ public sealed class ArticlesController(ArticleService articles) : ControllerBase
     private static ArticleListItemResponse ToListResponse(ArticleListData article) => new(article.Id,
         article.Title, article.Slug, article.Status, ToCategory(article.Category), ToUser(article.Owner),
         article.CurrentDraftId, article.CurrentPublishedVersionId, article.CreatedAt, article.UpdatedAt,
-        article.PublishedAt, article.IsCurrentDraftLocked, ToOptionalUser(article.LockedBy), article.Position);
+        article.PublishedAt, article.IsCurrentDraftLocked, ToOptionalUser(article.LockedBy), article.Position,
+        article.Visibility);
 
     private static ArticleDetailsResponse ToDetailsResponse(ArticleData article) => new(article.Id,
         article.Title, article.Slug, article.Status, ToCategory(article.Category), ToUser(article.Owner),
@@ -109,7 +111,7 @@ public sealed class ArticlesController(ArticleService articles) : ControllerBase
             article.CurrentPublishedVersion.ContentSizeBytes, ToUser(article.CurrentPublishedVersion.CreatedBy),
             article.CurrentPublishedVersion.CreatedAt, ToOptionalUser(article.CurrentPublishedVersion.PublishedBy),
             article.CurrentPublishedVersion.PublishedAt), article.CreatedAt, article.UpdatedAt,
-        article.SubmittedAt, article.ApprovedAt, article.PublishedAt);
+        article.SubmittedAt, article.ApprovedAt, article.PublishedAt, article.Visibility);
 
     private static CategorySummaryResponse? ToCategory(CategoryReference? category) => category is null
         ? null : new(category.Id, category.Name, category.Slug, category.Path);

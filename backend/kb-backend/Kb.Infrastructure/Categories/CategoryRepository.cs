@@ -41,7 +41,8 @@ public sealed class CategoryRepository(KbDbContext dbContext) : ICategoryReposit
                 category.Articles.Count(article =>
                     article.DeletedAt == null && article.Status != ArticleStatuses.Deleted &&
                     article.Status != ArticleStatuses.Archived),
-                category.Status))
+                category.Status,
+                category.Visibility))
             .SingleOrDefaultAsync(cancellationToken);
 
     public async Task<IReadOnlyList<CategoryData>> GetAllAsync(CancellationToken cancellationToken) =>
@@ -58,7 +59,8 @@ public sealed class CategoryRepository(KbDbContext dbContext) : ICategoryReposit
                 category.Articles.Count(article =>
                     article.DeletedAt == null && article.Status != ArticleStatuses.Deleted &&
                     article.Status != ArticleStatuses.Archived),
-                category.Status))
+                category.Status,
+                category.Visibility))
             .ToListAsync(cancellationToken);
 
     public async Task<IReadOnlyList<CategoryData>> GetDescendantsAsync(string pathPrefix, Guid categoryId, CancellationToken cancellationToken) =>
@@ -88,7 +90,8 @@ public sealed class CategoryRepository(KbDbContext dbContext) : ICategoryReposit
             Description = category.Description,
             SortOrder = category.SortOrder,
             Path = null,
-            Depth = category.Depth
+            Depth = category.Depth,
+            Visibility = category.Visibility
         };
         dbContext.Categories.Add(entity);
         try
@@ -115,13 +118,14 @@ public sealed class CategoryRepository(KbDbContext dbContext) : ICategoryReposit
     }
 
     public async Task<CategoryData> UpdateAndAuditAsync(Guid id, string name, string slug, string? description, int sortOrder,
-        AuditData audit, CancellationToken cancellationToken)
+        string visibility, AuditData audit, CancellationToken cancellationToken)
     {
         var entity = await dbContext.Categories.SingleAsync(category => category.CategoryId == id, cancellationToken);
         entity.Name = name;
         entity.Slug = slug;
         entity.Description = description;
         entity.SortOrder = sortOrder;
+        entity.Visibility = visibility;
         AddAudit(id, audit);
         var affectedIds = string.IsNullOrWhiteSpace(entity.Path)
             ? [id]
@@ -196,7 +200,19 @@ public sealed class CategoryRepository(KbDbContext dbContext) : ICategoryReposit
         var entity = await dbContext.Categories.SingleAsync(category => category.CategoryId == id, cancellationToken);
         entity.Status = status;
         AddAudit(id, audit);
-        await SearchIndexJobQueue.EnqueueCategoryAsync(dbContext, id, SearchIndexJobTypes.Upsert, audit.CreatedAt, cancellationToken);
+        var affectedIds = string.IsNullOrWhiteSpace(entity.Path) ? [id] : await dbContext.Categories.AsNoTracking()
+            .Where(category => category.Path != null && category.Path.StartsWith(entity.Path))
+            .Select(category => category.CategoryId).ToArrayAsync(cancellationToken);
+        foreach (var affectedId in affectedIds)
+            await SearchIndexJobQueue.EnqueueCategoryAsync(dbContext, affectedId, SearchIndexJobTypes.Upsert,
+                audit.CreatedAt, cancellationToken);
+        var articleIds = await dbContext.Articles.AsNoTracking()
+            .Where(article => article.CategoryIdFk.HasValue && affectedIds.Contains(article.CategoryIdFk.Value) &&
+                              article.DeletedAt == null && article.Status != ArticleStatuses.Deleted)
+            .Select(article => article.ArticleId).ToArrayAsync(cancellationToken);
+        foreach (var articleId in articleIds)
+            await SearchIndexJobQueue.EnqueueArticleAsync(dbContext, articleId, SearchIndexJobTypes.Upsert,
+                audit.CreatedAt, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
         return Map(entity);
     }
@@ -215,7 +231,7 @@ public sealed class CategoryRepository(KbDbContext dbContext) : ICategoryReposit
 
     private static CategoryData Map(Category category) => new(category.CategoryId, category.ParentCategoryIdFk,
         category.Name, category.Slug, category.Description, category.SortOrder, category.Path, category.Depth,
-        Status: category.Status);
+        Status: category.Status, Visibility: category.Visibility);
 
     private static bool IsSlugUniquenessViolation(DbUpdateException exception)
     {

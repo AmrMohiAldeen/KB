@@ -49,6 +49,7 @@ public sealed class CategoryService(
     public Task<CategoryData> CreateAsync(CreateCategoryCommand command, CancellationToken cancellationToken)
     {
         var (name, description) = ValidateWrite(command.Name, command.Description, command.SortOrder);
+        var visibility = NormalizeVisibility(command.Visibility);
         var actorId = currentUser.UserId;
         return repository.ExecuteSerializableAsync(async token =>
         {
@@ -63,12 +64,12 @@ public sealed class CategoryService(
             var slug = await GenerateUniqueSlugAsync(command.Slug ?? name, null, token);
             var depth = parent is null ? 0 : checked(parent.Depth + 1);
             var inserted = await repository.InsertAsync(
-                new(command.ParentCategoryId, name, slug, description, command.SortOrder, depth), token);
+                new(command.ParentCategoryId, name, slug, description, command.SortOrder, depth, visibility), token);
             var path = parent is null ? $"/{FormatId(inserted.Id)}/" : $"{parent.Path}{FormatId(inserted.Id)}/";
             EnsurePathFits(path);
             var audit = Audit(actorId, CategoryAuditActions.Created, new
             {
-                name, parentId = command.ParentCategoryId, path, depth, sortOrder = command.SortOrder
+                name, parentId = command.ParentCategoryId, path, depth, sortOrder = command.SortOrder, visibility
             });
             return await repository.SetPathAndAuditAsync(inserted.Id, path, depth, audit, token);
         }, cancellationToken);
@@ -82,15 +83,18 @@ public sealed class CategoryService(
         {
             var existing = await repository.GetByIdAsync(id, token)
                 ?? throw new NotFoundException("The category was not found.");
+            var visibility = command.Visibility is null ? existing.Visibility : NormalizeVisibility(command.Visibility);
             var slug = command.Slug is null
                 ? existing.Slug
                 : await GenerateUniqueSlugAsync(command.Slug, existing.Id, token);
-            var audit = Audit(actorId, CategoryAuditActions.Updated, new
+            var audit = Audit(actorId,
+                existing.Visibility == visibility ? CategoryAuditActions.Updated : CategoryAuditActions.VisibilityChanged, new
             {
-                before = new { existing.Name, existing.Slug, existing.Description, existing.SortOrder },
-                after = new { name, slug, description, sortOrder = command.SortOrder }
+                before = new { existing.Name, existing.Slug, existing.Description, existing.SortOrder, existing.Visibility },
+                after = new { name, slug, description, sortOrder = command.SortOrder, visibility },
+                visibilityChange = existing.Visibility == visibility ? null : new { oldValue = existing.Visibility, newValue = visibility }
             });
-            return await repository.UpdateAndAuditAsync(id, name, slug, description, command.SortOrder, audit, token);
+            return await repository.UpdateAndAuditAsync(id, name, slug, description, command.SortOrder, visibility, audit, token);
         }, cancellationToken);
     }
 
@@ -272,6 +276,15 @@ public sealed class CategoryService(
             }
         active.Remove(category.Id);
         return new(category.Id, category.ParentCategoryId, category.Name, category.Slug, category.Description,
-            category.SortOrder, category.Path, category.Depth, category.ArticleCount, nodes, category.Status);
+            category.SortOrder, category.Path, category.Depth, category.ArticleCount, nodes, category.Status,
+            category.Visibility);
+    }
+
+    private static string NormalizeVisibility(string visibility)
+    {
+        var value = visibility?.Trim();
+        return ContentVisibilities.All.FirstOrDefault(candidate =>
+                   candidate.Equals(value, StringComparison.OrdinalIgnoreCase))
+               ?? throw new BusinessRuleException("Visibility must be Public or Internal.");
     }
 }

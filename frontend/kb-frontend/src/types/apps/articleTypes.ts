@@ -7,6 +7,8 @@ export type ArticleStatus =
   | 'Published'
   | 'Archived'
 
+export type ContentVisibility = 'Public' | 'Internal'
+
 export type UserSummaryResponse = {
   userId: string
   fullName: string
@@ -34,6 +36,7 @@ export type ArticleListItemResponse = {
   isCurrentDraftLocked: boolean
   lockedBy: UserSummaryResponse | null
   position: number
+  visibility?: ContentVisibility
 }
 
 export type ArticleDraftMetadataResponse = {
@@ -76,12 +79,14 @@ export type ArticleDetailsResponse = {
   submittedAt: string | null
   approvedAt: string | null
   publishedAt: string | null
+  visibility?: ContentVisibility
 }
 
 export type CreateArticleRequest = {
   title: string
   categoryId: string
   slug: string | null
+  visibility?: ContentVisibility
 }
 
 export type UpdateArticleRequest = CreateArticleRequest & {

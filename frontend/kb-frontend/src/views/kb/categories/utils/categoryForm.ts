@@ -7,6 +7,7 @@ export type CategoryFormState = {
   description: string
   parentCategoryId: string
   sortOrder: number
+  visibility: 'Public' | 'Internal'
 }
 
 export const emptyCategoryForm: CategoryFormState = {
@@ -14,7 +15,8 @@ export const emptyCategoryForm: CategoryFormState = {
   slug: '',
   description: '',
   parentCategoryId: '',
-  sortOrder: 0
+  sortOrder: 0,
+  visibility: 'Public'
 }
 
 export const getInitialCategoryForm = (category?: KbCategoryNode): CategoryFormState =>
@@ -24,7 +26,8 @@ export const getInitialCategoryForm = (category?: KbCategoryNode): CategoryFormS
         slug: category.slug,
         description: category.description,
         parentCategoryId: category.parentId ?? '',
-        sortOrder: category.sortOrder
+        sortOrder: category.sortOrder,
+        visibility: category.visibility ?? 'Public'
       }
     : emptyCategoryForm
 

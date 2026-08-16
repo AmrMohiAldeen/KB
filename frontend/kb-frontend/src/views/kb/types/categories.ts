@@ -9,5 +9,6 @@ export type KbCategoryNode = {
   depth: number
   articleCount: number
   status?: 'Active' | 'Archived'
+  visibility?: 'Public' | 'Internal'
   children: KbCategoryNode[]
 }

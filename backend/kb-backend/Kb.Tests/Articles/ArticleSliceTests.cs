@@ -98,6 +98,33 @@ public sealed class ArticleSliceTests
     }
 
     [Fact]
+    public async Task Visibility_change_is_returned_audited_and_queues_search_synchronization()
+    {
+        await using var f = await Fixture.CreateAsync();
+        f.Grant(f.AuthorId, PermissionCodes.ArticlesCreate, PermissionCodes.ArticlesEditOwnDraft);
+        var article = await f.Service.CreateAsync(
+            new("Private draft", f.CategoryId, null, ContentVisibilities.Internal), default);
+        Assert.Equal(ContentVisibilities.Internal, article.Visibility);
+
+        var compatibilityUpdate = await f.Service.UpdateAsync(article.Id,
+            new(article.Title, f.CategoryId, article.Slug, article.CurrentDraft!.RowVersion), default);
+        Assert.Equal(ContentVisibilities.Internal, compatibilityUpdate.Visibility);
+
+        var updated = await f.Service.UpdateAsync(article.Id,
+            new(article.Title, f.CategoryId, article.Slug, compatibilityUpdate.CurrentDraft!.RowVersion,
+                ContentVisibilities.Public), default);
+
+        Assert.Equal(ContentVisibilities.Public, updated.Visibility);
+        var audit = await f.Context.ArticleAuditLogs.SingleAsync(log =>
+            log.ArticleIdFk == article.Id && log.ActionType == ArticleAuditActions.VisibilityChanged);
+        Assert.Contains("\"oldValue\":\"Internal\"", audit.MetaDataJson);
+        Assert.Contains("\"newValue\":\"Public\"", audit.MetaDataJson);
+        Assert.Equal(f.AuthorId, audit.ActorIdFk);
+        Assert.Single(await f.Context.SearchIndexJobs.Where(job => job.ArticleIdFk == article.Id &&
+            job.Status == JobStatuses.Pending).ToListAsync());
+    }
+
+    [Fact]
     public async Task Deleted_articles_are_excluded_from_list_and_details()
     {
         await using var f = await Fixture.CreateAsync();

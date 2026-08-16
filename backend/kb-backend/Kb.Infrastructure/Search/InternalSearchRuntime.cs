@@ -7,6 +7,7 @@ public sealed class InternalSearchOptions
     public string Endpoint { get; set; } = string.Empty;
     public string AdminApiKey { get; set; } = string.Empty;
     public string CollectionAlias { get; set; } = "internal_kb_documents";
+    public string PublicCollectionAlias { get; set; } = "public_kb_documents";
     public string ArticleContentContainerName { get; set; } = "article-content";
     public TimeSpan PollInterval { get; set; } = TimeSpan.FromSeconds(2);
     public TimeSpan DraftDebounce { get; set; } = TimeSpan.FromSeconds(3);
@@ -34,4 +35,10 @@ internal interface ITypesenseInternalIndex
     Task UpsertAsync(InternalSearchDocument document, CancellationToken cancellationToken);
     Task DeleteAsync(string documentId, CancellationToken cancellationToken);
     Task<string> RebuildAsync(IReadOnlyList<InternalSearchDocument> documents, CancellationToken cancellationToken);
+}
+
+internal interface ITypesensePublicIndex
+{
+    Task UpsertAsync(InternalSearchDocument document, CancellationToken cancellationToken);
+    Task DeleteAsync(string documentId, CancellationToken cancellationToken);
 }

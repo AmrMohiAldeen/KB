@@ -28,6 +28,8 @@ using Kb.Application.ExportJobs;
 using Kb.Infrastructure.ExportJobs;
 using Kb.Application.Search;
 using Kb.Infrastructure.Search;
+using Kb.Application.Public;
+using Kb.Infrastructure.Public;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -65,6 +67,7 @@ public static class DependencyInjection
         services.AddScoped<IAdminChecker, DatabaseAdminChecker>();
         services.AddScoped<ICategoryRepository, CategoryRepository>();
         services.AddScoped<IArticleRepository, ArticleRepository>();
+        services.AddScoped<IPublicKnowledgeBaseRepository, PublicKnowledgeBaseRepository>();
         services.AddScoped<IArticleDraftRepository, ArticleDraftRepository>();
         services.AddScoped<IAuditLogRepository, AuditLogRepository>();
         services.AddScoped<IMediaRepository, MediaRepository>();
@@ -86,6 +89,7 @@ public static class DependencyInjection
         services.AddHttpClient<TypesenseInternalSearchClient>();
         services.AddScoped<IInternalSearchClient>(provider => provider.GetRequiredService<TypesenseInternalSearchClient>());
         services.AddScoped<ITypesenseInternalIndex>(provider => provider.GetRequiredService<TypesenseInternalSearchClient>());
+        services.AddScoped<ITypesensePublicIndex>(provider => provider.GetRequiredService<TypesenseInternalSearchClient>());
         services.AddScoped<InternalSearchDocumentSource>();
         services.AddSingleton<InternalSearchSynchronization>();
         services.AddScoped<IInternalSearchMaintenance, InternalSearchMaintenance>();
@@ -131,10 +135,15 @@ public static class DependencyInjection
             options.Endpoint = configuration["Typesense:Endpoint"] ?? string.Empty;
             options.AdminApiKey = configuration["Typesense:AdminApiKey"] ?? string.Empty;
             options.CollectionAlias = configuration["Typesense:InternalCollectionAlias"] ?? "internal_kb_documents";
+            options.PublicCollectionAlias = configuration["Typesense:PublicCollectionAlias"] ?? "public_kb_documents";
             options.ArticleContentContainerName = configuration["Storage:Containers:ArticleContent"] ?? "article-content";
             options.PollInterval = TimeSpan.FromMilliseconds(configuration.GetValue<int?>("Typesense:PollIntervalMilliseconds") ?? 2000);
             options.DraftDebounce = TimeSpan.FromMilliseconds(configuration.GetValue<int?>("Typesense:DraftDebounceMilliseconds") ?? 3000);
             options.MaxRetries = configuration.GetValue<int?>("Typesense:MaxRetries") ?? 8;
+        });
+        services.Configure<PublicKnowledgeBaseOptions>(options =>
+        {
+            options.ArticleContentContainerName = configuration["Storage:Containers:ArticleContent"] ?? "article-content";
         });
         services.AddSingleton<ISlugGenerator, SlugGenerator>();
         services.AddSingleton(TimeProvider.System);

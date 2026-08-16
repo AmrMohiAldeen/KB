@@ -12,6 +12,7 @@ export type CategoryTreeNodeResponse = {
   depth: number
   articleCount: number
   status: 'Active' | 'Archived'
+  visibility: 'Public' | 'Internal'
   children: CategoryTreeNodeResponse[]
 }
 
@@ -26,6 +27,7 @@ export type CategoryDetailsResponse = {
   depth: number
   articleCount: number
   status: 'Active' | 'Archived'
+  visibility: 'Public' | 'Internal'
 }
 
 export type CreateCategoryRequest = {
@@ -34,6 +36,7 @@ export type CreateCategoryRequest = {
   description: string | null
   sortOrder: number
   slug?: string | null
+  visibility: 'Public' | 'Internal'
 }
 
 export type UpdateCategoryRequest = {
@@ -41,6 +44,7 @@ export type UpdateCategoryRequest = {
   description: string | null
   sortOrder: number
   slug: string | null
+  visibility: 'Public' | 'Internal'
 }
 
 export type MoveCategoryRequest = {
@@ -61,6 +65,7 @@ export const mapCategoryTreeNode = (
   depth: category.depth,
   articleCount: category.articleCount,
   status: category.status,
+  visibility: category.visibility,
   children: category.children.map(mapCategoryTreeNode)
 })
 

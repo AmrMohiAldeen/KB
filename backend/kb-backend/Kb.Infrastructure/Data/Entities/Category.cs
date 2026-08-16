@@ -23,6 +23,8 @@ public partial class Category
 
     public string Status { get; set; } = "Active";
 
+    public string Visibility { get; set; } = "Public";
+
     public virtual ICollection<Article> Articles { get; set; } = new List<Article>();
 
     public virtual ICollection<ExportJob> ExportJobs { get; set; } = new List<ExportJob>();

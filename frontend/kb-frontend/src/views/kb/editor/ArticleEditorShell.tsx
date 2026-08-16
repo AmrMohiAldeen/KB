@@ -166,7 +166,8 @@ const ArticleEditorShell = ({
       const created = await createArticle({
         title: `${details.title} copy`,
         slug: null,
-        categoryId: details.category.categoryId
+        categoryId: details.category.categoryId,
+        visibility: details.visibility ?? 'Public'
       }, accessToken)
       if (!created.currentDraft?.rowVersion) throw new Error('The duplicate article draft could not be initialized.')
       await saveArticleDraftContent(created.articleId, {

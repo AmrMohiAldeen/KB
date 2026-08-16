@@ -64,7 +64,8 @@ public sealed record DashboardCategoryResponse(
     string? Path,
     int Depth,
     int ArticleCount,
-    string Status);
+    string Status,
+    string Visibility);
 
 public sealed record DashboardItemResponse(
     string Kind,

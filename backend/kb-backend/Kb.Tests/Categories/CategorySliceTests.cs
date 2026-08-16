@@ -8,6 +8,7 @@ using Kb.Domain.Constants;
 using Kb.Infrastructure.Categories;
 using Kb.Infrastructure.Data;
 using Kb.Infrastructure.Services;
+using Kb.Infrastructure.Public;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -95,6 +96,35 @@ public sealed class CategorySliceTests
         var audit = await f.Context.ArticleAuditLogs.SingleAsync(x => x.ActionType == CategoryAuditActions.Updated);
         Assert.Contains("before", audit.MetaDataJson);
         Assert.Contains("after", audit.MetaDataJson);
+    }
+
+    [Fact]
+    public async Task Visibility_change_is_audited_and_internal_ancestor_hides_public_descendants()
+    {
+        await using var f = await Fixture.CreateAsync();
+        var internalRoot = await f.Service.CreateAsync(
+            new(null, "Internal root", null, 0, null, ContentVisibilities.Internal), default);
+        _ = await f.Service.CreateAsync(
+            new(internalRoot.Id, "Marked public child", null, 0, null, ContentVisibilities.Public), default);
+        var visibleRoot = await f.Service.CreateAsync(
+            new(null, "Visible root", null, 1, null, ContentVisibilities.Public), default);
+
+        var publicCategories = await new PublicKnowledgeBaseRepository(f.Context).GetCategoriesAsync(default);
+
+        Assert.Equal([visibleRoot.Id], publicCategories.Select(category => category.Id));
+        var audit = await f.Context.ArticleAuditLogs.SingleAsync(log =>
+            log.EntityId == internalRoot.Id && log.ActionType == CategoryAuditActions.Created);
+        Assert.Contains("\"visibility\":\"Internal\"", audit.MetaDataJson);
+
+        var changed = await f.Service.UpdateAsync(visibleRoot.Id,
+            new(visibleRoot.Name, visibleRoot.Description, visibleRoot.SortOrder, visibleRoot.Slug,
+                ContentVisibilities.Internal), default);
+        Assert.Equal(ContentVisibilities.Internal, changed.Visibility);
+        var visibilityAudit = await f.Context.ArticleAuditLogs.SingleAsync(log =>
+            log.EntityId == visibleRoot.Id && log.ActionType == CategoryAuditActions.VisibilityChanged);
+        Assert.Contains("\"oldValue\":\"Public\"", visibilityAudit.MetaDataJson);
+        Assert.Contains("\"newValue\":\"Internal\"", visibilityAudit.MetaDataJson);
+        Assert.Equal(f.UserId, visibilityAudit.ActorIdFk);
     }
 
     [Fact]

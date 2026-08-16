@@ -12,7 +12,7 @@ public interface IArticleRepository
     Task<bool> SlugExistsAsync(string slug, Guid? excludingArticleId, CancellationToken cancellationToken);
     Task<ArticleData> InsertWithInitialDraftAndAuditAsync(NewArticleData article, ArticleAuditData audit,
         CancellationToken cancellationToken);
-    Task<ArticleData> UpdateMetadataAndAuditAsync(Guid id, string title, string slug, Guid categoryId,
+    Task<ArticleData> UpdateMetadataAndAuditAsync(Guid id, string title, string slug, Guid categoryId, string visibility,
         byte[] rowVersion, ArticleAuditData audit, CancellationToken cancellationToken);
     Task SoftDeleteAndAuditAsync(Guid id, ArticleAuditData audit, CancellationToken cancellationToken);
 }

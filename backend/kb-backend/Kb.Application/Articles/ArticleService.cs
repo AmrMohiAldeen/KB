@@ -71,6 +71,7 @@ public sealed class ArticleService(
     {
         await RequirePermissionAsync(PermissionCodes.ArticlesCreate, cancellationToken);
         var title = NormalizeTitle(command.Title);
+        var visibility = NormalizeVisibility(command.Visibility);
         EnsureId(command.CategoryId, "Category");
         var ownerId = currentUser.UserId;
         EnsureId(ownerId, "Authenticated user");
@@ -86,10 +87,10 @@ public sealed class ArticleService(
             var now = timeProvider.GetUtcNow().UtcDateTime;
             var audit = Audit(ownerId, ArticleAuditActions.Created, new
             {
-                title, slug, categoryId = command.CategoryId, ownerId
+                title, slug, categoryId = command.CategoryId, ownerId, visibility
             }, now);
             return await repository.InsertWithInitialDraftAndAuditAsync(
-                new(title, slug, command.CategoryId, ownerId, now), audit, token);
+                new(title, slug, command.CategoryId, ownerId, now, visibility), audit, token);
         }, cancellationToken);
     }
 
@@ -107,6 +108,7 @@ public sealed class ArticleService(
         {
             var existing = await repository.GetForMutationAsync(id, token)
                 ?? throw new NotFoundException("The article was not found.");
+            var visibility = command.Visibility is null ? existing.Visibility : NormalizeVisibility(command.Visibility);
             if (existing.IsDeleted)
                 throw new NotFoundException("The article was not found.");
             if (existing.Status is not ArticleStatuses.Draft and not ArticleStatuses.ChangesRequested)
@@ -126,12 +128,14 @@ public sealed class ArticleService(
                 throw new ConcurrencyConflictException();
 
             var now = timeProvider.GetUtcNow().UtcDateTime;
-            var audit = Audit(actorId, ArticleAuditActions.Updated, new
+            var audit = Audit(actorId,
+                existing.Visibility == visibility ? ArticleAuditActions.Updated : ArticleAuditActions.VisibilityChanged, new
             {
-                before = new { existing.Title, existing.Slug },
-                after = new { title, slug, categoryId = command.CategoryId }
+                before = new { existing.Title, existing.Slug, existing.Visibility },
+                after = new { title, slug, categoryId = command.CategoryId, visibility },
+                visibilityChange = existing.Visibility == visibility ? null : new { oldValue = existing.Visibility, newValue = visibility }
             }, now);
-            return await repository.UpdateMetadataAndAuditAsync(id, title, slug, command.CategoryId,
+            return await repository.UpdateMetadataAndAuditAsync(id, title, slug, command.CategoryId, visibility,
                 command.RowVersion, audit, token);
         }, cancellationToken);
     }
@@ -222,6 +226,14 @@ public sealed class ArticleService(
     {
         if (id == Guid.Empty)
             throw new BusinessRuleException($"{name} ID must not be an empty GUID.");
+    }
+
+    private static string NormalizeVisibility(string visibility)
+    {
+        var value = visibility?.Trim();
+        return ContentVisibilities.All.FirstOrDefault(candidate =>
+                   candidate.Equals(value, StringComparison.OrdinalIgnoreCase))
+               ?? throw new BusinessRuleException("Visibility must be Public or Internal.");
     }
 
     private static ArticleAuditData Audit(Guid actorId, string action, object metadata, DateTime createdAt) =>

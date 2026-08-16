@@ -10,6 +10,7 @@ using Kb.Application.Migrations.HelpJuice;
 using Kb.Application.Notifications;
 using Kb.Application.ExportJobs;
 using Kb.Application.Search;
+using Kb.Application.Public;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Kb.Application;
@@ -33,6 +34,7 @@ public static class DependencyInjection
         services.AddScoped<ExportJobProcessor>();
         services.AddScoped<ExportDocumentBuilder>();
         services.AddScoped<InternalSearchService>();
+        services.AddScoped<PublicKnowledgeBaseService>();
         return services;
     }
 }

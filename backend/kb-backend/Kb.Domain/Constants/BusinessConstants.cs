@@ -38,6 +38,16 @@ public static class CategoryStatuses
     public const string Archived = "Archived";
 }
 
+public static class ContentVisibilities
+{
+    public const string Public = "Public";
+    public const string Internal = "Internal";
+    public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
+    {
+        Public, Internal
+    };
+}
+
 public static class ReviewActions
 {
     public const string SubmitForReview = "SubmitForReview";
@@ -110,6 +120,7 @@ public static class SearchIndexScopes
 {
     // Never reuse this scope/collection for viewer-facing search: it intentionally contains drafts and archives.
     public const string Internal = "Internal";
+    public const string Public = "Public";
 }
 
 public static class ExportEntityTypes
@@ -241,6 +252,7 @@ public static class CategoryAuditActions
     public const string Archived = "CategoryArchived";
     public const string Unarchived = "CategoryUnarchived";
     public const string Reordered = "CategoryReordered";
+    public const string VisibilityChanged = "CategoryVisibilityChanged";
 }
 
 public static class AuditEntityTypes

@@ -771,7 +771,8 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
           name: form.name,
           slug: form.slug,
           description: form.description || null,
-          sortOrder: form.sortOrder
+          sortOrder: form.sortOrder,
+          visibility: form.visibility
         }, accessToken)
         if ((editingCategory.parentId ?? '') !== form.parentCategoryId) {
           await moveCategory(editingCategory.id, {
@@ -785,7 +786,8 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
           slug: form.slug || null,
           description: form.description || null,
           parentCategoryId: form.parentCategoryId || null,
-          sortOrder: form.sortOrder
+          sortOrder: form.sortOrder,
+          visibility: form.visibility
         }, accessToken)
       }
       setCategoryDialogOpen(false)

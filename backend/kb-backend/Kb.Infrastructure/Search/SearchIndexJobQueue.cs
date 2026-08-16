@@ -9,20 +9,20 @@ internal static class SearchIndexJobQueue
 {
     public static Task EnqueueArticleAsync(KbDbContext dbContext, Guid articleId, string jobType,
         DateTime availableAt, CancellationToken cancellationToken) => EnqueueAsync(dbContext,
-        SearchIndexTargets.Article, articleId, null, jobType, availableAt, cancellationToken);
+        SearchIndexScopes.Internal, SearchIndexTargets.Article, articleId, null, jobType, availableAt, cancellationToken);
 
     public static Task EnqueueCategoryAsync(KbDbContext dbContext, Guid categoryId, string jobType,
         DateTime availableAt, CancellationToken cancellationToken) => EnqueueAsync(dbContext,
-        SearchIndexTargets.Category, null, categoryId, jobType, availableAt, cancellationToken);
+        SearchIndexScopes.Internal, SearchIndexTargets.Category, null, categoryId, jobType, availableAt, cancellationToken);
 
-    private static async Task EnqueueAsync(KbDbContext dbContext, string targetType, Guid? articleId,
+    private static async Task EnqueueAsync(KbDbContext dbContext, string indexScope, string targetType, Guid? articleId,
         Guid? categoryId, string jobType, DateTime availableAt, CancellationToken token)
     {
         var local = dbContext.SearchIndexJobs.Local.FirstOrDefault(job =>
-            job.IndexScope == SearchIndexScopes.Internal && job.TargetType == targetType &&
+            job.IndexScope == indexScope && job.TargetType == targetType &&
             job.ArticleIdFk == articleId && job.CategoryIdFk == categoryId && job.Status == JobStatuses.Pending);
         var pending = local ?? await dbContext.SearchIndexJobs.FirstOrDefaultAsync(job =>
-            job.IndexScope == SearchIndexScopes.Internal && job.TargetType == targetType &&
+            job.IndexScope == indexScope && job.TargetType == targetType &&
             job.ArticleIdFk == articleId && job.CategoryIdFk == categoryId && job.Status == JobStatuses.Pending, token);
         if (pending is not null)
         {
@@ -39,7 +39,7 @@ internal static class SearchIndexJobQueue
             ArticleIdFk = articleId,
             CategoryIdFk = categoryId,
             TargetType = targetType,
-            IndexScope = SearchIndexScopes.Internal,
+            IndexScope = indexScope,
             JobType = jobType,
             Status = JobStatuses.Pending,
             AvailableAt = availableAt,

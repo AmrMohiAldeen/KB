@@ -67,7 +67,8 @@ public sealed class ArticleRepository(KbDbContext dbContext) : IArticleRepositor
                 article.CurrentDraftIdFkNavigation == null || article.CurrentDraftIdFkNavigation.LockedByFkNavigation == null
                     ? null : new UserReference(article.CurrentDraftIdFkNavigation.LockedByFkNavigation.UserId,
                         article.CurrentDraftIdFkNavigation.LockedByFkNavigation.FullName),
-                article.Position))
+                article.Position,
+                article.Visibility))
             .ToListAsync(cancellationToken);
         return new(items, query.Page, query.PageSize, totalCount);
     }
@@ -134,7 +135,8 @@ public sealed class ArticleRepository(KbDbContext dbContext) : IArticleRepositor
             article.ArticleReviewEvents.Where(review => review.ToStatus == ArticleStatuses.Approved)
                 .Select(review => (DateTime?)review.CreatedAt).Max(),
             article.LastPublishedVersionIdFkNavigation == null
-                ? null : article.LastPublishedVersionIdFkNavigation.PublishedAt));
+                ? null : article.LastPublishedVersionIdFkNavigation.PublishedAt,
+            article.Visibility));
 
     public Task<ArticleMutationData?> GetForMutationAsync(Guid id, CancellationToken cancellationToken) =>
         dbContext.Articles.AsNoTracking().Where(article => article.ArticleId == id)
@@ -142,7 +144,8 @@ public sealed class ArticleRepository(KbDbContext dbContext) : IArticleRepositor
                 article.Title, article.Slug, article.Position, article.CurrentDraftIdFk,
                 article.CurrentDraftIdFkNavigation == null ? null : article.CurrentDraftIdFkNavigation.RowVersion,
                 article.Status,
-                article.DeletedAt != null || article.Status == ArticleStatuses.Deleted))
+                article.DeletedAt != null || article.Status == ArticleStatuses.Deleted,
+                article.Visibility))
             .SingleOrDefaultAsync(cancellationToken);
 
     public Task<bool> CategoryExistsAsync(Guid id, CancellationToken cancellationToken) =>
@@ -168,7 +171,7 @@ public sealed class ArticleRepository(KbDbContext dbContext) : IArticleRepositor
         {
             ArticleId = NewId(), Title = article.Title, Slug = article.Slug, CategoryIdFk = article.CategoryId,
             AuthorIdFk = article.OwnerId, Status = ArticleStatuses.Draft, CreatedAt = article.CreatedAt,
-            UpdatedAt = article.CreatedAt, Position = position
+            UpdatedAt = article.CreatedAt, Position = position, Visibility = article.Visibility
         };
         dbContext.Articles.Add(entity);
         try
@@ -214,7 +217,7 @@ public sealed class ArticleRepository(KbDbContext dbContext) : IArticleRepositor
     }
 
     public async Task<ArticleData> UpdateMetadataAndAuditAsync(Guid id, string title, string slug, Guid categoryId,
-        byte[] rowVersion, ArticleAuditData audit, CancellationToken cancellationToken)
+        string visibility, byte[] rowVersion, ArticleAuditData audit, CancellationToken cancellationToken)
     {
         var entity = await dbContext.Articles.SingleAsync(article => article.ArticleId == id &&
             article.DeletedAt == null && article.Status != ArticleStatuses.Deleted &&
@@ -224,6 +227,7 @@ public sealed class ArticleRepository(KbDbContext dbContext) : IArticleRepositor
 
         entity.Title = title;
         entity.Slug = slug;
+        entity.Visibility = visibility;
         if (entity.CategoryIdFk != categoryId)
         {
             entity.Position = (await dbContext.Articles

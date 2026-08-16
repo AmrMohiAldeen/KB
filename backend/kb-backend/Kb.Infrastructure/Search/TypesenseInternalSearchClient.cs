@@ -8,7 +8,7 @@ using Microsoft.Extensions.Options;
 
 namespace Kb.Infrastructure.Search;
 
-internal sealed class TypesenseInternalSearchClient : IInternalSearchClient, ITypesenseInternalIndex
+internal sealed class TypesenseInternalSearchClient : IInternalSearchClient, ITypesenseInternalIndex, ITypesensePublicIndex
 {
     private const string HighlightStart = "<mark>";
     private const string HighlightEnd = "</mark>";
@@ -89,6 +89,27 @@ internal sealed class TypesenseInternalSearchClient : IInternalSearchClient, ITy
         await EnsureSuccessAsync(response, "The internal search document could not be removed.", cancellationToken);
     }
 
+    async Task ITypesensePublicIndex.UpsertAsync(InternalSearchDocument document, CancellationToken cancellationToken)
+    {
+        EnsureConfigured();
+        await EnsurePublicCollectionAsync(cancellationToken);
+        using var response = await SendAsync(() => http.PostAsJsonAsync(
+            $"collections/{Uri.EscapeDataString(options.PublicCollectionAlias)}/documents?action=upsert", document,
+            cancellationToken), cancellationToken);
+        await EnsureSuccessAsync(response, "The public search document could not be indexed.", cancellationToken);
+    }
+
+    async Task ITypesensePublicIndex.DeleteAsync(string documentId, CancellationToken cancellationToken)
+    {
+        EnsureConfigured();
+        await EnsurePublicCollectionAsync(cancellationToken);
+        using var response = await SendAsync(() => http.DeleteAsync(
+            $"collections/{Uri.EscapeDataString(options.PublicCollectionAlias)}/documents/{Uri.EscapeDataString(documentId)}",
+            cancellationToken), cancellationToken);
+        if (response.StatusCode != HttpStatusCode.NotFound)
+            await EnsureSuccessAsync(response, "The public search document could not be removed.", cancellationToken);
+    }
+
     public async Task<string> RebuildAsync(IReadOnlyList<InternalSearchDocument> documents,
         CancellationToken cancellationToken)
     {
@@ -139,6 +160,24 @@ internal sealed class TypesenseInternalSearchClient : IInternalSearchClient, ITy
             $"aliases/{Uri.EscapeDataString(options.CollectionAlias)}",
             new { collection_name = collection }, cancellationToken), cancellationToken);
         await EnsureSuccessAsync(createAlias, "The internal search alias could not be created.", cancellationToken);
+    }
+
+    private async Task EnsurePublicCollectionAsync(CancellationToken cancellationToken)
+    {
+        var aliasName = options.PublicCollectionAlias;
+        using var alias = await SendAsync(() => http.GetAsync($"aliases/{Uri.EscapeDataString(aliasName)}",
+            cancellationToken), cancellationToken);
+        if (alias.IsSuccessStatusCode) return;
+        if (alias.StatusCode != HttpStatusCode.NotFound)
+            await EnsureSuccessAsync(alias, "The public search collection could not be resolved.", cancellationToken);
+        var collection = $"{aliasName}_initial";
+        using var exists = await SendAsync(() => http.GetAsync($"collections/{Uri.EscapeDataString(collection)}",
+            cancellationToken), cancellationToken);
+        if (exists.StatusCode == HttpStatusCode.NotFound) await CreateCollectionAsync(collection, cancellationToken);
+        else await EnsureSuccessAsync(exists, "The public search collection could not be resolved.", cancellationToken);
+        using var createAlias = await SendAsync(() => http.PutAsJsonAsync($"aliases/{Uri.EscapeDataString(aliasName)}",
+            new { collection_name = collection }, cancellationToken), cancellationToken);
+        await EnsureSuccessAsync(createAlias, "The public search alias could not be created.", cancellationToken);
     }
 
     private async Task CreateCollectionAsync(string name, CancellationToken cancellationToken)
@@ -212,6 +251,9 @@ internal sealed class TypesenseInternalSearchClient : IInternalSearchClient, ITy
         if (options.CollectionAlias.Contains("public", StringComparison.OrdinalIgnoreCase) ||
             options.CollectionAlias.Contains("viewer", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("The internal Typesense collection alias must not be a public/viewer collection.");
+        if (string.IsNullOrWhiteSpace(options.PublicCollectionAlias) ||
+            string.Equals(options.CollectionAlias, options.PublicCollectionAlias, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Public Typesense search must use a separate collection alias.");
     }
 
     private static async Task<HttpResponseMessage> SendAsync(

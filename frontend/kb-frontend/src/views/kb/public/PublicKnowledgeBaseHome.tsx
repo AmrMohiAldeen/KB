@@ -1,7 +1,7 @@
 'use client'
 
 // React Imports
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 // Next Imports
 import Link from 'next/link'
@@ -24,8 +24,9 @@ import { KbPageShell } from '@/views/shared'
 import EmptyState from '../shared/components/EmptyState'
 
 // Data Imports
-import { emptyCategories } from '../data/categories'
-import { emptyPublicArticles } from '../data/publicArticles'
+import { getPublicArticles, getPublicCategories } from '@/lib/api/publicKnowledgeBaseApi'
+import type { KbCategoryNode } from '../types/categories'
+import type { PublicArticleSummary } from '../types/public'
 
 // Util Imports
 import { getCategoryArticles, getPopularPublicArticles, getVisiblePublicArticles } from './utils/publicArticles'
@@ -33,16 +34,50 @@ import { getCategoryArticles, getPopularPublicArticles, getVisiblePublicArticles
 const PublicKnowledgeBaseHome = ({ lang }: { lang: string }) => {
   // States
   const [search, setSearch] = useState('')
+  const [categories, setCategories] = useState<KbCategoryNode[]>([])
+  const [articles, setArticles] = useState<PublicArticleSummary[]>([])
 
   // Vars
-  const categories = emptyCategories
+  useEffect(() => {
+    const controller = new AbortController()
+    Promise.all([getPublicCategories(controller.signal), getPublicArticles(undefined, controller.signal)])
+      .then(([categoryRows, articleRows]) => {
+        const mapCategory = (category: typeof categoryRows[number]): KbCategoryNode => ({
+          id: category.categoryId,
+          parentId: category.parentCategoryId,
+          name: category.name,
+          slug: category.slug,
+          description: category.description ?? '',
+          sortOrder: category.sortOrder,
+          path: category.path,
+          depth: category.depth,
+          articleCount: category.articleCount,
+          status: 'Active',
+          visibility: 'Public',
+          children: category.children.map(mapCategory)
+        })
+        setCategories(categoryRows.map(mapCategory))
+        setArticles(articleRows.map(article => ({
+          id: article.articleId,
+          title: article.title,
+          slug: article.slug,
+          categoryPath: article.categoryPath,
+          views: 0
+        })))
+      })
+      .catch(error => {
+        if (!(error instanceof DOMException && error.name === 'AbortError')) {
+          setCategories([])
+          setArticles([])
+        }
+      })
+    return () => controller.abort()
+  }, [])
 
   // Hooks
   const publishedArticles = useMemo(() => {
-    // TODO: connect to backend API.
-    // GET /api/public/kb/articles should return published article summaries only.
-    return getVisiblePublicArticles(emptyPublicArticles, search)
-  }, [search])
+    return getVisiblePublicArticles(articles, search)
+  }, [articles, search])
 
   const popularArticles = useMemo(() => getPopularPublicArticles(publishedArticles), [publishedArticles])
 
