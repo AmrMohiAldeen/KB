@@ -245,7 +245,7 @@ public sealed partial class HelpJuiceMigrationService(
 
             var answers = source.Answers.GroupBy(x => x.QuestionId, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
-            var linkResolver = HelpJuiceSourceParser.CreateLinkResolver(source.Questions);
+            var linkResolvers = new Dictionary<int, Func<string, HelpJuiceLinkResolution?>>();
             var published = 0; var drafts = 0; var archived = 0;
             foreach (var question in source.Questions)
             {
@@ -264,6 +264,9 @@ public sealed partial class HelpJuiceMigrationService(
                             if (mediaMap.TryGetValue(key, out var mapped)) return mapped;
                         return null;
                     }
+                    var languageKey = question.LanguageId ?? int.MinValue;
+                    if (!linkResolvers.TryGetValue(languageKey, out var linkResolver))
+                        linkResolvers[languageKey] = linkResolver = HelpJuiceSourceParser.CreateLinkResolver(source.Questions, question);
                     var converted = HelpJuiceHtmlConverter.Convert(answer?.Body, Resolve, linkResolver);
                     foreach (var warning in converted.Warnings)
                         issues.Add(NewIssue("Warning", "answers.csv", answer?.RowNumber, "Answer", answer?.Id,

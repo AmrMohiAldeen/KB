@@ -13,13 +13,16 @@ public static partial class HelpJuiceHtmlConverter
     {
         "p", "br", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "b", "em", "i", "u", "a",
         "ul", "ol", "li", "blockquote", "pre", "code", "table", "thead", "tbody", "tfoot", "tr", "th", "td",
-        "img", "figure", "figcaption", "div", "span", "hr", "iframe", "video", "source",
-        "s", "strike", "del", "sup", "sub"
+        "img", "figure", "figcaption", "div", "span", "article", "section", "hr", "iframe", "video", "source",
+        "s", "strike", "del", "sup", "sub", "font", "o:p", "o:lock", "v:stroke", "v:path", "v:f",
+        "v:formulas", "v:imagedata", "v:shape", "v:shapetype", "w:wrap"
     };
     private static readonly HashSet<string> DropWithContent = new(StringComparer.OrdinalIgnoreCase)
         { "script", "style", "object", "embed", "form", "noscript", "template", "svg", "math" };
     private static readonly HashSet<string> VoidTags = new(StringComparer.OrdinalIgnoreCase)
-        { "br", "img", "hr", "source", "meta", "link", "input" };
+        { "br", "img", "hr", "source", "meta", "link", "input", "o:lock", "v:stroke", "v:path", "v:f", "v:imagedata", "w:wrap" };
+    private static readonly HashSet<string> IgnoredMetadata = new(StringComparer.OrdinalIgnoreCase)
+        { "meta", "link" };
 
     public static HelpJuiceHtmlConversion Convert(string? sourceHtml,
         Func<string, (Guid MediaId, string Url)?>? resolveMedia = null,
@@ -54,7 +57,7 @@ public static partial class HelpJuiceHtmlConverter
             if (closing)
             {
                 if (!Supported.Contains(name)) continue;
-                if (name is "strong" or "b" or "em" or "i" or "u" or "a" or "code" or "s" or "strike" or "del" or "sup" or "sub")
+                if (name is "strong" or "b" or "em" or "i" or "u" or "a" or "code" or "s" or "strike" or "del" or "sup" or "sub" or "font")
                 {
                     if (marks.Count > 0) marks.Pop();
                     continue;
@@ -66,6 +69,7 @@ public static partial class HelpJuiceHtmlConverter
                 }
                 continue;
             }
+            if (IgnoredMetadata.Contains(name)) continue;
             if (!Supported.Contains(name))
             {
                 Warn("UNSUPPORTED_ELEMENT", $"Unsupported <{name}> markup was flattened while preserving readable text.");
@@ -77,6 +81,7 @@ public static partial class HelpJuiceHtmlConverter
             if (name is "s" or "strike" or "del") { marks.Push(new("strike")); continue; }
             if (name == "sup") { marks.Push(new("superscript")); continue; }
             if (name == "sub") { marks.Push(new("subscript")); continue; }
+            if (name == "font") { marks.Push(LegacyFontMark(attrs)); continue; }
             if (name == "code" && stack.Peek().Type != "codeBlock") { marks.Push(new("code")); continue; }
             if (name == "a")
             {
@@ -86,14 +91,20 @@ public static partial class HelpJuiceHtmlConverter
                     Warn(rewritten.WarningCode, rewritten.WarningMessage ?? "A HelpJuice link could not be rewritten safely.");
                 if (TrySafeUrl(rewritten?.Url ?? href, allowRelative: true, out var safe))
                     marks.Push(new("link", new() { ["href"] = safe, ["target"] = "_blank", ["rel"] = "noopener noreferrer nofollow" }));
-                else { marks.Push(new("invalidLink")); Warn("DANGEROUS_URL_REMOVED", "A link with an unsafe URL was converted to text."); }
+                else
+                {
+                    marks.Push(new("invalidLink"));
+                    if (!string.IsNullOrWhiteSpace(href))
+                        Warn("DANGEROUS_URL_REMOVED", "A link with an unsafe URL was converted to text.");
+                }
                 continue;
             }
             if (name == "br") { stack.Peek().Children.Add(new("hardBreak")); continue; }
             if (name == "hr") { stack.Peek().Children.Add(new("horizontalRule")); continue; }
-            if (name == "img")
+            if (name is "img" or "v:imagedata")
             {
-                var src = attrs.GetValueOrDefault("src") ?? attrs.GetValueOrDefault("data-src") ?? attrs.GetValueOrDefault("data-mce-src");
+                var src = attrs.GetValueOrDefault("src") ?? attrs.GetValueOrDefault("data-src") ??
+                    attrs.GetValueOrDefault("data-mce-src") ?? attrs.GetValueOrDefault("o:href") ?? attrs.GetValueOrDefault("href");
                 if (string.IsNullOrWhiteSpace(src))
                 { AddImagePlaceholder(stack.Peek(), attrs, "An image without a source could not be recovered."); continue; }
                 mediaSources.Add(src);
@@ -156,8 +167,7 @@ public static partial class HelpJuiceHtmlConverter
         return tag.ToLowerInvariant() switch
         {
             "p" => WithDirection(new("paragraph", tag), attrs),
-            "h1" or "h2" or "h3" or "h4" => WithDirection(new("heading", tag) { Attributes = new() { ["level"] = int.Parse(tag[1..]) } }, attrs),
-            "h5" or "h6" => HeadingFallback(tag, warning),
+            "h1" or "h2" or "h3" or "h4" or "h5" or "h6" => WithDirection(new("heading", tag) { Attributes = new() { ["level"] = int.Parse(tag[1..]) } }, attrs),
             "ul" => WithDirection(new("bulletList", tag), attrs),
             "ol" => WithDirection(new("orderedList", tag) { Attributes = new() { ["start"] = ParsePositive(attrs.GetValueOrDefault("start"), 1) } }, attrs),
             "li" => WithDirection(new("listItem", tag), attrs),
@@ -167,13 +177,24 @@ public static partial class HelpJuiceHtmlConverter
             "tr" => new("tableRow", tag),
             "th" => WithDirection(new("tableHeader", tag) { Attributes = CellAttrs(attrs) }, attrs),
             "td" => WithDirection(new("tableCell", tag) { Attributes = CellAttrs(attrs) }, attrs),
-            "div" or "span" or "figure" or "figcaption" or "thead" or "tbody" or "tfoot" => new("fragment", tag),
+            "div" or "span" or "figure" or "figcaption" or "thead" or "tbody" or "tfoot" or "article" or "section" or
+                "o:p" or "o:lock" or "v:stroke" or "v:path" or "v:f" or "v:formulas" or "v:shape" or "v:shapetype" or "w:wrap" => new("fragment", tag),
             _ => null
         };
     }
 
-    private static Node HeadingFallback(string tag, Action<string, string> warning)
-    { warning("HEADING_LEVEL_NORMALIZED", $"<{tag}> was normalized to a level-4 heading."); return new("heading", tag) { Attributes = new() { ["level"] = 4 } }; }
+    private static Mark LegacyFontMark(IReadOnlyDictionary<string, string> attrs)
+    {
+        var values = new Dictionary<string, object?>();
+        var face = attrs.GetValueOrDefault("face")?.Trim();
+        if (!string.IsNullOrWhiteSpace(face) && face.Length <= 160 && face.All(ch => !char.IsControl(ch) && ch is not ';' and not '<' and not '>'))
+            values["fontFamily"] = face;
+        var color = attrs.GetValueOrDefault("color")?.Trim();
+        if (!string.IsNullOrWhiteSpace(color) && SafeCssColorRegex().IsMatch(color)) values["color"] = color;
+        if (int.TryParse(attrs.GetValueOrDefault("size"), out var size) && size is >= 1 and <= 7)
+            values["fontSize"] = new[] { "10px", "13px", "16px", "18px", "24px", "32px", "48px" }[size - 1];
+        return values.Count == 0 ? new("passthrough") : new("textStyle", values);
+    }
     private static Dictionary<string, object?> CellAttrs(Dictionary<string, string> attrs) => new()
         { ["colspan"] = ParsePositive(attrs.GetValueOrDefault("colspan"), 1), ["rowspan"] = ParsePositive(attrs.GetValueOrDefault("rowspan"), 1) };
     private static Node WithDirection(Node node, IReadOnlyDictionary<string, string> attrs)
@@ -189,7 +210,7 @@ public static partial class HelpJuiceHtmlConverter
         if (string.IsNullOrEmpty(value)) return;
         var normalized = parent.Type is "codeBlock" ? value : WhitespaceRegex().Replace(value, " ");
         if (normalized.Length == 0) return;
-        parent.Children.Add(new("text") { Text = normalized, Marks = marks.Where(mark => mark.Type != "invalidLink").ToList() });
+        parent.Children.Add(new("text") { Text = normalized, Marks = marks.Where(mark => mark.Type is not ("invalidLink" or "passthrough")).ToList() });
     }
 
     private static void Normalize(Node node)
@@ -286,12 +307,19 @@ public static partial class HelpJuiceHtmlConverter
     private sealed record Mark(string Type, Dictionary<string, object?>? Attrs = null)
     {
         public JsonObject ToJson() { var o = new JsonObject { ["type"] = Type }; if (Attrs?.Count > 0) o["attrs"] = JsonSerializer.SerializeToNode(Attrs); return o; }
-        public string OpenHtml() => Type switch { "bold" => "<strong>", "italic" => "<em>", "underline" => "<u>", "strike" => "<s>", "superscript" => "<sup>", "subscript" => "<sub>", "code" => "<code>", "link" => $"<a href=\"{WebUtility.HtmlEncode(Attrs?["href"]?.ToString())}\" rel=\"noopener noreferrer nofollow\">", _ => "" };
-        public string CloseHtml() => Type switch { "bold" => "</strong>", "italic" => "</em>", "underline" => "</u>", "strike" => "</s>", "superscript" => "</sup>", "subscript" => "</sub>", "code" => "</code>", "link" => "</a>", _ => "" };
+        public string OpenHtml() => Type switch { "bold" => "<strong>", "italic" => "<em>", "underline" => "<u>", "strike" => "<s>", "superscript" => "<sup>", "subscript" => "<sub>", "code" => "<code>", "link" => $"<a href=\"{WebUtility.HtmlEncode(Attrs?["href"]?.ToString())}\" rel=\"noopener noreferrer nofollow\">", "textStyle" => $"<span style=\"{TextStyleCss()}\">", _ => "" };
+        public string CloseHtml() => Type switch { "bold" => "</strong>", "italic" => "</em>", "underline" => "</u>", "strike" => "</s>", "superscript" => "</sup>", "subscript" => "</sub>", "code" => "</code>", "link" => "</a>", "textStyle" => "</span>", _ => "" };
+        private string TextStyleCss() => string.Join(' ', new[]
+        {
+            Attrs?.GetValueOrDefault("fontFamily") is { } family ? $"font-family:{family};" : null,
+            Attrs?.GetValueOrDefault("fontSize") is { } size ? $"font-size:{size};" : null,
+            Attrs?.GetValueOrDefault("color") is { } color ? $"color:{color};" : null
+        }.Where(value => value is not null).Select(WebUtility.HtmlEncode));
     }
 
     [GeneratedRegex(@"<!--[\s\S]*?-->|<![^>]*>|</?[^>]+>|[^<]+", RegexOptions.Compiled)] private static partial Regex TokenRegex();
     [GeneratedRegex(@"^<\s*(/)?\s*([a-zA-Z0-9:-]+)([\s\S]*?)/?\s*>$", RegexOptions.Compiled)] private static partial Regex TagRegex();
     [GeneratedRegex("""([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))""", RegexOptions.Compiled)] private static partial Regex AttributeRegex();
     [GeneratedRegex(@"\s+", RegexOptions.Compiled)] private static partial Regex WhitespaceRegex();
+    [GeneratedRegex(@"^(?:#[0-9a-fA-F]{3,8}|[a-zA-Z]{1,32}|rgba?\(\s*[0-9.%\s,]+\)|hsla?\(\s*[0-9.%\s,]+\))$", RegexOptions.Compiled)] private static partial Regex SafeCssColorRegex();
 }

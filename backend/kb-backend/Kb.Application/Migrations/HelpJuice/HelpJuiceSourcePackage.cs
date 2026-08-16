@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using Kb.Domain.Constants;
 
 namespace Kb.Application.Migrations.HelpJuice;
@@ -49,8 +50,8 @@ public static class HelpJuiceSourceParser
         foreach (var file in package.UnsupportedFiles)
             issues.Add(Issue("Warning", "UNSUPPORTED_FILE", $"Unsupported file '{file}' will not be imported.", file));
         foreach (var legacy in new[] { "groups.csv", "passes.csv" }.Where(package.KnownCsvFiles.ContainsKey))
-            issues.Add(Issue("Warning", "LEGACY_PERMISSIONS_PRESERVED_AS_METADATA",
-                $"{legacy} contains HelpJuice identity/permission metadata. It will not change KB users or RBAC.", legacy));
+            issues.Add(Issue("Warning", "LEGACY_PERMISSIONS_NOT_IMPORTED",
+                $"{legacy} contains HelpJuice identity/permission data that has no safe KB RBAC equivalent; the source file is left unchanged and no permissions will be inferred.", legacy));
         if (missing.Length > 0) return EmptySummary(package, issues, missing);
 
         ParsedCsv questionsCsv;
@@ -111,7 +112,7 @@ public static class HelpJuiceSourceParser
                 issues.Add(Issue("Warning", "TAGS_IGNORED", "HelpJuice tags are not imported because the KB has no article-tag model.", "questions.csv", row.RowNumber, "Question", id));
 
             questions.Add(new(row.RowNumber, id, slug, name, NullIfEmpty(row["description"]), published,
-                created, updated, null, row.Values, archived, newerDraft, ParseInt(row["language_id"]),
+                created, updated, NullIfEmpty(row["category_id"]), row.Values, archived, newerDraft, ParseInt(row["language_id"]),
                 NullIfEmpty(row["translation_id"]), NullIfEmpty(row["created_by_id"]), NullIfEmpty(row["updated_by_id"]),
                 ParseInt(row["position"]) ?? 0, SplitIds(row["related_question_ids"]), SplitIds(row["upload_ids"])));
             if (row["created_by_id"].Length > 0 || row["updated_by_id"].Length > 0)
@@ -163,22 +164,27 @@ public static class HelpJuiceSourceParser
         for (var index = 0; index < questions.Count; index++)
         {
             var question = questions[index];
-            var related = categorizations.GetValueOrDefault(question.Id) ?? [];
-            var declaredCount = ParseInt(question.Source.GetValueOrDefault("categories_count") ?? "") ?? 0;
-            if (declaredCount != related.Count)
-                issues.Add(Issue("Warning", "CATEGORY_COUNT_MISMATCH", $"HelpJuice reports {declaredCount} categories but categorizations.csv contains {related.Count}. The relationship CSV is authoritative.",
+            var related = (categorizations.GetValueOrDefault(question.Id) ?? [])
+                .Concat(question.CategoryId is null ? [] : [question.CategoryId])
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            var declaredCount = ParseInt(question.Source.GetValueOrDefault("categories_count") ?? "");
+            if (declaredCount is not null && declaredCount != related.Length)
+                issues.Add(Issue("Warning", "CATEGORY_COUNT_MISMATCH", $"HelpJuice reports {declaredCount} categories but its category fields contain {related.Length} distinct relationships.",
                     "questions.csv", question.RowNumber, "Question", question.Id, "automaticallyRepaired=true;field=categories_count"));
             foreach (var missingCategory in related.Where(id => !categoryIds.Contains(id)))
                 issues.Add(Issue("Warning", "ARTICLE_CATEGORY_MISSING", $"Categorization references missing category '{missingCategory}'; the article will remain uncategorized.",
                     "categorizations.csv", null, "Question", question.Id, "automaticallyRepaired=false;field=category_id"));
             var valid = related.Where(categoryIds.Contains).ToArray();
-            if (valid.Length == 0)
+            if (valid.Length == 0 && declaredCount != 0)
                 issues.Add(Issue("Warning", "UNCATEGORIZED_ARTICLE", "No valid row in categorizations.csv exists; the article will remain uncategorized.",
                     "questions.csv", question.RowNumber, "Question", question.Id, $"automaticallyRepaired=false;language_id={question.LanguageId?.ToString() ?? ""}"));
             if (valid.Length > 1)
                 issues.Add(Issue("Warning", "MULTIPLE_CATEGORIES", $"The target schema supports one category; the first of {valid.Length} ordered HelpJuice relationships will be used.",
                     "categorizations.csv", null, "Question", question.Id, "automaticallyRepaired=true;field=category_id"));
-            questions[index] = question with { CategoryId = valid.FirstOrDefault() };
+            var sourceMetadata = new Dictionary<string, string>(question.Source, StringComparer.OrdinalIgnoreCase);
+            if (related.Length > 0) sourceMetadata["categorizations.category_ids"] = string.Join(',', related);
+            questions[index] = question with { CategoryId = valid.FirstOrDefault(), Source = sourceMetadata };
         }
 
         var questionById = questions.GroupBy(x => x.Id, StringComparer.OrdinalIgnoreCase)
@@ -201,10 +207,13 @@ public static class HelpJuiceSourceParser
 
         var convertedAnswers = new Dictionary<string, HelpJuiceHtmlConversion>(StringComparer.OrdinalIgnoreCase);
         var missingMedia = 0;
-        var linkResolver = CreateLinkResolver(questions);
+        var linkResolvers = new Dictionary<int, Func<string, HelpJuiceLinkResolution?>>();
         foreach (var answer in answers.Where(a => questionIds.Contains(a.QuestionId)))
         {
             var question = questionById[answer.QuestionId];
+            var languageKey = question.LanguageId ?? int.MinValue;
+            if (!linkResolvers.TryGetValue(languageKey, out var linkResolver))
+                linkResolvers[languageKey] = linkResolver = CreateLinkResolver(questions, question);
             (Guid MediaId, string Url)? InlineResolver(string source)
             {
                 if (!source.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase)) return null;
@@ -301,27 +310,44 @@ public static class HelpJuiceSourceParser
         return prefix + suffix;
     }
 
-    public static Func<string, HelpJuiceLinkResolution?> CreateLinkResolver(IReadOnlyList<HelpJuiceQuestion> questions)
+    public static Func<string, HelpJuiceLinkResolution?> CreateLinkResolver(IReadOnlyList<HelpJuiceQuestion> questions,
+        HelpJuiceQuestion? sourceQuestion = null)
     {
         var byLegacySlug = questions.GroupBy(q => NormalizeSlug(q.Source.GetValueOrDefault("codename") ?? ""), StringComparer.OrdinalIgnoreCase)
             .Where(g => g.Key.Length > 0).ToDictionary(g => g.Key, g => g.ToArray(), StringComparer.OrdinalIgnoreCase);
-        return href => ResolveHelpJuiceLink(href, byLegacySlug);
+        var byId = questions.GroupBy(q => q.Id, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+        return href => ResolveHelpJuiceLink(href, byLegacySlug, byId, sourceQuestion?.LanguageId);
     }
 
     private static HelpJuiceLinkResolution? ResolveHelpJuiceLink(string href,
-        IReadOnlyDictionary<string, HelpJuiceQuestion[]> byLegacySlug)
+        IReadOnlyDictionary<string, HelpJuiceQuestion[]> byLegacySlug,
+        IReadOnlyDictionary<string, HelpJuiceQuestion> byId, int? sourceLanguageId)
     {
         if (!Uri.TryCreate(href, UriKind.Absolute, out var uri) ||
-            !uri.Host.EndsWith("helpjuice.com", StringComparison.OrdinalIgnoreCase)) return null;
-        var parts = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries)
-            .Where((part, index) => !part.Equals("version", StringComparison.OrdinalIgnoreCase) &&
-                (index == 0 || !uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries)[index - 1].Equals("version", StringComparison.OrdinalIgnoreCase)))
-            .ToArray();
-        var key = parts.Select(Uri.UnescapeDataString).Select(NormalizeSlug).LastOrDefault(byLegacySlug.ContainsKey);
+            !(uri.Host.Equals("helpjuice.com", StringComparison.OrdinalIgnoreCase) ||
+              uri.Host.EndsWith(".helpjuice.com", StringComparison.OrdinalIgnoreCase))) return null;
+        var rawParts = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var parts = rawParts.Where((part, index) => !part.Equals("version", StringComparison.OrdinalIgnoreCase) &&
+                (index == 0 || !rawParts[index - 1].Equals("version", StringComparison.OrdinalIgnoreCase)))
+            .Select(Uri.UnescapeDataString).ToArray();
+        foreach (var part in parts.Reverse())
+        {
+            if (byId.TryGetValue(part, out var exact)) return new($"/kb/{exact.Slug}");
+            foreach (Match match in Regex.Matches(part, @"\d+"))
+                if (byId.TryGetValue(match.Value, out var identified)) return new($"/kb/{identified.Slug}");
+        }
+        var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
+        foreach (var name in new[] { "id", "question_id", "article_id" })
+            if (byId.TryGetValue(query[name] ?? string.Empty, out var identified)) return new($"/kb/{identified.Slug}");
+        var key = parts.Select(NormalizeSlug).LastOrDefault(byLegacySlug.ContainsKey);
         if (key is null) return new(href, "UNRESOLVED_INTERNAL_LINK", "A HelpJuice link could not be matched and was preserved.");
         var matches = byLegacySlug[key];
-        if (matches.Length != 1) return new(href, "AMBIGUOUS_INTERNAL_LINK", "A HelpJuice link matches multiple translated articles and was preserved.");
-        return new($"/kb/{matches[0].Slug}");
+        if (matches.Length == 1) return new($"/kb/{matches[0].Slug}");
+        var sameLanguage = matches.Where(question => question.LanguageId == sourceLanguageId).ToArray();
+        return sameLanguage.Length == 1
+            ? new($"/kb/{sameLanguage[0].Slug}")
+            : new(href, "AMBIGUOUS_INTERNAL_LINK", "A HelpJuice link matches multiple translated articles and was preserved.");
     }
 
     private static async Task<List<HelpJuiceCategory>> ParseCategoriesAsync(PackageContents package, HelpJuiceMigrationLimits limits,
@@ -360,6 +386,7 @@ public static class HelpJuiceSourceParser
         var csv = await HelpJuiceCsvReader.ReadAsync(path,l.MaxCsvRows,ct);
         RequireColumns(csv, ["id", "image"], issues, issue);
         var result = new List<HelpJuiceUpload>();
+        var packagedNames = p.MediaFiles.Select(Path.GetFileName).ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var r in csv.Rows)
         {
             var id = r["id"].Trim(); var file = First(r, "image", "file_name", "filename", "path", "key");
@@ -367,7 +394,8 @@ public static class HelpJuiceSourceParser
             var extension = First(r, "ext_name"); if (extension.Length > 0 && !extension.StartsWith('.')) extension = "." + extension;
             if (extension.Length == 0) extension = Path.GetExtension(file);
             var preview = NullIfEmpty(r["preview_url"]);
-            if (preview is null) issues.Add(issue("Warning", "MISSING_MEDIA_URL", "The upload has no preview_url; import will try a packaged filename match and continue if unavailable.", "uploads.csv", r.RowNumber, "Media", id, "automaticallyRepaired=false;field=preview_url"));
+            if (preview is null && !packagedNames.Contains(Path.GetFileName(file)))
+                issues.Add(issue("Warning", "MISSING_MEDIA_URL", "The upload has no preview_url and no packaged filename match; its bytes cannot be recovered from this export.", "uploads.csv", r.RowNumber, "Media", id, "automaticallyRepaired=false;field=preview_url"));
             result.Add(new(r.RowNumber, id, file, preview, NullIfEmpty(r["checksum"]), MimeFromUpload(r, extension), extension,
                 long.TryParse(r["image_size"], out var size) ? size : null, ParseDate(r["created_at"], out _), r.Values));
         }

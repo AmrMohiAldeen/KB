@@ -20,6 +20,7 @@ public sealed class HelpJuiceParsingTests
         }
         var package = new PackageContents(root, known, [], known.Keys.ToArray(), []);
         var source = await HelpJuiceSourceParser.ParseAndValidateAsync(package, new(), TimeProvider.System);
+        var categoryIds = source.Categories.Select(category => category.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var preview = HelpJuicePreviewBuilder.Build(source, 100);
         Console.WriteLine(JsonSerializer.Serialize(new
         {
@@ -39,8 +40,11 @@ public sealed class HelpJuiceParsingTests
         Assert.Equal(4728, source.Uploads?.Count);
         Assert.Equal(0, source.Summary.BlockingErrorCount);
         Assert.Equal(14, source.Issues.Count(x => x.ErrorCode == "EMPTY_SOURCE_BODY"));
-        Assert.Equal(415, source.Issues.Count(x => x.ErrorCode == "UNCATEGORIZED_ARTICLE"));
-        Assert.Equal(354, source.Issues.Count(x => x.ErrorCode == "CATEGORY_COUNT_MISMATCH"));
+        Assert.DoesNotContain(source.Issues, issue => issue.ErrorCode == "UNCATEGORIZED_ARTICLE" &&
+            source.Questions.Any(question => question.Id == issue.ExternalId && question.Source.GetValueOrDefault("categories_count") == "0"));
+        Assert.DoesNotContain(source.Issues, issue => issue.ErrorCode is "UNCATEGORIZED_ARTICLE" or "CATEGORY_COUNT_MISMATCH" &&
+            source.Questions.Any(question => question.Id == issue.ExternalId && question.Source.GetValueOrDefault("categories_count") == "1" &&
+                categoryIds.Contains(question.Source.GetValueOrDefault("category_id") ?? string.Empty)));
         Assert.DoesNotContain(source.ConvertedAnswersById.Values, value => value.TiptapJson.Contains(";base64,", StringComparison.OrdinalIgnoreCase));
     }
 
@@ -137,6 +141,68 @@ public sealed class HelpJuiceParsingTests
     }
 
     [Fact]
+    public async Task Direct_question_categories_are_used_and_explicitly_uncategorized_articles_are_not_warned()
+    {
+        using var package=Package(
+            "id,name,codename,is_published,category_id,categories_count\nq1,Direct,one,true,c1,1\nq2,Intentional,two,true,,0",
+            "id,question_id,body\na1,q1,Body\na2,q2,Body",
+            "id,parent_id,name\nc1,,Guides");
+        var source=await HelpJuiceSourceParser.ParseAndValidateAsync(package,new(),TimeProvider.System);
+
+        Assert.Equal("c1",source.Questions.Single(question=>question.Id=="q1").CategoryId);
+        Assert.DoesNotContain(source.Issues,issue=>issue.ExternalId=="q1"&&issue.ErrorCode is "CATEGORY_COUNT_MISMATCH" or "UNCATEGORIZED_ARTICLE");
+        Assert.DoesNotContain(source.Issues,issue=>issue.ExternalId=="q2"&&issue.ErrorCode=="UNCATEGORIZED_ARTICLE");
+    }
+
+    [Fact]
+    public async Task All_source_categories_are_preserved_in_metadata_when_the_target_selects_one()
+    {
+        using var package=Package("id,name,categories_count\nq1,One,2", "id,question_id,body\na1,q1,Body",
+            "id,parent_id,name\nc1,,First\nc2,,Second",
+            "id,question_id,category_id,position\nx1,q1,c1,1\nx2,q1,c2,2");
+        var source=await HelpJuiceSourceParser.ParseAndValidateAsync(package,new(),TimeProvider.System);
+        var question=Assert.Single(source.Questions);
+
+        Assert.Equal("c1",question.CategoryId);
+        Assert.Equal("c1,c2",question.Source["categorizations.category_ids"]);
+        Assert.Contains(source.Issues,issue=>issue.ErrorCode=="MULTIPLE_CATEGORIES");
+    }
+
+    [Fact]
+    public async Task Missing_preview_url_is_recovered_by_an_exact_packaged_filename()
+    {
+        using var package=Package("id,name\nq1,One", "id,question_id,body\na1,q1,Body",
+            uploads:"id,image,preview_url\nu1,image.png,", mediaNames:["image.png"]);
+        var source=await HelpJuiceSourceParser.ParseAndValidateAsync(package,new(),TimeProvider.System);
+
+        Assert.DoesNotContain(source.Issues,issue=>issue.ErrorCode=="MISSING_MEDIA_URL");
+    }
+
+    [Fact]
+    public void Internal_links_resolve_by_question_id_and_same_language()
+    {
+        var english=new HelpJuiceQuestion(2,"1881001","shared","English",null,true,null,null,null,
+            new Dictionary<string,string>{{"codename","shared"}},LanguageId:1);
+        var arabic=new HelpJuiceQuestion(3,"1881002","shared-1881002","Arabic",null,true,null,null,null,
+            new Dictionary<string,string>{{"codename","shared"}},LanguageId:23);
+        var resolver=HelpJuiceSourceParser.CreateLinkResolver([english,arabic],arabic);
+
+        Assert.Equal("/kb/shared",resolver("https://docs.helpjuice.com/1881001-shared")?.Url);
+        Assert.Equal("/kb/shared-1881002",resolver("https://docs.helpjuice.com/shared")?.Url);
+    }
+
+    [Fact]
+    public void Legacy_semantic_word_and_vml_markup_is_preserved_without_false_unsupported_warnings()
+    {
+        var result=HelpJuiceHtmlConverter.Convert("<article><section><h5>Deep</h5><o:p>Word</o:p><font face='Arial' color='#ff0000' size='4'>Styled</font><a name='bookmark'>Anchor</a><v:shape><v:imagedata src='/images/legacy.png'></v:shape><meta charset='utf-8'></section></article>");
+
+        Assert.Contains("\"level\":5",result.TiptapJson);
+        Assert.Contains("\"type\":\"textStyle\"",result.TiptapJson);
+        Assert.Contains("/images/legacy.png",result.TiptapJson);
+        Assert.DoesNotContain(result.Warnings,warning=>warning.Code is "UNSUPPORTED_ELEMENT" or "HEADING_LEVEL_NORMALIZED" or "DANGEROUS_URL_REMOVED");
+    }
+
+    [Fact]
     public void Word_nested_lists_tables_inline_media_and_temporary_media_remain_readable()
     {
         const string data="data:image/png;base64,iVBORw0KGgo=";
@@ -191,5 +257,5 @@ public sealed class HelpJuiceParsingTests
 
     private static string TempFile(string content){var path=Path.Combine(Path.GetTempPath(),$"hj-{Guid.NewGuid():N}.csv");File.WriteAllText(path,content,new UTF8Encoding(false));return path;}
     private static int Count(string value,string needle){var count=0;for(var index=0;(index=value.IndexOf(needle,index,StringComparison.Ordinal))>=0;index+=needle.Length)count++;return count;}
-    private static PackageContents Package(string questions,string answers,string? categories=null,string? categorizations=null){var root=Path.Combine(Path.GetTempPath(),$"hj-{Guid.NewGuid():N}");Directory.CreateDirectory(root);var q=Path.Combine(root,"questions.csv");var a=Path.Combine(root,"answers.csv");File.WriteAllText(q,questions);File.WriteAllText(a,answers);var files=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase){{"questions.csv",q},{"answers.csv",a}};if(categories is not null){var c=Path.Combine(root,"categories.csv");File.WriteAllText(c,categories);files["categories.csv"]=c;}if(categorizations is not null){var c=Path.Combine(root,"categorizations.csv");File.WriteAllText(c,categorizations);files["categorizations.csv"]=c;}return new(root,files,[],files.Keys.ToArray(),[]);}
+    private static PackageContents Package(string questions,string answers,string? categories=null,string? categorizations=null,string? uploads=null,IReadOnlyList<string>? mediaNames=null){var root=Path.Combine(Path.GetTempPath(),$"hj-{Guid.NewGuid():N}");Directory.CreateDirectory(root);var q=Path.Combine(root,"questions.csv");var a=Path.Combine(root,"answers.csv");File.WriteAllText(q,questions);File.WriteAllText(a,answers);var files=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase){{"questions.csv",q},{"answers.csv",a}};if(categories is not null){var c=Path.Combine(root,"categories.csv");File.WriteAllText(c,categories);files["categories.csv"]=c;}if(categorizations is not null){var c=Path.Combine(root,"categorizations.csv");File.WriteAllText(c,categorizations);files["categorizations.csv"]=c;}if(uploads is not null){var u=Path.Combine(root,"uploads.csv");File.WriteAllText(u,uploads);files["uploads.csv"]=u;}var media=(mediaNames??[]).Select(name=>{var path=Path.Combine(root,name);File.WriteAllBytes(path,[1,2,3]);return path;}).ToArray();return new(root,files,media,files.Keys.Concat(mediaNames??[]).ToArray(),[]);}
 }
