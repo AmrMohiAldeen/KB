@@ -12,15 +12,16 @@ public static partial class HelpJuiceHtmlConverter
     private static readonly HashSet<string> Supported = new(StringComparer.OrdinalIgnoreCase)
     {
         "p", "br", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "b", "em", "i", "u", "a",
-        "ul", "ol", "li", "blockquote", "pre", "code", "table", "thead", "tbody", "tfoot", "tr", "th", "td",
+        "ul", "ol", "li", "blockquote", "pre", "code", "table", "thead", "tbody", "tfoot", "colgroup", "col", "tr", "th", "td",
         "img", "figure", "figcaption", "div", "span", "article", "section", "details", "summary", "hr", "iframe", "video", "source",
+        "button", "input",
         "s", "strike", "del", "sup", "sub", "font", "o:p", "o:lock", "v:stroke", "v:path", "v:f",
         "v:formulas", "v:imagedata", "v:shape", "v:shapetype", "w:wrap"
     };
     private static readonly HashSet<string> DropWithContent = new(StringComparer.OrdinalIgnoreCase)
         { "script", "style", "object", "embed", "form", "noscript", "template", "svg", "math" };
     private static readonly HashSet<string> VoidTags = new(StringComparer.OrdinalIgnoreCase)
-        { "br", "img", "hr", "source", "meta", "link", "input", "o:lock", "v:stroke", "v:path", "v:f", "v:imagedata", "w:wrap" };
+        { "br", "img", "hr", "source", "meta", "link", "input", "col", "o:lock", "v:stroke", "v:path", "v:f", "v:imagedata", "w:wrap" };
     private static readonly HashSet<string> IgnoredMetadata = new(StringComparer.OrdinalIgnoreCase)
         { "meta", "link" };
 
@@ -113,6 +114,11 @@ public static partial class HelpJuiceHtmlConverter
             }
             if (name == "br") { stack.Peek().Children.Add(new("hardBreak")); continue; }
             if (name == "hr") { stack.Peek().Children.Add(new("horizontalRule")); continue; }
+            if (name == "input")
+            {
+                AddLegacyInputText(stack.Peek(), attrs, marks.Reverse().ToArray());
+                continue;
+            }
             if (name is "img" or "v:imagedata")
             {
                 var src = attrs.GetValueOrDefault("src") ?? attrs.GetValueOrDefault("data-src") ??
@@ -220,7 +226,7 @@ public static partial class HelpJuiceHtmlConverter
             "tr" => new("tableRow", tag),
             "th" => WithDirection(new("tableHeader", tag) { Attributes = CellAttrs(attrs) }, attrs),
             "td" => WithDirection(new("tableCell", tag) { Attributes = CellAttrs(attrs) }, attrs),
-            "div" or "span" or "figure" or "figcaption" or "thead" or "tbody" or "tfoot" or "article" or "section" or
+            "div" or "span" or "button" or "figure" or "figcaption" or "thead" or "tbody" or "tfoot" or "colgroup" or "col" or "article" or "section" or
                 "o:p" or "o:lock" or "v:stroke" or "v:path" or "v:f" or "v:formulas" or "v:shape" or "v:shapetype" or "w:wrap" => new("fragment", tag),
             _ => null
         };
@@ -279,6 +285,18 @@ public static partial class HelpJuiceHtmlConverter
         var normalized = parent.Type is "codeBlock" ? value : WhitespaceRegex().Replace(value, " ");
         if (normalized.Length == 0) return;
         parent.Children.Add(new("text") { Text = normalized, Marks = marks.Where(mark => mark.Type is not ("invalidLink" or "passthrough")).ToList() });
+    }
+
+    private static void AddLegacyInputText(Node parent, IReadOnlyDictionary<string, string> attrs,
+        IReadOnlyList<Mark> marks)
+    {
+        var type = attrs.GetValueOrDefault("type")?.Trim().ToLowerInvariant();
+        var label = attrs.GetValueOrDefault("aria-label") ?? attrs.GetValueOrDefault("title") ??
+            attrs.GetValueOrDefault("value") ?? attrs.GetValueOrDefault("placeholder");
+        var text = type is "checkbox" or "radio"
+            ? $"[{(attrs.ContainsKey("checked") ? "x" : " ")}]"
+            : string.IsNullOrWhiteSpace(label) ? "[Input]" : $"[{label.Trim()}]";
+        AddText(parent, text, marks);
     }
 
     private static void Normalize(Node node, ref int accordionId, ref int tabId)

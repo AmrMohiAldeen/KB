@@ -12,6 +12,7 @@ import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import { ClipboardList, FileCheck2, FileClock, RefreshCw, Send } from 'lucide-react'
 import type { ArticleListItemResponse, ArticleStatus } from '@/types/apps/articleTypes'
+import { articleAuthor, historicalHelpJuiceAuthor } from '@/lib/articles/articleAuthor'
 import { getArticles } from '@/lib/api/articlesApi'
 import { describeLifecycleError } from '@/lib/api/articleLifecycleApi'
 import ArticleLifecyclePanel from '@/features/lifecycle/ArticleLifecyclePanel'
@@ -42,9 +43,8 @@ const columns: Array<{
 ]
 
 const authorLabel = (article: ArticleListItemResponse) => {
-  const historical = article.legacyAuthorName || article.legacyAuthorEmail ||
-    (article.legacyAuthorExternalId ? `HelpJuice user ${article.legacyAuthorExternalId}` : undefined)
-  return historical ? `Original author: ${historical}` : article.owner.fullName
+  const historical = historicalHelpJuiceAuthor(article)
+  return historical ? `Original author: ${historical}` : articleAuthor(article)
 }
 
 export default function ReviewPlannerBoard({ accessToken }: ReviewPlannerBoardProps) {

@@ -141,6 +141,8 @@ public sealed class InternalSearchTests
         db.ArticleVersions.Add(version);
         var article = await db.Articles.SingleAsync();
         article.CurrentDraftIdFk = draftId;
+        article.LegacyAuthorName = "Historical Author";
+        article.LegacyAuthorExternalId = "helpjuice-42";
         await db.SaveChangesAsync();
         db.ChangeTracker.Clear();
         var storage = new MemoryStorage();
@@ -152,6 +154,8 @@ public sealed class InternalSearchTests
 
         var current = await source.GetArticleAsync(articleId, default);
         Assert.Equal("new draft text", current!.Body);
+        Assert.Equal("Historical Author", current.AuthorName);
+        Assert.Equal($"{userId:D}|Owner", current.AuthorFacet);
         await db.Articles.Where(item => item.ArticleId == articleId)
             .ExecuteUpdateAsync(setters => setters.SetProperty(item => item.CurrentDraftIdFk, (Guid?)null));
         var fallback = await source.GetArticleAsync(articleId, default);

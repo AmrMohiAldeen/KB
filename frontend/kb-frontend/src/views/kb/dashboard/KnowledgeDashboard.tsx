@@ -73,6 +73,7 @@ import KbCategoryDialog from '../categories/components/KbCategoryDialog'
 import DashboardCategoryTree from './DashboardCategoryTree'
 import StatusChip from '../shared/components/StatusChip'
 import type { ArticleDetailsResponse, ArticleListItemResponse } from '@/types/apps/articleTypes'
+import { articleAuthor, historicalHelpJuiceAuthor } from '@/lib/articles/articleAuthor'
 import type {
   DashboardArticleFilter,
   DashboardItem,
@@ -230,12 +231,8 @@ const ArticleBadges = ({ article }: { article: ArticleListItemResponse }) => {
   )
 }
 
-const historicalAuthor = (article: ArticleListItemResponse) =>
-  article.legacyAuthorName || article.legacyAuthorEmail ||
-  (article.legacyAuthorExternalId ? `HelpJuice user ${article.legacyAuthorExternalId}` : undefined)
-
-const articleAuthorLabel = (article: ArticleListItemResponse) => historicalAuthor(article) ?? article.owner.fullName
-const articleAuthorPrefix = (article: ArticleListItemResponse) => historicalAuthor(article) ? 'Original author' : 'By'
+const articleAuthorLabel = (article: ArticleListItemResponse) => articleAuthor(article)
+const articleAuthorPrefix = (article: ArticleListItemResponse) => historicalHelpJuiceAuthor(article) ? 'Original author' : 'By'
 
 const CategoryBadges = ({ status, visibility }: { status?: string; visibility?: string }) => (
   <Stack direction='row' spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap' }}>
@@ -1682,7 +1679,7 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
                                   <Stack direction='row' spacing={0.5} sx={{ alignItems: 'center' }}>
                                     <UserRound size={13} aria-hidden='true' />
                                     <Typography variant='caption' color='text.secondary'>
-                                      {historicalAuthor(item.article) ? `Original author: ${articleAuthorLabel(item.article)}` : item.article.owner.fullName}
+                                      {historicalHelpJuiceAuthor(item.article) ? `Original author: ${articleAuthorLabel(item.article)}` : item.article.owner.fullName}
                                     </Typography>
                                   </Stack>
                                   {/* TODO: Replace this placeholder when article localization versions are available. */}

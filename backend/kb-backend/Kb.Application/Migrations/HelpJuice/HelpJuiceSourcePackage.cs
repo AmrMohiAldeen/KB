@@ -17,7 +17,7 @@ public sealed record HelpJuiceAnswer(int RowNumber, string Id, string QuestionId
     IReadOnlyDictionary<string, string> Source);
 public sealed record HelpJuiceCategory(int RowNumber, string Id, string? ParentId, string Name, int Depth = 0,
     string Slug = "", int SortOrder = 0, bool IsArchived = false, int? LanguageId = null,
-    string Visibility = "Public", bool VisibilityWasExplicit = false);
+    string Visibility = "Public", bool VisibilityWasExplicit = false, string? TranslationId = null);
 public sealed record HelpJuiceUpload(int RowNumber, string Id, string FileName, string? PreviewUrl,
     string? Checksum, string? MimeType, string Extension, long? Size, DateTime? CreatedAt,
     IReadOnlyDictionary<string, string> Source);
@@ -113,13 +113,15 @@ public static class HelpJuiceSourceParser
                 issues.Add(Issue("Warning", "TAGS_IGNORED", "HelpJuice tags are not imported because the KB has no article-tag model.", "questions.csv", row.RowNumber, "Question", id));
 
             var visibility = ParseVisibility(row);
-            var externalAuthorId = NullIfEmpty(First(row, "created_by_id", "author_id", "user_id"));
+            var externalAuthorId = NullIfEmpty(First(row, "created_by_id", "author_id", "user_id",
+                "creator_id", "created_by_user_id", "last_published_user_id", "published_by_id"));
             legacyUsers.TryGetValue(externalAuthorId ?? string.Empty, out var legacyUser);
             var authorName = NullIfEmpty(First(row, "author_name", "created_by_name", "user_name", "last_published_user_name"))
                 ?? CombineName(row, "author_first_name", "author_last_name")
                 ?? CombineName(row, "created_by_first_name", "created_by_last_name")
                 ?? legacyUser?.Name;
-            var authorEmail = NullIfEmpty(First(row, "author_email", "created_by_email")) ?? legacyUser?.Email;
+            var authorEmail = NullIfEmpty(First(row, "author_email", "created_by_email", "user_email",
+                "last_published_user_email")) ?? legacyUser?.Email;
 
             questions.Add(new(row.RowNumber, id, slug, name, NullIfEmpty(row["description"]), published,
                 created, updated, NullIfEmpty(row["category_id"]), row.Values, archived, newerDraft, ParseInt(row["language_id"]),
@@ -137,16 +139,23 @@ public static class HelpJuiceSourceParser
             var question = questions[index];
             if (!firstAnswerByQuestion.TryGetValue(question.Id, out var answer)) continue;
             var externalId = question.LegacyAuthorExternalId ?? NullIfEmpty(First(answer.Source,
-                "created_by_id", "author_id", "user_id"));
+                "created_by_id", "author_id", "user_id", "creator_id", "created_by_user_id",
+                "last_published_user_id", "published_by_id"));
             legacyUsers.TryGetValue(externalId ?? string.Empty, out var legacyUser);
             var name = question.LegacyAuthorName ?? NullIfEmpty(First(answer.Source,
                 "author_name", "created_by_name", "user_name", "last_published_user_name")) ?? legacyUser?.Name;
             var email = question.LegacyAuthorEmail ?? NullIfEmpty(First(answer.Source,
-                "author_email", "created_by_email", "email")) ?? legacyUser?.Email;
+                "author_email", "created_by_email", "user_email", "last_published_user_email", "email")) ?? legacyUser?.Email;
             questions[index] = question with
             {
                 LegacyAuthorExternalId = externalId, LegacyAuthorName = name, LegacyAuthorEmail = email
             };
+        }
+        for (var index = 0; index < questions.Count; index++)
+        {
+            var question = questions[index];
+            if (question.LegacyAuthorName is null && question.LegacyAuthorEmail is null)
+                questions[index] = question with { LegacyAuthorName = "Unknown HelpJuice author" };
         }
         AddDuplicateIssues(questions.Select(x => (x.Id, x.RowNumber)), "QUESTION_ID_DUPLICATE", "questions.csv", "Question", issues, Issue);
         AddDuplicateIssues(answers.Select(x => (x.Id, x.RowNumber)), "ANSWER_ID_DUPLICATE", "answers.csv", "Answer", issues, Issue);
@@ -211,14 +220,35 @@ public static class HelpJuiceSourceParser
             Visibility = effectiveCategoryVisibility.GetValueOrDefault(c.Id, c.Visibility)
         }).ToList();
 
+        var rawCategoryIdsByQuestion = questions.GroupBy(question => question.Id, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.SelectMany(question =>
+                    (categorizations.GetValueOrDefault(question.Id) ?? [])
+                    .Concat(question.CategoryId is null ? [] : [question.CategoryId]))
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), StringComparer.OrdinalIgnoreCase);
+        var questionsByTranslation = questions
+            .GroupBy(question => question.TranslationId ?? question.Id, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.OrdinalIgnoreCase);
+        var categoriesById = categories.GroupBy(category => category.Id, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        var categoriesByTranslation = categories
+            .GroupBy(category => category.TranslationId ?? category.Id, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.OrdinalIgnoreCase);
+
         for (var index = 0; index < questions.Count; index++)
         {
             var question = questions[index];
-            var related = (categorizations.GetValueOrDefault(question.Id) ?? [])
-                .Concat(question.CategoryId is null ? [] : [question.CategoryId])
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray();
+            var related = rawCategoryIdsByQuestion[question.Id];
             var declaredCount = ParseInt(question.Source.GetValueOrDefault("categories_count") ?? "");
+            var reconstructed = TryReconstructTranslatedCategories(question, related, declaredCount,
+                rawCategoryIdsByQuestion, questionsByTranslation, categoriesById, categoriesByTranslation);
+            if (reconstructed is not null)
+            {
+                related = reconstructed;
+                issues.Add(Issue("Warning", "CATEGORY_RELATIONSHIP_RECONSTRUCTED",
+                    "Missing HelpJuice categorization rows were reconstructed from an unambiguous translated article/category relationship.",
+                    "questions.csv", question.RowNumber, "Question", question.Id,
+                    "automaticallyRepaired=true;field=translation_id,category_id"));
+            }
             if (declaredCount is not null && declaredCount != related.Length)
                 issues.Add(Issue("Warning", "CATEGORY_COUNT_MISMATCH", $"HelpJuice reports {declaredCount} categories but its category fields contain {related.Length} distinct relationships.",
                     "questions.csv", question.RowNumber, "Question", question.Id, "automaticallyRepaired=true;field=categories_count"));
@@ -234,6 +264,7 @@ public static class HelpJuiceSourceParser
                     "categorizations.csv", null, "Question", question.Id, "automaticallyRepaired=true;field=category_id"));
             var sourceMetadata = new Dictionary<string, string>(question.Source, StringComparer.OrdinalIgnoreCase);
             if (related.Length > 0) sourceMetadata["categorizations.category_ids"] = string.Join(',', related);
+            if (reconstructed is not null) sourceMetadata["migration.category_reconstruction"] = "translation_id";
             var visibility = question.Visibility;
             if (!question.VisibilityWasExplicit && valid.Any(id => categories.Any(category =>
                     category.Id.Equals(id, StringComparison.OrdinalIgnoreCase) && category.Visibility == "Internal")))
@@ -395,7 +426,10 @@ public static class HelpJuiceSourceParser
         var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
         foreach (var name in new[] { "id", "question_id", "article_id" })
             if (byId.TryGetValue(query[name] ?? string.Empty, out var identified)) return new($"/kb/{identified.Slug}");
-        var key = parts.Select(NormalizeSlug).LastOrDefault(byLegacySlug.ContainsKey);
+        var queryCandidates = new[] { "slug", "codename", "path", "url" }
+            .Select(name => query[name]).Where(value => !string.IsNullOrWhiteSpace(value)).Select(value => value!);
+        var key = parts.Concat(queryCandidates).Reverse().SelectMany(LinkSlugCandidates)
+            .FirstOrDefault(byLegacySlug.ContainsKey);
         if (key is null) return new(href, "UNRESOLVED_INTERNAL_LINK", "A HelpJuice link could not be matched and was preserved.");
         var matches = byLegacySlug[key];
         if (matches.Length == 1) return new($"/kb/{matches[0].Slug}");
@@ -403,6 +437,18 @@ public static class HelpJuiceSourceParser
         return sameLanguage.Length == 1
             ? new($"/kb/{sameLanguage[0].Slug}")
             : new(href, "AMBIGUOUS_INTERNAL_LINK", "A HelpJuice link matches multiple translated articles and was preserved.");
+    }
+
+    private static IEnumerable<string> LinkSlugCandidates(string value)
+    {
+        var decoded = Uri.UnescapeDataString(value).Trim('/');
+        var normalized = NormalizeSlug(decoded);
+        if (normalized.Length == 0) yield break;
+        yield return normalized;
+        var withoutHtml = Regex.Replace(normalized, @"-(?:html?|aspx?)$", "", RegexOptions.IgnoreCase);
+        if (!withoutHtml.Equals(normalized, StringComparison.OrdinalIgnoreCase)) yield return withoutHtml;
+        var withoutLeadingId = Regex.Replace(withoutHtml, @"^\d+-", "");
+        if (!withoutLeadingId.Equals(withoutHtml, StringComparison.OrdinalIgnoreCase)) yield return withoutLeadingId;
     }
 
     private static async Task<List<HelpJuiceCategory>> ParseCategoriesAsync(PackageContents package, HelpJuiceMigrationLimits limits,
@@ -415,7 +461,8 @@ public static class HelpJuiceSourceParser
             var visibility = ParseVisibility(r);
             return new HelpJuiceCategory(r.RowNumber, r["id"].Trim(), NullIfEmpty(r["parent_id"]), r["name"].Trim(), 0,
                 NormalizeSlug(First(r, "codename", "name")), ParseInt(r["position"]) ?? r.RowNumber,
-                ParseBoolean(r["archived"], out _), ParseInt(r["language_id"]), visibility.Value, visibility.WasExplicit);
+                ParseBoolean(r["archived"], out _), ParseInt(r["language_id"]), visibility.Value, visibility.WasExplicit,
+                NullIfEmpty(r["translation_id"]));
         }).ToList();
         AddDuplicateIssues(result.Select(x => (x.Id, x.RowNumber)), "CATEGORY_ID_DUPLICATE", "categories.csv", "Category", issues, issue);
         return result;
@@ -500,6 +547,42 @@ public static class HelpJuiceSourceParser
     {
         var combined = $"{row[firstNameField].Trim()} {row[lastNameField].Trim()}".Trim();
         return NullIfEmpty(combined);
+    }
+
+    private static string[]? TryReconstructTranslatedCategories(HelpJuiceQuestion question,
+        IReadOnlyList<string> directCategoryIds, int? declaredCount,
+        IReadOnlyDictionary<string, string[]> categoryIdsByQuestion,
+        IReadOnlyDictionary<string, HelpJuiceQuestion[]> questionsByTranslation,
+        IReadOnlyDictionary<string, HelpJuiceCategory> categoriesById,
+        IReadOnlyDictionary<string, HelpJuiceCategory[]> categoriesByTranslation)
+    {
+        var translationKey = question.TranslationId ?? question.Id;
+        if (!questionsByTranslation.TryGetValue(translationKey, out var siblings) || siblings.Length < 2) return null;
+        if (declaredCount is not null && directCategoryIds.Count >= declaredCount) return null;
+
+        var inherited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var sibling in siblings.Where(sibling => !sibling.Id.Equals(question.Id, StringComparison.OrdinalIgnoreCase)))
+        {
+            foreach (var sourceId in categoryIdsByQuestion.GetValueOrDefault(sibling.Id) ?? [])
+            {
+                if (!categoriesById.TryGetValue(sourceId, out var sourceCategory)) continue;
+                if (sourceCategory.LanguageId is null || question.LanguageId is null ||
+                    sourceCategory.LanguageId == question.LanguageId)
+                {
+                    inherited.Add(sourceCategory.Id);
+                    continue;
+                }
+                var categoryTranslationKey = sourceCategory.TranslationId ?? sourceCategory.Id;
+                if (!categoriesByTranslation.TryGetValue(categoryTranslationKey, out var translated)) continue;
+                var matches = translated.Where(category => category.LanguageId == question.LanguageId).ToArray();
+                if (matches.Length == 1) inherited.Add(matches[0].Id);
+            }
+        }
+
+        var combined = directCategoryIds.Where(categoriesById.ContainsKey).Concat(inherited)
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        if (combined.Length == directCategoryIds.Count || combined.Length == 0) return null;
+        return declaredCount is null || combined.Length == declaredCount ? combined : null;
     }
 
     private static async Task<Dictionary<string, List<string>>> ParseCategorizationsAsync(PackageContents p, HelpJuiceMigrationLimits l,

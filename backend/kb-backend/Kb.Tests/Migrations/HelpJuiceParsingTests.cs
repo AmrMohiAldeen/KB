@@ -13,7 +13,7 @@ public sealed class HelpJuiceParsingTests
         var root = Environment.GetEnvironmentVariable("HELPJUICE_FIXTURE_DIR");
         if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root)) return;
         var known = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var name in new[] { "questions.csv", "answers.csv", "categories.csv", "categorizations.csv", "uploads.csv", "passes.csv", "groups.csv" })
+        foreach (var name in new[] { "questions.csv", "answers.csv", "categories.csv", "categorizations.csv", "uploads.csv", "passes.csv", "groups.csv", "users.csv" })
         {
             var path = Path.Combine(root, name);
             if (File.Exists(path)) known[name] = path;
@@ -156,6 +156,39 @@ public sealed class HelpJuiceParsingTests
     }
 
     [Fact]
+    public async Task Missing_translated_category_relationship_is_reconstructed_only_through_matching_translation_ids()
+    {
+        using var package=Package(
+            "id,name,language_id,translation_id,categories_count\nq-en,English,1,,1\nq-ar,Arabic,23,q-en,1",
+            "id,question_id,body\na-en,q-en,English body\na-ar,q-ar,Arabic body",
+            "id,parent_id,name,language_id,translation_id\nc-en,,Guides,1,\nc-ar,,Guides Arabic,23,c-en",
+            "id,question_id,category_id,position\nx1,q-en,c-en,1");
+        var source=await HelpJuiceSourceParser.ParseAndValidateAsync(package,new(),TimeProvider.System);
+
+        var translated=source.Questions.Single(question=>question.Id=="q-ar");
+        Assert.Equal("c-ar",translated.CategoryId);
+        Assert.Equal("translation_id",translated.Source["migration.category_reconstruction"]);
+        Assert.Contains(source.Issues,issue=>issue.ExternalId=="q-ar"&&issue.ErrorCode=="CATEGORY_RELATIONSHIP_RECONSTRUCTED");
+        Assert.DoesNotContain(source.Issues,issue=>issue.ExternalId=="q-ar"&&issue.ErrorCode is "CATEGORY_COUNT_MISMATCH" or "UNCATEGORIZED_ARTICLE");
+    }
+
+    [Fact]
+    public async Task Ambiguous_translated_category_relationship_keeps_the_original_warnings()
+    {
+        using var package=Package(
+            "id,name,language_id,translation_id,categories_count\nq-en,English,1,,1\nq-ar,Arabic,23,q-en,1",
+            "id,question_id,body\na-en,q-en,English body\na-ar,q-ar,Arabic body",
+            "id,parent_id,name,language_id,translation_id\nc-en,,Guides,1,\nc-ar-1,,First Arabic match,23,c-en\nc-ar-2,,Second Arabic match,23,c-en",
+            "id,question_id,category_id,position\nx1,q-en,c-en,1");
+        var source=await HelpJuiceSourceParser.ParseAndValidateAsync(package,new(),TimeProvider.System);
+
+        Assert.Null(source.Questions.Single(question=>question.Id=="q-ar").CategoryId);
+        Assert.DoesNotContain(source.Issues,issue=>issue.ExternalId=="q-ar"&&issue.ErrorCode=="CATEGORY_RELATIONSHIP_RECONSTRUCTED");
+        Assert.Contains(source.Issues,issue=>issue.ExternalId=="q-ar"&&issue.ErrorCode=="CATEGORY_COUNT_MISMATCH");
+        Assert.Contains(source.Issues,issue=>issue.ExternalId=="q-ar"&&issue.ErrorCode=="UNCATEGORIZED_ARTICLE");
+    }
+
+    [Fact]
     public async Task All_source_categories_are_preserved_in_metadata_when_the_target_selects_one()
     {
         using var package=Package("id,name,categories_count\nq1,One,2", "id,question_id,body\na1,q1,Body",
@@ -201,6 +234,18 @@ public sealed class HelpJuiceParsingTests
         Assert.Contains("\"type\":\"textStyle\"",result.TiptapJson);
         Assert.Contains("/images/legacy.png",result.TiptapJson);
         Assert.DoesNotContain(result.Warnings,warning=>warning.Code is "UNSUPPORTED_ELEMENT" or "HEADING_LEVEL_NORMALIZED" or "DANGEROUS_URL_REMOVED");
+    }
+
+    [Fact]
+    public void Legacy_table_columns_and_noninteractive_form_controls_remain_readable()
+    {
+        var result=HelpJuiceHtmlConverter.Convert("<table><colgroup><col></colgroup><tr><td>Value</td></tr></table><button>Continue</button><input type='checkbox' checked='checked'><input value='Account name'>");
+
+        Assert.Contains("Value",result.PlainText);
+        Assert.Contains("Continue",result.PlainText);
+        Assert.Contains("[x]",result.PlainText);
+        Assert.Contains("[Account name]",result.PlainText);
+        Assert.DoesNotContain(result.Warnings,warning=>warning.Code=="UNSUPPORTED_ELEMENT");
     }
 
     [Fact]
@@ -251,6 +296,47 @@ public sealed class HelpJuiceParsingTests
         var preview=HelpJuicePreviewBuilder.Build(source,10);
         Assert.All(preview.Articles,article=>Assert.Equal("Internal",article.Visibility));
         Assert.All(preview.Articles,article=>Assert.Equal("Ada Lovelace",article.LegacyAuthorName));
+    }
+
+    [Fact]
+    public async Task Historical_author_uses_email_then_neutral_fallback_without_exposing_the_external_id()
+    {
+        using var package=Package(
+            "id,name,created_by_id\nq1,Email author,u1\nq2,Missing account,u2\nq3,Missing attribution,",
+            "id,question_id,body\na1,q1,Body\na2,q2,Body\na3,q3,Body",
+            users:"id,email\nu1,ada@example.test");
+        var source=await HelpJuiceSourceParser.ParseAndValidateAsync(package,new(),TimeProvider.System);
+
+        var emailAuthor=source.Questions.Single(question=>question.Id=="q1");
+        Assert.Null(emailAuthor.LegacyAuthorName);Assert.Equal("ada@example.test",emailAuthor.LegacyAuthorEmail);
+        var missingAccount=source.Questions.Single(question=>question.Id=="q2");
+        Assert.Equal("Unknown HelpJuice author",missingAccount.LegacyAuthorName);Assert.Equal("u2",missingAccount.LegacyAuthorExternalId);
+        Assert.Equal("Unknown HelpJuice author",source.Questions.Single(question=>question.Id=="q3").LegacyAuthorName);
+    }
+
+    [Fact]
+    public async Task Genuinely_unrecoverable_source_data_keeps_diagnostic_warnings()
+    {
+        using var package=Package(
+            "id,name,has_draft_revision_after_current_revision\nq1,Incomplete,true",
+            "id,question_id,body\na1,q1,\"<custom-widget>Readable</custom-widget><a href='https://docs.helpjuice.com/not-in-export'>Missing</a>\"",
+            passes:"id,passable_type,passable_id\np1,Question,not-in-export");
+        var source=await HelpJuiceSourceParser.ParseAndValidateAsync(package,new(),TimeProvider.System);
+
+        Assert.Contains(source.Issues,issue=>issue.ErrorCode=="UNRECONSTRUCTABLE_NEWER_DRAFT");
+        Assert.Contains(source.Issues,issue=>issue.ErrorCode=="UNSUPPORTED_ELEMENT");
+        Assert.Contains(source.Issues,issue=>issue.ErrorCode=="UNRESOLVED_INTERNAL_LINK");
+        Assert.Contains(source.Issues,issue=>issue.ErrorCode=="LEGACY_PERMISSIONS_NOT_IMPORTED");
+    }
+
+    [Fact]
+    public void Internal_links_resolve_html_suffixed_legacy_codenames()
+    {
+        var question=new HelpJuiceQuestion(2,"q1","manage-subjects","Manage subjects",null,true,null,null,null,
+            new Dictionary<string,string>{{"codename","manage-subjects"}});
+        var resolver=HelpJuiceSourceParser.CreateLinkResolver([question],question);
+
+        Assert.Equal("/kb/manage-subjects",resolver("https://docs.helpjuice.com/kb/manage-subjects.html")?.Url);
     }
 
     [Fact]
