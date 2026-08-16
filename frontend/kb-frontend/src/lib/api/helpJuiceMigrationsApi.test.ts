@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { previewHelpJuiceMigration, runHelpJuiceMigration, type HelpJuiceMigrationOptions } from './helpJuiceMigrationsApi'
+import { previewHelpJuiceMigration, runHelpJuiceDiagnostic, runHelpJuiceMigration, type HelpJuiceMigrationOptions } from './helpJuiceMigrationsApi'
 
 const options:HelpJuiceMigrationOptions={importPublished:true,importUnpublishedAsDrafts:true,importCategories:true,importMedia:false,preserveTimestamps:true,conflictBehavior:'UpdateExisting'}
 
@@ -36,5 +36,22 @@ describe('helpJuiceMigrationsApi',()=>{
     vi.stubGlobal('XMLHttpRequest',FakeRequest)
     const request=runHelpJuiceMigration([new File(['x'],'questions.csv')],options,'token');request.cancel()
     await expect(request.promise).rejects.toMatchObject({name:'AbortError'})
+  })
+
+  it('downloads the read-only full diagnostic and reports upload and scan status',async()=>{
+    const report=new Blob(['Section,Severity\r\nSummary,'])
+    class FakeRequest {
+      status=200;response=report;responseType:XMLHttpRequestResponseType='';upload:{onprogress?:(event:ProgressEvent)=>void;onload?:()=>void}={};onload?:()=>void;onerror?:()=>void;onabort?:()=>void
+      open(method:string,url:string){expect(method).toBe('POST');expect(url).toBe('https://kb-api.example.test/api/migrations/helpjuice/diagnostics')}
+      setRequestHeader(){}
+      getResponseHeader(name:string){return ({'Content-Disposition':'attachment; filename="diagnostic.csv"','X-HelpJuice-Diagnostic-Records':'42','X-HelpJuice-Diagnostic-Errors':'3','X-HelpJuice-Diagnostic-Warnings':'7','X-HelpJuice-Diagnostic-Status':'Completed'} as Record<string,string>)[name]??null}
+      send(){this.upload.onprogress?.({lengthComputable:true,loaded:1,total:2} as ProgressEvent);this.upload.onload?.();this.onload?.()}
+      abort(){this.onabort?.()}
+    }
+    vi.stubGlobal('XMLHttpRequest',FakeRequest)
+    const progress=vi.fn();const scanning=vi.fn()
+    const request=runHelpJuiceDiagnostic([new File(['zip'],'export.zip')],'token',progress,scanning)
+    await expect(request.promise).resolves.toMatchObject({blob:report,fileName:'diagnostic.csv',totalRecords:42,errorCount:3,warningCount:7,status:'Completed'})
+    expect(progress).toHaveBeenCalledWith(50);expect(progress).toHaveBeenCalledWith(100);expect(scanning).toHaveBeenCalledOnce()
   })
 })

@@ -32,7 +32,10 @@ public static class DependencyInjection
         {
            options.AddPolicy(ApiCors.FrontendPolicy, policy =>
            {
-            policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod();
+            policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod()
+                .WithExposedHeaders("Content-Disposition", "X-HelpJuice-Diagnostic-Records",
+                    "X-HelpJuice-Diagnostic-Errors", "X-HelpJuice-Diagnostic-Warnings",
+                    "X-HelpJuice-Diagnostic-Status");
            });
         });
         services.AddControllers();

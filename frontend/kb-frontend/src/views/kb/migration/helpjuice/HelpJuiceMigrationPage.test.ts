@@ -38,6 +38,7 @@ describe('HelpJuiceMigrationPage options',()=>{
     await act(async()=>input.dispatchEvent(new Event('change',{bubbles:true})))
     expect(api.preview).toHaveBeenCalledOnce()
     expect(host.textContent).toContain('Showing 1 of 250 source articles (preview limit: 100).')
+    expect(host.textContent).toContain('Run full diagnostic')
     expect(host.textContent).toContain('1 warning')
     await act(async()=>Array.from(host!.querySelectorAll('button')).find(button=>button.textContent==='View article')?.click())
     expect(document.body.textContent).toContain('Read-only preview')

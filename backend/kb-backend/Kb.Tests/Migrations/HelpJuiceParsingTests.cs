@@ -160,6 +160,36 @@ public sealed class HelpJuiceParsingTests
         await Assert.ThrowsAsync<InvalidDataException>(()=>HelpJuicePackageReader.ExtractAsync(bomb,new(){MaxCompressionRatio=2,MaxPackageSizeBytes=1_000_000,MaxExtractedSizeBytes=1_000_000}));
     }
 
+    [Fact]
+    public async Task Diagnostic_csv_preserves_each_issue_and_includes_grouped_and_entity_summaries()
+    {
+        using var package=Package("id,codename,name,is_published\nq1,one,First,true\nq2,two,Second,false",
+            "id,question_id,body\na1,q1,Body\na2,q2,Body");
+        var source=await HelpJuiceSourceParser.ParseAndValidateAsync(package,new(),TimeProvider.System);
+        var now=DateTime.UtcNow;
+        var issues=new[]
+        {
+            new MigrationIssueData(Guid.NewGuid(),"Warning","questions.csv",2,"Question","q1","EXAMPLE_WARNING","First occurrence","field=one",now),
+            new MigrationIssueData(Guid.NewGuid(),"Warning","questions.csv",3,"Question","q2","EXAMPLE_WARNING","Second occurrence","field=two",now),
+            new MigrationIssueData(Guid.NewGuid(),"Error","answers.csv",3,"Answer","a2","EXAMPLE_ERROR","Blocking occurrence",null,now)
+        };
+        var report=Path.Combine(Path.GetTempPath(),$"hj-diagnostic-{Guid.NewGuid():N}.csv");
+        try
+        {
+            await HelpJuiceDiagnosticReportWriter.WriteAsync(report,"export.zip",now,now,
+                new Dictionary<string,int>{{"questions.csv",2},{"answers.csv",2}},0,source,issues,false,default);
+            var csv=await File.ReadAllTextAsync(report);
+            Assert.Equal(3,Count(csv,"EXAMPLE_WARNING"));
+            Assert.Contains("\"Issue\",\"Error\",\"answers.csv\",\"3\",\"a2\",\"Answer\",\"Second\"",csv);
+            Assert.Contains("\"Summary by issue type\",\"Warning\"",csv);
+            Assert.Contains("\"Affected entities\"",csv);
+            Assert.Contains("\"Total records scanned\",\"4\"",csv);
+            Assert.Contains("\"End: total errors\",\"1\"",csv);
+        }
+        finally { if(File.Exists(report)) File.Delete(report); }
+    }
+
     private static string TempFile(string content){var path=Path.Combine(Path.GetTempPath(),$"hj-{Guid.NewGuid():N}.csv");File.WriteAllText(path,content,new UTF8Encoding(false));return path;}
+    private static int Count(string value,string needle){var count=0;for(var index=0;(index=value.IndexOf(needle,index,StringComparison.Ordinal))>=0;index+=needle.Length)count++;return count;}
     private static PackageContents Package(string questions,string answers,string? categories=null,string? categorizations=null){var root=Path.Combine(Path.GetTempPath(),$"hj-{Guid.NewGuid():N}");Directory.CreateDirectory(root);var q=Path.Combine(root,"questions.csv");var a=Path.Combine(root,"answers.csv");File.WriteAllText(q,questions);File.WriteAllText(a,answers);var files=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase){{"questions.csv",q},{"answers.csv",a}};if(categories is not null){var c=Path.Combine(root,"categories.csv");File.WriteAllText(c,categories);files["categories.csv"]=c;}if(categorizations is not null){var c=Path.Combine(root,"categorizations.csv");File.WriteAllText(c,categorizations);files["categorizations.csv"]=c;}return new(root,files,[],files.Keys.ToArray(),[]);}
 }

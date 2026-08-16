@@ -32,6 +32,7 @@ import KnowledgeBaseViewer from '@/features/editor/core/KnowledgeBaseViewer'
 import { describeApiError } from '@/lib/api/http'
 import {
   helpJuiceMigrationsApi,
+  type HelpJuiceDiagnosticDownload,
   type HelpJuiceMigrationOptions,
   type HelpJuiceMigrationPreviewArticle,
   type HelpJuiceMigrationResponse,
@@ -66,7 +67,12 @@ const HelpJuiceMigrationPage = ({ accessToken, api = helpJuiceMigrationsApi }: H
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
+  const [diagnosing, setDiagnosing] = useState(false)
+  const [diagnosticProgress, setDiagnosticProgress] = useState(0)
+  const [diagnosticScanning, setDiagnosticScanning] = useState(false)
+  const [diagnosticReport, setDiagnosticReport] = useState<HelpJuiceDiagnosticDownload>()
   const requestCancel = useRef<(() => void) | undefined>(undefined)
+  const diagnosticCancel = useRef<(() => void) | undefined>(undefined)
   const previewSequence = useRef(0)
 
   const selectFiles = useCallback(async (selected: File[]) => {
@@ -75,6 +81,7 @@ const HelpJuiceMigrationPage = ({ accessToken, api = helpJuiceMigrationsApi }: H
     setPreview(undefined)
     setSelectedArticle(undefined)
     setResult(undefined)
+    setDiagnosticReport(undefined)
     setMessages([])
     if (!selected.length) return
     if (!accessToken) { setMessages(['Authentication is required to generate a migration preview.']); return }
@@ -104,9 +111,26 @@ const HelpJuiceMigrationPage = ({ accessToken, api = helpJuiceMigrationsApi }: H
       else setMessages(describeApiError(error))
     } finally { requestCancel.current = undefined; setSubmitting(false) }
   }
+  const runDiagnostic = async () => {
+    if (diagnosing || submitting || !files.length) return
+    setDiagnosing(true); setDiagnosticProgress(0); setDiagnosticScanning(false); setDiagnosticReport(undefined); setMessages([])
+    const request = api.diagnostic(files, accessToken, setDiagnosticProgress, () => setDiagnosticScanning(true))
+    diagnosticCancel.current = request.cancel
+    try {
+      const report = await request.promise
+      setDiagnosticReport(report)
+      downloadDiagnostic(report)
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') setMessages(['Full diagnostic scan cancelled. No migration records were changed.'])
+      else setMessages(describeApiError(error))
+    } finally {
+      diagnosticCancel.current = undefined; setDiagnosing(false); setDiagnosticScanning(false)
+    }
+  }
   const reset = () => {
-    requestCancel.current?.(); previewSequence.current += 1; setFiles([]); setPreview(undefined)
+    requestCancel.current?.(); diagnosticCancel.current?.(); previewSequence.current += 1; setFiles([]); setPreview(undefined)
     setSelectedArticle(undefined); setResult(undefined); setMessages([]); setUploadProgress(0)
+    setDiagnosticReport(undefined); setDiagnosticProgress(0); setDiagnosticScanning(false); setDiagnosing(false)
     setOptions(defaultOptions); setConfirmOpen(false); setPreviewing(false)
   }
   const download = (format: 'csv' | 'json') => {
@@ -131,18 +155,18 @@ const HelpJuiceMigrationPage = ({ accessToken, api = helpJuiceMigrationsApi }: H
   const previewWarnings = previewIssues.filter(issue => issue.severity === 'Warning').length
   const packageErrors = preview?.packageIssues.some(issue => issue.severity === 'Error') ?? false
   const canImport = Boolean(accessToken && files.length && preview && preview.articles.length &&
-    !preview.missingRequiredFiles.length && !packageErrors && !previewErrors && !submitting && !previewing)
+    !preview.missingRequiredFiles.length && !packageErrors && !previewErrors && !submitting && !diagnosing && !previewing)
 
   return <KbPageShell>
-    <PageHeader title='HelpJuice Migration' subtitle='Upload the export, inspect a limited authoritative preview, then choose whether to run the migration.' actions={<Stack direction='row' spacing={2}><Button variant='outlined' startIcon={<RotateCcw size={18} />} disabled={submitting} onClick={reset}>Reset</Button><Button variant='contained' startIcon={<PackageCheck size={18} />} disabled={!canImport} onClick={() => setConfirmOpen(true)}>Review and import</Button></Stack>} />
+    <PageHeader title='HelpJuice Migration' subtitle='Upload the export, inspect a limited authoritative preview, then choose whether to run the migration.' actions={<Stack direction='row' spacing={2}><Button variant='outlined' startIcon={<RotateCcw size={18} />} disabled={submitting || diagnosing} onClick={reset}>Reset</Button><Button variant='contained' startIcon={<PackageCheck size={18} />} disabled={!canImport} onClick={() => setConfirmOpen(true)}>Review and import</Button></Stack>} />
 
     {messages.length > 0 && <Alert severity='error'><AlertTitle>Migration request could not be completed</AlertTitle><List dense disablePadding>{messages.map(message => <ListItem key={message} disablePadding><ListItemText primary={message} /></ListItem>)}</List></Alert>}
 
     <KbSectionCard title='1. Upload export package' description='Choose a backup ZIP or its CSV/media files. The files are uploaded to generate the read-only preview; no knowledge-base records are changed yet.'>
       <Stack spacing={3}>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-          <Button component='label' variant='outlined' startIcon={<FileArchive size={18} />} disabled={submitting || previewing}>Choose backup ZIP<input hidden type='file' accept='.zip,application/zip' onChange={onFiles} /></Button>
-          <Button component='label' variant='outlined' startIcon={<FolderOpen size={18} />} disabled={submitting || previewing}>Choose CSV/media files<input hidden type='file' multiple onChange={onFiles} /></Button>
+          <Button component='label' variant='outlined' startIcon={<FileArchive size={18} />} disabled={submitting || diagnosing || previewing}>Choose backup ZIP<input hidden type='file' accept='.zip,application/zip' onChange={onFiles} /></Button>
+          <Button component='label' variant='outlined' startIcon={<FolderOpen size={18} />} disabled={submitting || diagnosing || previewing}>Choose CSV/media files<input hidden type='file' multiple onChange={onFiles} /></Button>
         </Stack>
         <Typography color='text.primary' sx={{ fontWeight: 600 }}>{files.length ? `${files.length} file${files.length === 1 ? '' : 's'} selected` : 'No migration package selected'}</Typography>
         {previewing && <Stack spacing={1}><Typography variant='body2' color='text.secondary'>Uploading and generating the migration preview…</Typography><LinearProgress /></Stack>}
@@ -152,6 +176,17 @@ const HelpJuiceMigrationPage = ({ accessToken, api = helpJuiceMigrationsApi }: H
           {preview.unsupportedFiles.length > 0 && <Alert severity='warning'>Unsupported files: {preview.unsupportedFiles.join(', ')}</Alert>}
           {preview.packageIssues.map(issue => <IssueAlert key={issue.id} issue={issue} />)}
         </Stack>}
+        {files.length > 0 && <Box sx={{ borderTop: theme => `1px solid ${theme.palette.divider}`, pt: 3 }}>
+          <Stack spacing={2}>
+            <Box><Typography color='text.primary' sx={{ fontWeight: 700 }}>Full migration diagnostic</Typography><Typography variant='body2' color='text.secondary'>Run the importer&apos;s existing parsing and validation across the entire package without importing anything. Every occurrence is written to one CSV report.</Typography></Box>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ alignItems: { sm: 'center' } }}>
+              <Button variant='outlined' startIcon={<FileSpreadsheet size={18} />} disabled={!accessToken || previewing || submitting || diagnosing} onClick={() => void runDiagnostic()}>Run full diagnostic</Button>
+              {diagnosticReport && <Button variant='outlined' startIcon={<Download size={18} />} onClick={() => downloadDiagnostic(diagnosticReport)}>Download diagnostic again</Button>}
+            </Stack>
+            {diagnosing && <Stack spacing={1}><Stack direction='row' sx={{ justifyContent: 'space-between' }}><Typography variant='body2' color='text.secondary'>{diagnosticScanning ? 'Scanning the entire package with migration validation…' : 'Uploading package for full diagnostic…'}</Typography><Typography variant='body2'>{diagnosticScanning ? 'Processing' : `${diagnosticProgress}%`}</Typography></Stack><LinearProgress variant={diagnosticScanning ? 'indeterminate' : 'determinate'} value={diagnosticProgress} /><Button color='error' variant='text' startIcon={<Ban size={16} />} sx={{ alignSelf: 'flex-start' }} onClick={() => diagnosticCancel.current?.()}>Cancel diagnostic</Button></Stack>}
+            {diagnosticReport && <Alert severity={diagnosticReport.status === 'Partial' ? 'warning' : 'success'}><AlertTitle>{diagnosticReport.status === 'Partial' ? 'Partial diagnostic report downloaded' : 'Full diagnostic report downloaded'}</AlertTitle>{diagnosticReport.totalRecords === undefined ? 'The report contains the full scan summary and every collected issue.' : `${diagnosticReport.totalRecords.toLocaleString()} records scanned · ${diagnosticReport.errorCount ?? 0} errors · ${diagnosticReport.warningCount ?? 0} warnings.`}</Alert>}
+          </Stack>
+        </Box>}
       </Stack>
     </KbSectionCard>
 
@@ -210,6 +245,12 @@ const formatDate = (value?: string) => value ? new Intl.DateTimeFormat(undefined
 const Metadata = ({ label, value }: { label: string; value: string }) => <Box><Typography variant='caption' color='text.secondary' sx={{ textTransform: 'uppercase', fontWeight: 700 }}>{label}</Typography><Typography variant='body2' sx={{ mt: 0.5, overflowWrap: 'anywhere' }}>{value}</Typography></Box>
 const issuesCsv = (issues: MigrationIssue[]) => ['severity,fileName,rowNumber,externalEntityType,externalId,errorCode,message,sourceDataSummary,createdAt', ...issues.map(issue => [issue.severity, issue.fileName, issue.rowNumber, issue.externalEntityType, issue.externalId, issue.errorCode, issue.message, issue.sourceDataSummary, issue.createdAt].map(csvCell).join(','))].join('\r\n')
 const csvCell = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`
+const downloadDiagnostic = (report: HelpJuiceDiagnosticDownload) => {
+  const url = URL.createObjectURL(report.blob)
+  const link = document.createElement('a')
+  link.href = url; link.download = report.fileName; link.click()
+  URL.revokeObjectURL(url)
+}
 const Metric = ({ label, value, warn = false, error = false }: { label: string; value: number; warn?: boolean; error?: boolean }) => <Box><Typography variant='h5' color={error && value ? 'error.main' : warn && value ? 'warning.main' : 'text.primary'} sx={{ fontWeight: 800 }}>{value.toLocaleString()}</Typography><Typography variant='caption' color='text.secondary' sx={{ textTransform: 'uppercase', fontWeight: 700 }}>{label}</Typography></Box>
 const Option = ({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) => <FormControlLabel control={<Switch checked={checked} onChange={event => onChange(event.target.checked)} />} label={label} />
 const BackendValidation = ({ summary }: { summary: HelpJuiceMigrationResponse['validation'] }) => <Alert severity={summary.blockingErrorCount ? 'error' : summary.warningCount ? 'warning' : 'success'} icon={<ShieldCheck size={20} />}><AlertTitle>{summary.blockingErrorCount ? 'Blocking validation errors' : summary.warningCount ? 'Validated with warnings' : 'Authoritative validation passed'}</AlertTitle>{summary.blockingErrorCount} blocking errors and {summary.warningCount} warnings. {summary.missingRequiredFiles.length ? `Missing: ${summary.missingRequiredFiles.join(', ')}.` : ''}</Alert>

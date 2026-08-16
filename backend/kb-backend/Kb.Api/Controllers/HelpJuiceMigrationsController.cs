@@ -33,6 +33,35 @@ public sealed class HelpJuiceMigrationsController(HelpJuiceMigrationService migr
         }
     }
 
+    [HttpPost("diagnostics")]
+    [Consumes("multipart/form-data")]
+    [Produces("text/csv")]
+    [RequestFormLimits(ValueCountLimit = 100_000)]
+    [ProducesResponseType<FileResult>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> Diagnostics(CancellationToken ct)
+    {
+        var files = await ReadFilesAsync(ct);
+        try
+        {
+            var report = await migrations.GenerateDiagnosticReportAsync(files, ct);
+            Response.Headers["X-HelpJuice-Diagnostic-Records"] = report.TotalRecordsScanned.ToString();
+            Response.Headers["X-HelpJuice-Diagnostic-Errors"] = report.ErrorCount.ToString();
+            Response.Headers["X-HelpJuice-Diagnostic-Warnings"] = report.WarningCount.ToString();
+            Response.Headers["X-HelpJuice-Diagnostic-Status"] = report.ScanFailed ? "Partial" : "Completed";
+            Response.OnCompleted(() =>
+            {
+                try { if (System.IO.File.Exists(report.Path)) System.IO.File.Delete(report.Path); }
+                catch { /* A stale temporary report is preferable to failing an already completed download. */ }
+                return Task.CompletedTask;
+            });
+            return PhysicalFile(report.Path, "text/csv; charset=utf-8", report.FileName);
+        }
+        finally
+        {
+            foreach (var file in files) await file.Content.DisposeAsync();
+        }
+    }
+
     [HttpPost]
     [Consumes("multipart/form-data")]
     [RequestFormLimits(ValueCountLimit = 100_000)]

@@ -77,6 +77,8 @@ public sealed record HelpJuiceMigrationPreview(int PreviewLimit, int SourceArtic
     bool IsLimited, IReadOnlyList<string> AvailableFiles, IReadOnlyList<string> MissingRequiredFiles,
     IReadOnlyList<string> UnsupportedFiles, IReadOnlyList<MigrationIssueData> PackageIssues,
     IReadOnlyList<HelpJuiceMigrationPreviewArticle> Articles);
+public sealed record HelpJuiceDiagnosticReportFile(string Path, string FileName, int TotalRecordsScanned,
+    int ErrorCount, int WarningCount, bool ScanFailed);
 
 public sealed record CsvRow(int RowNumber, IReadOnlyDictionary<string, string> Values)
 { public string this[string key] => Values.TryGetValue(key, out var value) ? value : string.Empty; }
