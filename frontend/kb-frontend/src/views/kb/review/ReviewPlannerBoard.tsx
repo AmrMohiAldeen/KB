@@ -41,6 +41,12 @@ const columns: Array<{
   { id: 'published', title: 'Published', statuses: ['Published'], icon: <FileCheck2 />, tone: 'success' }
 ]
 
+const authorLabel = (article: ArticleListItemResponse) => {
+  const historical = article.legacyAuthorName || article.legacyAuthorEmail ||
+    (article.legacyAuthorExternalId ? `HelpJuice user ${article.legacyAuthorExternalId}` : undefined)
+  return historical ? `Original author: ${historical}` : article.owner.fullName
+}
+
 export default function ReviewPlannerBoard({ accessToken }: ReviewPlannerBoardProps) {
   const [articles, setArticles] = useState<ArticleListItemResponse[]>([])
   const [selectedId, setSelectedId] = useState('')
@@ -133,13 +139,17 @@ export default function ReviewPlannerBoard({ accessToken }: ReviewPlannerBoardPr
                             {article.title}
                           </Typography>
                           <Typography variant='body2' color='text.secondary'>
-                            {article.owner.fullName} · updated {formatDate(article.updatedAt)}
+                            {authorLabel(article)} · updated {formatDate(article.updatedAt)}
                           </Typography>
                           <Box>
                             <StatusChip
                               label={articleStatusLabel[article.status]}
                               color={articleStatusColor[article.status]}
                             />
+                            {article.visibility && <StatusChip
+                              label={article.visibility}
+                              color={article.visibility === 'Internal' ? 'warning' : 'success'}
+                            />}
                           </Box>
                         </Stack>
                       </CardContent>

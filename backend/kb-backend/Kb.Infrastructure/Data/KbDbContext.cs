@@ -98,6 +98,9 @@ public partial class KbDbContext : DbContext
                 .HasDefaultValueSql("(newsequentialid())", "DF_ARTICLES_ArticleID")
                 .HasColumnName("ArticleID");
             entity.Property(e => e.AuthorIdFk).HasColumnName("AuthorID_FK");
+            entity.Property(e => e.LegacyAuthorName).HasMaxLength(300);
+            entity.Property(e => e.LegacyAuthorEmail).HasMaxLength(320);
+            entity.Property(e => e.LegacyAuthorExternalId).HasMaxLength(100);
             entity.Property(e => e.CategoryIdFk).HasColumnName("CategoryID_FK");
             entity.Property(e => e.CreatedAt)
                 .HasPrecision(3)

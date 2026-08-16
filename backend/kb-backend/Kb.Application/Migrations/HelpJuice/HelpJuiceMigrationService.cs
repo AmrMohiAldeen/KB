@@ -128,7 +128,7 @@ public sealed partial class HelpJuiceMigrationService(
                         Guid? parent = category.ParentId is null ? null : categoryMap.GetValueOrDefault(category.ParentId);
                         var result = await writer.WriteCategoryAsync(operationId,
                             new(category.Id, category.Name, category.Slug,
-                                parent, category.Depth, category.SortOrder), options.ConflictBehavior,
+                                parent, category.Depth, category.SortOrder, category.Visibility), options.ConflictBehavior,
                             currentUser.UserId, ct);
                         categoryMap[category.Id] = result.InternalId;
                         categoryPhase.Record(result.Disposition);
@@ -288,7 +288,9 @@ public sealed partial class HelpJuiceMigrationService(
                         new(question.Id, question.Name, question.Slug, question.Description, categoryId, currentUser.UserId,
                             question.IsArchived ? Kb.Domain.Constants.ArticleStatuses.Archived : question.IsPublished
                                 ? Kb.Domain.Constants.ArticleStatuses.Published : Kb.Domain.Constants.ArticleStatuses.Draft,
-                            question.IsPublished, created, updated, null, content, question.Source, question.Position), options.ConflictBehavior, ct);
+                            question.IsPublished, created, updated, null, content, question.Source, question.Position,
+                            question.Visibility, question.LegacyAuthorName, question.LegacyAuthorEmail,
+                            question.LegacyAuthorExternalId), options.ConflictBehavior, ct);
                     articlePhase.Record(result.Disposition);
                     if (result.Disposition == MigrationWriteDisposition.Skipped)
                         await DeletePaths(stagedPaths);

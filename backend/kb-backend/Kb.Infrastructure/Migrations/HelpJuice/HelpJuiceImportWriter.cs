@@ -84,13 +84,14 @@ public sealed class HelpJuiceImportWriter(KbDbContext db, TimeProvider timeProvi
         if (existing is not null && behavior.Equals(MigrationConflictBehaviors.UpdateExisting,StringComparison.OrdinalIgnoreCase))
         {
             existing.Name=Normalize(source.Name,200); existing.ParentCategoryIdFk=source.ParentId; existing.Depth=source.Depth;
-            existing.SortOrder=source.SortOrder; existing.Path=await BuildCategoryPath(source.ParentId,existing.CategoryId,ct);
+            existing.SortOrder=source.SortOrder; existing.Visibility=source.Visibility;
+            existing.Path=await BuildCategoryPath(source.ParentId,existing.CategoryId,ct);
             if(mapping is null)AddMapping("Category",source.ExternalId,existing.CategoryId,null,new{source.Name,source.Depth});
             await SearchIndexJobQueue.EnqueueCategoryAsync(db,existing.CategoryId,SearchIndexJobTypes.Upsert,timeProvider.GetUtcNow().UtcDateTime,ct);
             AddAudit(actorId,"MigrationCategoryUpdated","Category",existing.CategoryId,null,operationId); await SaveAsync(ct); await tx.CommitAsync(ct); return new(existing.CategoryId,MigrationWriteDisposition.Updated);
         }
         var slug=await AllocateCategorySlugAsync(source.Slug,ct); var id=Guid.NewGuid();
-        var category=new Category{CategoryId=id,Name=Normalize(source.Name,200),Slug=slug,ParentCategoryIdFk=source.ParentId,Depth=source.Depth,SortOrder=source.SortOrder,Path=await BuildCategoryPath(source.ParentId,id,ct)};
+        var category=new Category{CategoryId=id,Name=Normalize(source.Name,200),Slug=slug,ParentCategoryIdFk=source.ParentId,Depth=source.Depth,SortOrder=source.SortOrder,Visibility=source.Visibility,Path=await BuildCategoryPath(source.ParentId,id,ct)};
         db.Categories.Add(category); AddMapping("Category",source.ExternalId,id,null,new { source.Name, source.Depth }); AddAudit(actorId,"MigrationCategoryImported","Category",id,null,operationId);
         await SearchIndexJobQueue.EnqueueCategoryAsync(db,id,SearchIndexJobTypes.Upsert,timeProvider.GetUtcNow().UtcDateTime,ct);
         await SaveAsync(ct); await tx.CommitAsync(ct); return new(id,MigrationWriteDisposition.Imported);
@@ -126,13 +127,14 @@ public sealed class HelpJuiceImportWriter(KbDbContext db, TimeProvider timeProvi
         if(existing is not null&&behavior.Equals(MigrationConflictBehaviors.UpdateExisting,StringComparison.OrdinalIgnoreCase))
         {
             disposition=MigrationWriteDisposition.Updated; article=existing; draft=existing.CurrentDraftIdFkNavigation??throw new ConflictException("The destination article has no current draft.");
-            article.Title=Normalize(source.Title,300);article.CategoryIdFk=source.CategoryId;article.UpdatedAt=source.UpdatedAt;article.Status=source.Status;article.Position=source.Position;
+            article.Title=Normalize(source.Title,300);article.CategoryIdFk=source.CategoryId;article.UpdatedAt=source.UpdatedAt;article.Status=source.Status;article.Position=source.Position;article.Visibility=source.Visibility;
+            article.LegacyAuthorName=NormalizeNullable(source.LegacyAuthorName,300)??article.LegacyAuthorName;article.LegacyAuthorEmail=NormalizeNullable(source.LegacyAuthorEmail,320)??article.LegacyAuthorEmail;article.LegacyAuthorExternalId=NormalizeNullable(source.LegacyAuthorExternalId,100)??article.LegacyAuthorExternalId;
             draft.ContentJsonStoragePath=source.Content.JsonPath;draft.RenderedHtmlStoragePath=source.Content.HtmlPath;draft.PlainTextStoragePath=source.Content.TextPath;draft.ContentHash=source.Content.Hash;draft.ContentSizeBytes=source.Content.Size;draft.UpdatedByFk=source.UserId;draft.UpdatedAt=source.UpdatedAt;draft.Status=DraftStatus(source.Status);Touch(draft);
         }
         else
         {
             var slug=await AllocateArticleSlugAsync(source.Slug,source.ExternalId,ct);var articleId=Guid.NewGuid();var draftId=Guid.NewGuid();
-            article=new Article{ArticleId=articleId,Title=Normalize(source.Title,300),Slug=slug,CategoryIdFk=source.CategoryId,AuthorIdFk=source.UserId,Status=source.Status,Position=source.Position,CreatedAt=source.CreatedAt,UpdatedAt=source.UpdatedAt,CurrentDraftIdFk=null};
+            article=new Article{ArticleId=articleId,Title=Normalize(source.Title,300),Slug=slug,CategoryIdFk=source.CategoryId,AuthorIdFk=source.UserId,Status=source.Status,Visibility=source.Visibility,LegacyAuthorName=NormalizeNullable(source.LegacyAuthorName,300),LegacyAuthorEmail=NormalizeNullable(source.LegacyAuthorEmail,320),LegacyAuthorExternalId=NormalizeNullable(source.LegacyAuthorExternalId,100),Position=source.Position,CreatedAt=source.CreatedAt,UpdatedAt=source.UpdatedAt,CurrentDraftIdFk=null};
             draft=new ArticleDraft{DraftId=draftId,ArticleIdFk=articleId,DraftNumber=1,ContentJsonStoragePath=source.Content.JsonPath,RenderedHtmlStoragePath=source.Content.HtmlPath,PlainTextStoragePath=source.Content.TextPath,ContentHash=source.Content.Hash,ContentSizeBytes=source.Content.Size,IsLocked=false,CreatedByFk=source.UserId,UpdatedByFk=source.UserId,CreatedAt=source.CreatedAt,UpdatedAt=source.UpdatedAt,Status=DraftStatus(source.Status)};Touch(draft);
             db.Articles.Add(article);await db.SaveChangesAsync(ct);
             if(db.Database.IsSqlServer()){db.ArticleDrafts.Add(draft);await db.SaveChangesAsync(ct);}
@@ -183,6 +185,7 @@ public sealed class HelpJuiceImportWriter(KbDbContext db, TimeProvider timeProvi
     private async Task SaveAsync(CancellationToken ct){await db.SaveChangesAsync(ct);db.ChangeTracker.Clear();}
     private void Touch(ArticleDraft draft){if(!db.Database.IsSqlServer())draft.RowVersion=Guid.NewGuid().ToByteArray();}
     private Guid NewId()=>db.Database.IsSqlServer()?Guid.Empty:Guid.NewGuid();private static string Normalize(string value,int max){var v=value.Trim();return v[..Math.Min(v.Length,max)];}
+    private static string? NormalizeNullable(string? value,int max)=>string.IsNullOrWhiteSpace(value)?null:Normalize(value,max);
     private static string DraftStatus(string articleStatus)=>articleStatus==ArticleStatuses.Published?ArticleStatuses.Approved:articleStatus;
     private Task<MigrationExternalMapping?> FindMappingAsync(string type,string externalId,CancellationToken ct)=>db.MigrationExternalMappings.SingleOrDefaultAsync(x=>x.SourceSystem=="HelpJuice"&&x.ExternalEntityType==type&&x.ExternalId==externalId,ct);
     private void AddMapping(string type,string externalId,Guid internalId,string? hash,object metadata)=>db.MigrationExternalMappings.Add(new(){MappingId=Guid.NewGuid(),SourceSystem="HelpJuice",ExternalEntityType=type,ExternalId=externalId,InternalId=internalId,ContentHash=hash,MetadataJson=JsonSerializer.Serialize(metadata),CreatedAt=timeProvider.GetUtcNow().UtcDateTime,UpdatedAt=timeProvider.GetUtcNow().UtcDateTime});

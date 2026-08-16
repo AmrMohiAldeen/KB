@@ -24,6 +24,10 @@ export type HelpJuiceMigrationPreviewArticle = {
   updatedAt?: string
   categoryExternalId?: string
   categoryLocation?: string
+  visibility: 'Public' | 'Internal'
+  legacyAuthorName?: string
+  legacyAuthorEmail?: string
+  legacyAuthorExternalId?: string
   contentHtml: string
   contentTextLength: number
   sourceMetadata: Record<string, string>

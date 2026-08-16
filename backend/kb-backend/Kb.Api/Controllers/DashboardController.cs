@@ -142,5 +142,8 @@ public sealed class DashboardController(DashboardService dashboard, DashboardBul
         article.IsCurrentDraftLocked,
         article.LockedBy is null ? null : new UserSummaryResponse(article.LockedBy.Id, article.LockedBy.Name),
         article.Position,
-        article.Visibility);
+        article.Visibility,
+        article.LegacyAuthorName,
+        article.LegacyAuthorEmail,
+        article.LegacyAuthorExternalId);
 }

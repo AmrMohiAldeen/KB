@@ -15,6 +15,12 @@ public partial class Article
 
     public Guid AuthorIdFk { get; set; }
 
+    public string? LegacyAuthorName { get; set; }
+
+    public string? LegacyAuthorEmail { get; set; }
+
+    public string? LegacyAuthorExternalId { get; set; }
+
     public string Status { get; set; } = null!;
 
     public string Visibility { get; set; } = "Public";

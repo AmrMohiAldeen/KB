@@ -80,6 +80,28 @@ public sealed class HelpJuiceImportWriterTests
         Assert.Single(await f.Context.Articles.ToListAsync());Assert.Single(await f.Context.MigrationExternalMappings.Where(x=>x.ExternalEntityType=="Article").ToListAsync());
     }
 
+    [Fact]
+    public async Task Migration_preserves_visibility_and_historical_author_without_creating_a_user()
+    {
+        await using var f=await Fixture.CreateAsync();
+        var source=Article("legacy",true,f.UserId) with
+        {
+            Visibility="Internal",LegacyAuthorName="Ada Lovelace",LegacyAuthorEmail="ada@example.test",
+            LegacyAuthorExternalId="hj-42"
+        };
+        var result=await f.Writer.WriteArticleAsync(f.OperationId,source,MigrationConflictBehaviors.Skip,default);
+        f.Context.ChangeTracker.Clear();
+        var article=await f.Context.Articles.SingleAsync(x=>x.ArticleId==result.InternalId);
+        Assert.Equal("Internal",article.Visibility);Assert.Equal("Ada Lovelace",article.LegacyAuthorName);
+        Assert.Equal("ada@example.test",article.LegacyAuthorEmail);Assert.Equal("hj-42",article.LegacyAuthorExternalId);
+        Assert.Equal(f.UserId,article.AuthorIdFk);Assert.Equal(1,await f.Context.Users.CountAsync());
+
+        var category=await f.Writer.WriteCategoryAsync(f.OperationId,
+            new("legacy-category","Internal","internal",null,0,0,"Internal"),MigrationConflictBehaviors.Skip,f.UserId,default);
+        f.Context.ChangeTracker.Clear();
+        Assert.Equal("Internal",(await f.Context.Categories.SingleAsync(x=>x.CategoryId==category.InternalId)).Visibility);
+    }
+
     private static ImportedArticleData Article(string id,bool published,Guid user)=>new(id,id,id,null,null,user,published?ArticleStatuses.Published:ArticleStatuses.Draft,published,DateTime.UtcNow.AddDays(-1),DateTime.UtcNow,null,new($"draft/{id}.json",$"draft/{id}.html",$"draft/{id}.txt","a".PadLeft(64,'0'),20,[],published?$"version/{id}.json":null,published?$"version/{id}.html":null,published?$"version/{id}.txt":null));
 
     private sealed class Fixture : IAsyncDisposable

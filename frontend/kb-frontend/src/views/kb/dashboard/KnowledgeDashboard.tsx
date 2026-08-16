@@ -222,9 +222,27 @@ const ArticleBadges = ({ article }: { article: ArticleListItemResponse }) => {
           color={articleStatusColor[status]}
         />
       ))}
+      {article.visibility && <StatusChip
+        label={article.visibility}
+        color={article.visibility === 'Internal' ? 'warning' : 'success'}
+      />}
     </Stack>
   )
 }
+
+const historicalAuthor = (article: ArticleListItemResponse) =>
+  article.legacyAuthorName || article.legacyAuthorEmail ||
+  (article.legacyAuthorExternalId ? `HelpJuice user ${article.legacyAuthorExternalId}` : undefined)
+
+const articleAuthorLabel = (article: ArticleListItemResponse) => historicalAuthor(article) ?? article.owner.fullName
+const articleAuthorPrefix = (article: ArticleListItemResponse) => historicalAuthor(article) ? 'Original author' : 'By'
+
+const CategoryBadges = ({ status, visibility }: { status?: string; visibility?: string }) => (
+  <Stack direction='row' spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap' }}>
+    {status === 'Archived' && <StatusChip label='Archived' color='secondary' />}
+    {visibility && <StatusChip label={visibility} color={visibility === 'Internal' ? 'warning' : 'success'} />}
+  </Stack>
+)
 
 const stopRowAction = (event: SyntheticEvent) => event.stopPropagation()
 
@@ -1642,21 +1660,21 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
                           <TableCell sx={{ py: 1.5 }}>
                             <ItemName item={item} />
                             <Box sx={{ display: { xs: 'block', sm: 'none' }, mt: 1 }}>
-                              {item.kind === 'category' ? item.category.status === 'Archived' && (
-                                <StatusChip label='Archived' color='secondary' />
+                              {item.kind === 'category' ? (
+                                <CategoryBadges status={item.category.status} visibility={item.category.visibility} />
                               ) : (
                                 <Stack spacing={0.5} sx={{ alignItems: 'flex-start' }}>
                                   <ArticleBadges article={item.article} />
                                   <Typography variant='caption' color='text.secondary'>
-                                    By {item.article.owner.fullName} · Languages —
+                                    {articleAuthorPrefix(item.article)} {articleAuthorLabel(item.article)} · Languages —
                                   </Typography>
                                 </Stack>
                               )}
                             </Box>
                           </TableCell>
                           <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' }, py: 1.25 }}>
-                            {item.kind === 'category' ? item.category.status === 'Archived' && (
-                              <StatusChip label='Archived' color='secondary' />
+                            {item.kind === 'category' ? (
+                              <CategoryBadges status={item.category.status} visibility={item.category.visibility} />
                             ) : (
                               <Stack spacing={0.75} sx={{ alignItems: 'flex-start' }}>
                                 <ArticleBadges article={item.article} />
@@ -1664,7 +1682,7 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
                                   <Stack direction='row' spacing={0.5} sx={{ alignItems: 'center' }}>
                                     <UserRound size={13} aria-hidden='true' />
                                     <Typography variant='caption' color='text.secondary'>
-                                      {item.article.owner.fullName}
+                                      {historicalAuthor(item.article) ? `Original author: ${articleAuthorLabel(item.article)}` : item.article.owner.fullName}
                                     </Typography>
                                   </Stack>
                                   {/* TODO: Replace this placeholder when article localization versions are available. */}
@@ -1758,14 +1776,14 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
                           />
                         </Stack>
                         {item.kind === 'category'
-                          ? item.category.status === 'Archived' && <StatusChip label='Archived' color='secondary' />
+                          ? <CategoryBadges status={item.category.status} visibility={item.category.visibility} />
                           : <ArticleBadges article={item.article} />}
                       </Stack>
                       <ItemName item={item} />
                       <Typography variant='caption' color='text.secondary' noWrap sx={{ mt: 1.5 }}>
                         {item.kind === 'category'
                           ? item.category.path || 'Top-level category'
-                          : `By ${item.article.owner.fullName}`}
+                          : `${articleAuthorPrefix(item.article)} ${articleAuthorLabel(item.article)}`}
                       </Typography>
                       {item.kind === 'article' && (
                         // TODO: Replace this placeholder when article localization versions are available.

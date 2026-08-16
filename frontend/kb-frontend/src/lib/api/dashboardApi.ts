@@ -154,7 +154,7 @@ export const searchDashboard = async ({
           articleCount: 0,
           children: [],
           status: hit.status === 'Archived' ? 'Archived' as const : 'Active' as const,
-          visibility: 'Public' as const
+          visibility: undefined
         },
         search
       }
@@ -183,7 +183,7 @@ export const searchDashboard = async ({
         isCurrentDraftLocked: false,
         lockedBy: null,
         position: 0,
-        visibility: 'Public' as const
+        visibility: undefined
       },
       search
     }

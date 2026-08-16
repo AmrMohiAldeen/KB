@@ -28,7 +28,9 @@ public static class HelpJuicePreviewBuilder
             return new HelpJuiceMigrationPreviewArticle(question.Id, question.RowNumber, answer?.Id,
                 answer?.RowNumber, question.Name, question.Slug, question.Description, question.IsPublished, question.IsArchived,
                 question.CreatedAt, question.UpdatedAt, categoryId, CategoryLocation(categoryIds, categories),
-                conversion.RenderedHtml, conversion.PlainText.Length, SourceMetadata(question, answer), issues);
+                question.Visibility, question.LegacyAuthorName, question.LegacyAuthorEmail,
+                question.LegacyAuthorExternalId, conversion.RenderedHtml, conversion.PlainText.Length,
+                SourceMetadata(question, answer), issues);
         }).ToArray();
 
         var packageIssues = source.Issues.Where(issue => issue.RowNumber is null &&

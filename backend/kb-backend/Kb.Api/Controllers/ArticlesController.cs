@@ -95,7 +95,7 @@ public sealed class ArticlesController(ArticleService articles) : ControllerBase
         article.Title, article.Slug, article.Status, ToCategory(article.Category), ToUser(article.Owner),
         article.CurrentDraftId, article.CurrentPublishedVersionId, article.CreatedAt, article.UpdatedAt,
         article.PublishedAt, article.IsCurrentDraftLocked, ToOptionalUser(article.LockedBy), article.Position,
-        article.Visibility);
+        article.Visibility, article.LegacyAuthorName, article.LegacyAuthorEmail, article.LegacyAuthorExternalId);
 
     private static ArticleDetailsResponse ToDetailsResponse(ArticleData article) => new(article.Id,
         article.Title, article.Slug, article.Status, ToCategory(article.Category), ToUser(article.Owner),
@@ -111,7 +111,8 @@ public sealed class ArticlesController(ArticleService articles) : ControllerBase
             article.CurrentPublishedVersion.ContentSizeBytes, ToUser(article.CurrentPublishedVersion.CreatedBy),
             article.CurrentPublishedVersion.CreatedAt, ToOptionalUser(article.CurrentPublishedVersion.PublishedBy),
             article.CurrentPublishedVersion.PublishedAt), article.CreatedAt, article.UpdatedAt,
-        article.SubmittedAt, article.ApprovedAt, article.PublishedAt, article.Visibility);
+        article.SubmittedAt, article.ApprovedAt, article.PublishedAt, article.Visibility,
+        article.LegacyAuthorName, article.LegacyAuthorEmail, article.LegacyAuthorExternalId);
 
     private static CategorySummaryResponse? ToCategory(CategoryReference? category) => category is null
         ? null : new(category.Id, category.Name, category.Slug, category.Path);

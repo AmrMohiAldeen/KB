@@ -10,11 +10,14 @@ public sealed record HelpJuiceQuestion(
     DateTime? CreatedAt, DateTime? UpdatedAt, string? CategoryId, IReadOnlyDictionary<string, string> Source,
     bool IsArchived = false, bool HasUnrecoverableNewerDraft = false, int? LanguageId = null,
     string? TranslationId = null, string? CreatedById = null, string? UpdatedById = null, int Position = 0,
-    IReadOnlyList<string>? RelatedQuestionIds = null, IReadOnlyList<string>? UploadIds = null);
+    IReadOnlyList<string>? RelatedQuestionIds = null, IReadOnlyList<string>? UploadIds = null,
+    string Visibility = "Public", bool VisibilityWasExplicit = false,
+    string? LegacyAuthorName = null, string? LegacyAuthorEmail = null, string? LegacyAuthorExternalId = null);
 public sealed record HelpJuiceAnswer(int RowNumber, string Id, string QuestionId, string Body,
     IReadOnlyDictionary<string, string> Source);
 public sealed record HelpJuiceCategory(int RowNumber, string Id, string? ParentId, string Name, int Depth = 0,
-    string Slug = "", int SortOrder = 0, bool IsArchived = false, int? LanguageId = null);
+    string Slug = "", int SortOrder = 0, bool IsArchived = false, int? LanguageId = null,
+    string Visibility = "Public", bool VisibilityWasExplicit = false);
 public sealed record HelpJuiceUpload(int RowNumber, string Id, string FileName, string? PreviewUrl,
     string? Checksum, string? MimeType, string Extension, long? Size, DateTime? CreatedAt,
     IReadOnlyDictionary<string, string> Source);
@@ -49,9 +52,6 @@ public static class HelpJuiceSourceParser
         foreach (var file in missing) issues.Add(Issue("Error", "REQUIRED_FILE_MISSING", $"Required file {file} is missing.", file));
         foreach (var file in package.UnsupportedFiles)
             issues.Add(Issue("Warning", "UNSUPPORTED_FILE", $"Unsupported file '{file}' will not be imported.", file));
-        foreach (var legacy in new[] { "groups.csv", "passes.csv" }.Where(package.KnownCsvFiles.ContainsKey))
-            issues.Add(Issue("Warning", "LEGACY_PERMISSIONS_NOT_IMPORTED",
-                $"{legacy} contains HelpJuice identity/permission data that has no safe KB RBAC equivalent; the source file is left unchanged and no permissions will be inferred.", legacy));
         if (missing.Length > 0) return EmptySummary(package, issues, missing);
 
         ParsedCsv questionsCsv;
@@ -68,6 +68,7 @@ public static class HelpJuiceSourceParser
         }
         RequireColumns(questionsCsv, ["id", "name"], issues, Issue);
         RequireColumns(answersCsv, ["id", "question_id", "body"], issues, Issue);
+        var legacyUsers = await ParseLegacyUsersAsync(package, limits, cancellationToken);
 
         var questions = new List<HelpJuiceQuestion>();
         foreach (var row in questionsCsv.Rows)
@@ -111,17 +112,42 @@ public static class HelpJuiceSourceParser
             if (row.Values.ContainsKey("joined_tag_names") && row["joined_tag_names"].Length > 0)
                 issues.Add(Issue("Warning", "TAGS_IGNORED", "HelpJuice tags are not imported because the KB has no article-tag model.", "questions.csv", row.RowNumber, "Question", id));
 
+            var visibility = ParseVisibility(row);
+            var externalAuthorId = NullIfEmpty(First(row, "created_by_id", "author_id", "user_id"));
+            legacyUsers.TryGetValue(externalAuthorId ?? string.Empty, out var legacyUser);
+            var authorName = NullIfEmpty(First(row, "author_name", "created_by_name", "user_name", "last_published_user_name"))
+                ?? CombineName(row, "author_first_name", "author_last_name")
+                ?? CombineName(row, "created_by_first_name", "created_by_last_name")
+                ?? legacyUser?.Name;
+            var authorEmail = NullIfEmpty(First(row, "author_email", "created_by_email")) ?? legacyUser?.Email;
+
             questions.Add(new(row.RowNumber, id, slug, name, NullIfEmpty(row["description"]), published,
                 created, updated, NullIfEmpty(row["category_id"]), row.Values, archived, newerDraft, ParseInt(row["language_id"]),
                 NullIfEmpty(row["translation_id"]), NullIfEmpty(row["created_by_id"]), NullIfEmpty(row["updated_by_id"]),
-                ParseInt(row["position"]) ?? 0, SplitIds(row["related_question_ids"]), SplitIds(row["upload_ids"])));
-            if (row["created_by_id"].Length > 0 || row["updated_by_id"].Length > 0)
-                issues.Add(Issue("Warning", "HISTORICAL_USER_MAPPED_TO_MIGRATION_USER", "HelpJuice user IDs are preserved in metadata; required KB user fields will use the migration administrator.",
-                    "questions.csv", row.RowNumber, "Question", id, "automaticallyRepaired=true;field=created_by_id,updated_by_id"));
+                ParseInt(row["position"]) ?? 0, SplitIds(row["related_question_ids"]), SplitIds(row["upload_ids"]),
+                visibility.Value, visibility.WasExplicit, authorName, authorEmail, externalAuthorId));
         }
 
         var answers = answersCsv.Rows.Select(row => new HelpJuiceAnswer(row.RowNumber,
             row["id"].Trim(), row["question_id"].Trim(), row["body"], row.Values)).ToArray();
+        var firstAnswerByQuestion = answers.GroupBy(answer => answer.QuestionId, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        for (var index = 0; index < questions.Count; index++)
+        {
+            var question = questions[index];
+            if (!firstAnswerByQuestion.TryGetValue(question.Id, out var answer)) continue;
+            var externalId = question.LegacyAuthorExternalId ?? NullIfEmpty(First(answer.Source,
+                "created_by_id", "author_id", "user_id"));
+            legacyUsers.TryGetValue(externalId ?? string.Empty, out var legacyUser);
+            var name = question.LegacyAuthorName ?? NullIfEmpty(First(answer.Source,
+                "author_name", "created_by_name", "user_name", "last_published_user_name")) ?? legacyUser?.Name;
+            var email = question.LegacyAuthorEmail ?? NullIfEmpty(First(answer.Source,
+                "author_email", "created_by_email", "email")) ?? legacyUser?.Email;
+            questions[index] = question with
+            {
+                LegacyAuthorExternalId = externalId, LegacyAuthorName = name, LegacyAuthorEmail = email
+            };
+        }
         AddDuplicateIssues(questions.Select(x => (x.Id, x.RowNumber)), "QUESTION_ID_DUPLICATE", "questions.csv", "Question", issues, Issue);
         AddDuplicateIssues(answers.Select(x => (x.Id, x.RowNumber)), "ANSWER_ID_DUPLICATE", "answers.csv", "Answer", issues, Issue);
 
@@ -154,12 +180,36 @@ public static class HelpJuiceSourceParser
         var categories = await ParseCategoriesAsync(package, limits, issues, Issue, cancellationToken);
         var categorizations = await ParseCategorizationsAsync(package, limits, issues, Issue, cancellationToken);
         var categoryIds = categories.Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var permissionVisibility = await ParsePermissionVisibilityAsync(package, limits, questionIds, categoryIds, cancellationToken);
+        if (permissionVisibility.UnresolvedRows.Count > 0)
+            issues.Add(Issue("Warning", "LEGACY_PERMISSIONS_NOT_IMPORTED",
+                $"{permissionVisibility.UnresolvedRows.Count} row(s) in passes.csv could not be associated with an exported question or category. No KB users or groups were created.",
+                "passes.csv", permissionVisibility.UnresolvedRows[0]));
+        categories = categories.Select(category => permissionVisibility.CategoryIds.Contains(category.Id)
+            ? category with { Visibility = "Internal", VisibilityWasExplicit = true }
+            : category).ToList();
+        for (var index = 0; index < questions.Count; index++)
+            if (permissionVisibility.QuestionIds.Contains(questions[index].Id))
+                questions[index] = questions[index] with { Visibility = "Internal", VisibilityWasExplicit = true };
         foreach (var category in categories.Where(x => x.ParentId is not null && !categoryIds.Contains(x.ParentId)))
             issues.Add(Issue("Error", "CATEGORY_PARENT_MISSING", $"Category parent '{category.ParentId}' does not exist.", "categories.csv", category.RowNumber, "Category", category.Id));
         var orderedCategories = OrderCategories(categories, out var cycleIds);
         foreach (var id in cycleIds) issues.Add(Issue("Error", "CATEGORY_CYCLE", $"Category '{id}' participates in a hierarchy cycle.", "categories.csv", type: "Category", id: id));
         var orderedById = orderedCategories.ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
-        categories = categories.Select(c => c with { Depth = orderedById.GetValueOrDefault(c.Id)?.Depth ?? 0 }).ToList();
+        var effectiveCategoryVisibility = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var category in orderedCategories)
+        {
+            var visibility = category.Visibility;
+            if (!category.VisibilityWasExplicit && category.ParentId is not null &&
+                effectiveCategoryVisibility.GetValueOrDefault(category.ParentId) == "Internal")
+                visibility = "Internal";
+            effectiveCategoryVisibility[category.Id] = visibility;
+        }
+        categories = categories.Select(c => c with
+        {
+            Depth = orderedById.GetValueOrDefault(c.Id)?.Depth ?? 0,
+            Visibility = effectiveCategoryVisibility.GetValueOrDefault(c.Id, c.Visibility)
+        }).ToList();
 
         for (var index = 0; index < questions.Count; index++)
         {
@@ -184,7 +234,12 @@ public static class HelpJuiceSourceParser
                     "categorizations.csv", null, "Question", question.Id, "automaticallyRepaired=true;field=category_id"));
             var sourceMetadata = new Dictionary<string, string>(question.Source, StringComparer.OrdinalIgnoreCase);
             if (related.Length > 0) sourceMetadata["categorizations.category_ids"] = string.Join(',', related);
-            questions[index] = question with { CategoryId = valid.FirstOrDefault(), Source = sourceMetadata };
+            var visibility = question.Visibility;
+            if (!question.VisibilityWasExplicit && valid.Any(id => categories.Any(category =>
+                    category.Id.Equals(id, StringComparison.OrdinalIgnoreCase) && category.Visibility == "Internal")))
+                visibility = "Internal";
+            sourceMetadata["migration.visibility"] = visibility;
+            questions[index] = question with { CategoryId = valid.FirstOrDefault(), Source = sourceMetadata, Visibility = visibility };
         }
 
         var questionById = questions.GroupBy(x => x.Id, StringComparer.OrdinalIgnoreCase)
@@ -355,11 +410,96 @@ public static class HelpJuiceSourceParser
     {
         if (!package.KnownCsvFiles.TryGetValue("categories.csv", out var path)) return [];
         var csv = await HelpJuiceCsvReader.ReadAsync(path, limits.MaxCsvRows, ct); RequireColumns(csv, ["id", "name"], issues, issue);
-        var result = csv.Rows.Select(r => new HelpJuiceCategory(r.RowNumber, r["id"].Trim(), NullIfEmpty(r["parent_id"]), r["name"].Trim(), 0,
-            NormalizeSlug(First(r, "codename", "name")), ParseInt(r["position"]) ?? r.RowNumber,
-            ParseBoolean(r["archived"], out _), ParseInt(r["language_id"]))).ToList();
+        var result = csv.Rows.Select(r =>
+        {
+            var visibility = ParseVisibility(r);
+            return new HelpJuiceCategory(r.RowNumber, r["id"].Trim(), NullIfEmpty(r["parent_id"]), r["name"].Trim(), 0,
+                NormalizeSlug(First(r, "codename", "name")), ParseInt(r["position"]) ?? r.RowNumber,
+                ParseBoolean(r["archived"], out _), ParseInt(r["language_id"]), visibility.Value, visibility.WasExplicit);
+        }).ToList();
         AddDuplicateIssues(result.Select(x => (x.Id, x.RowNumber)), "CATEGORY_ID_DUPLICATE", "categories.csv", "Category", issues, issue);
         return result;
+    }
+
+    private sealed record LegacyUser(string? Name, string? Email);
+    private sealed record PermissionVisibility(HashSet<string> QuestionIds, HashSet<string> CategoryIds,
+        List<int> UnresolvedRows);
+
+    private static async Task<Dictionary<string, LegacyUser>> ParseLegacyUsersAsync(PackageContents package,
+        HelpJuiceMigrationLimits limits, CancellationToken ct)
+    {
+        if (!package.KnownCsvFiles.TryGetValue("users.csv", out var path))
+            return new(StringComparer.OrdinalIgnoreCase);
+        var csv = await HelpJuiceCsvReader.ReadAsync(path, limits.MaxCsvRows, ct);
+        var result = new Dictionary<string, LegacyUser>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in csv.Rows)
+        {
+            var id = First(row, "id", "user_id");
+            if (id.Length == 0) continue;
+            var name = NullIfEmpty(First(row, "name", "full_name", "display_name"))
+                ?? CombineName(row, "first_name", "last_name");
+            result.TryAdd(id, new(name, NullIfEmpty(row["email"])));
+        }
+        return result;
+    }
+
+    private static async Task<PermissionVisibility> ParsePermissionVisibilityAsync(PackageContents package,
+        HelpJuiceMigrationLimits limits, IReadOnlySet<string> questionIds, IReadOnlySet<string> categoryIds,
+        CancellationToken ct)
+    {
+        var result = new PermissionVisibility(new(StringComparer.OrdinalIgnoreCase),
+            new(StringComparer.OrdinalIgnoreCase), []);
+        if (!package.KnownCsvFiles.TryGetValue("passes.csv", out var path)) return result;
+        var csv = await HelpJuiceCsvReader.ReadAsync(path, limits.MaxCsvRows, ct);
+        foreach (var row in csv.Rows)
+        {
+            var questionId = First(row, "question_id");
+            var categoryId = First(row, "category_id");
+            if (questionIds.Contains(questionId)) { result.QuestionIds.Add(questionId); continue; }
+            if (categoryIds.Contains(categoryId)) { result.CategoryIds.Add(categoryId); continue; }
+
+            var targetId = First(row, "passable_id", "resource_id", "accessible_id", "item_id", "content_id");
+            var targetType = First(row, "passable_type", "resource_type", "accessible_type", "item_type", "content_type");
+            if (targetType.Contains("question", StringComparison.OrdinalIgnoreCase) && questionIds.Contains(targetId))
+                result.QuestionIds.Add(targetId);
+            else if (targetType.Contains("categor", StringComparison.OrdinalIgnoreCase) && categoryIds.Contains(targetId))
+                result.CategoryIds.Add(targetId);
+            else if (questionIds.Contains(targetId) && !categoryIds.Contains(targetId)) result.QuestionIds.Add(targetId);
+            else if (categoryIds.Contains(targetId) && !questionIds.Contains(targetId)) result.CategoryIds.Add(targetId);
+            else result.UnresolvedRows.Add(row.RowNumber);
+        }
+        return result;
+    }
+
+    private static (string Value, bool WasExplicit) ParseVisibility(CsvRow row)
+    {
+        foreach (var field in new[] { "visibility_id", "accessibility", "accessibility_id", "visibility" })
+        {
+            var raw = row[field].Trim();
+            if (raw.Length == 0) continue;
+            if (raw.Contains("public", StringComparison.OrdinalIgnoreCase) || raw == "1") return ("Public", true);
+            if (raw.Contains("internal", StringComparison.OrdinalIgnoreCase) ||
+                raw.Contains("private", StringComparison.OrdinalIgnoreCase) ||
+                raw.Contains("url", StringComparison.OrdinalIgnoreCase) || raw is "0" or "2" or "4")
+                return ("Internal", true);
+        }
+        foreach (var field in new[] { "is_internal", "internal" })
+        {
+            if (row[field].Length == 0) continue;
+            var parsed = ParseBoolean(row[field], out var valid);
+            if (valid) return (parsed ? "Internal" : "Public", true);
+        }
+        if (row["is_private"].Length > 0 && ParseBoolean(row["is_private"], out var privateValid) && privateValid)
+            return ("Internal", true);
+        if (row["is_public"].Length > 0 && ParseBoolean(row["is_public"], out var publicValid) && publicValid)
+            return ("Public", true);
+        return ("Public", false);
+    }
+
+    private static string? CombineName(CsvRow row, string firstNameField, string lastNameField)
+    {
+        var combined = $"{row[firstNameField].Trim()} {row[lastNameField].Trim()}".Trim();
+        return NullIfEmpty(combined);
     }
 
     private static async Task<Dictionary<string, List<string>>> ParseCategorizationsAsync(PackageContents p, HelpJuiceMigrationLimits l,
@@ -421,13 +561,15 @@ public static class HelpJuiceSourceParser
         _ => extension.ToLowerInvariant() switch { ".pdf" => "application/pdf", ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".mp4" => "video/mp4", _ => "application/octet-stream" }
     };
     private static string First(CsvRow r, params string[] names)=>names.Select(n=>r[n].Trim()).FirstOrDefault(v=>v.Length>0)??"";
+    private static string First(IReadOnlyDictionary<string,string> values, params string[] names)=>
+        names.Select(name=>values.GetValueOrDefault(name)?.Trim()??"").FirstOrDefault(value=>value.Length>0)??"";
     private static IReadOnlyList<string> SplitIds(string value) => value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
     private static int? ParseInt(string value) => int.TryParse(value, out var parsed) ? parsed : null;
     private static void RequireColumns(ParsedCsv csv, IReadOnlyList<string> required, List<MigrationIssueData> issues,
         Func<string,string,string,string?,int?,string?,string?,string?,MigrationIssueData> issue){foreach(var c in required.Where(c=>!csv.Headers.Contains(c,StringComparer.OrdinalIgnoreCase))) issues.Add(issue("Error","EXPECTED_COLUMN_MISSING",$"{csv.FileName} is missing required column '{c}'.",csv.FileName,null,null,null,null));}
     private static void AddDuplicateIssues(IEnumerable<(string Id,int Row)> values,string code,string file,string type,List<MigrationIssueData> issues,
         Func<string,string,string,string?,int?,string?,string?,string?,MigrationIssueData> issue){foreach(var g in values.Where(x=>x.Id.Length>0).GroupBy(x=>x.Id,StringComparer.OrdinalIgnoreCase).Where(g=>g.Count()>1)) foreach(var x in g) issues.Add(issue("Error",code,$"Duplicate {type.ToLowerInvariant()} ID '{g.Key}'.",file,x.Row,type,g.Key,null));}
-    private static bool ParseBoolean(string value,out bool valid){if(string.IsNullOrWhiteSpace(value)){valid=true;return false;} if(bool.TryParse(value,out var b)){valid=true;return b;} if(value.Trim() is "1" or "yes" or "YES"){valid=true;return true;} if(value.Trim() is "0" or "no" or "NO"){valid=true;return false;} valid=false;return false;}
+    private static bool ParseBoolean(string value,out bool valid){if(string.IsNullOrWhiteSpace(value)){valid=true;return false;} if(bool.TryParse(value,out var b)){valid=true;return b;} if(value.Trim() is "1" or "yes" or "YES" or "t" or "T"){valid=true;return true;} if(value.Trim() is "0" or "no" or "NO" or "f" or "F"){valid=true;return false;} valid=false;return false;}
     private static DateTime? ParseDate(string value,out bool valid){if(string.IsNullOrWhiteSpace(value)){valid=true;return null;}var normalized=value.Trim();if(normalized.EndsWith(" UTC",StringComparison.OrdinalIgnoreCase))normalized=normalized[..^4]+" +00:00";valid=DateTimeOffset.TryParse(normalized,System.Globalization.CultureInfo.InvariantCulture,System.Globalization.DateTimeStyles.AllowWhiteSpaces,out var d);return valid?d.UtcDateTime:null;}
     private static string? NullIfEmpty(string value)=>string.IsNullOrWhiteSpace(value)?null:value.Trim(); private static string Limit(string value)=>value.Length<=160?value:value[..157]+"...";
     private static HelpJuiceSource EmptySummary(PackageContents p,List<MigrationIssueData> issues,IReadOnlyList<string> missing){var s=new HelpJuiceValidationSummary(0,0,0,0,0,0,0,0,0,0,p.AvailableFiles,missing,p.UnsupportedFiles,issues.Count(i=>i.Severity=="Error"),issues.Count(i=>i.Severity=="Warning"));return new([],[],[],new Dictionary<string,string>(),p.MediaFiles,new Dictionary<string,string>(),new Dictionary<string,HelpJuiceHtmlConversion>(),issues,s,[]);}

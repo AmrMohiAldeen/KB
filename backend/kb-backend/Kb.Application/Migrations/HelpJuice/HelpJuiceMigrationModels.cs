@@ -71,7 +71,8 @@ public sealed record HelpJuiceMigrationExecutionResult(Guid JobId, string Status
 public sealed record HelpJuiceMigrationPreviewArticle(string ExternalId, int QuestionRowNumber,
     string? AnswerExternalId, int? AnswerRowNumber, string Title, string Slug, string? Description,
     bool IsPublished, bool IsArchived, DateTime? CreatedAt, DateTime? UpdatedAt, string? CategoryExternalId,
-    string? CategoryLocation, string ContentHtml, int ContentTextLength,
+    string? CategoryLocation, string Visibility, string? LegacyAuthorName, string? LegacyAuthorEmail,
+    string? LegacyAuthorExternalId, string ContentHtml, int ContentTextLength,
     IReadOnlyDictionary<string, string> SourceMetadata, IReadOnlyList<MigrationIssueData> Issues);
 public sealed record HelpJuiceMigrationPreview(int PreviewLimit, int SourceArticleCount, int SourceCategoryCount,
     bool IsLimited, IReadOnlyList<string> AvailableFiles, IReadOnlyList<string> MissingRequiredFiles,
@@ -93,7 +94,8 @@ public sealed record HelpJuiceHtmlConversion(string TiptapJson, string RenderedH
 public sealed record HelpJuiceLinkResolution(string Url, string? WarningCode = null, string? WarningMessage = null);
 public enum MigrationWriteDisposition { Imported, Updated, Skipped }
 public sealed record MigrationWriteResult(Guid InternalId, MigrationWriteDisposition Disposition, Guid? DraftId = null, Guid? VersionId = null);
-public sealed record ImportedCategoryData(string ExternalId, string Name, string Slug, Guid? ParentId, int Depth, int SortOrder);
+public sealed record ImportedCategoryData(string ExternalId, string Name, string Slug, Guid? ParentId, int Depth,
+    int SortOrder, string Visibility = "Public");
 public sealed record ImportedMediaData(string ExternalId, Guid Id, string OriginalFileName, string StoredFileName, string MimeType,
     string Extension, long Size, string StoragePath, string Hash, Guid UserId, DateTime UploadedAt);
 public sealed record StagedArticleContent(string JsonPath, string HtmlPath, string TextPath, string Hash, long Size,
@@ -102,7 +104,8 @@ public sealed record StagedArticleContent(string JsonPath, string HtmlPath, stri
 public sealed record ImportedArticleData(string ExternalId, string Title, string Slug, string? Description,
     Guid? CategoryId, Guid UserId, string Status, bool CreatePublishedVersion, DateTime CreatedAt,
     DateTime UpdatedAt, DateTime? PublishedAt, StagedArticleContent Content,
-    IReadOnlyDictionary<string, string>? SourceMetadata = null, int Position = 0);
+    IReadOnlyDictionary<string, string>? SourceMetadata = null, int Position = 0, string Visibility = "Public",
+    string? LegacyAuthorName = null, string? LegacyAuthorEmail = null, string? LegacyAuthorExternalId = null);
 
 public interface IHelpJuiceImportWriter
 {

@@ -135,7 +135,8 @@ public sealed class HelpJuiceParsingTests
         Assert.Null(source.Questions.Single(x=>x.Id=="q3").CategoryId);
         Assert.Contains(source.Issues,x=>x.ErrorCode=="EMPTY_SOURCE_BODY"&&x.ExternalId=="q2");
         Assert.Contains(source.Issues,x=>x.ErrorCode=="CATEGORY_COUNT_MISMATCH"&&x.ExternalId=="q3");
-        Assert.Contains(source.Issues,x=>x.ErrorCode=="HISTORICAL_USER_MAPPED_TO_MIGRATION_USER"&&x.ExternalId=="q1");
+        Assert.DoesNotContain(source.Issues,x=>x.ErrorCode=="HISTORICAL_USER_MAPPED_TO_MIGRATION_USER");
+        Assert.Equal("11",source.Questions.Single(x=>x.Id=="q1").LegacyAuthorExternalId);
         Assert.Contains("مرحبا",source.ConvertedAnswersById["a3"].PlainText);
         Assert.Contains("\"dir\":\"rtl\"",source.ConvertedAnswersById["a3"].TiptapJson);
     }
@@ -203,6 +204,56 @@ public sealed class HelpJuiceParsingTests
     }
 
     [Fact]
+    public void HelpJuice_callouts_tabs_and_accordions_become_existing_editor_nodes()
+    {
+        var html="""
+            <div class="helpjuice-callout warning"><div class="helpjuice-callout-body"><h3>Careful</h3><p><strong>Keep</strong> this.</p></div><div class="helpjuice-callout-delete">x</div></div>
+            <div class="helpjuice-tab"><div class="helpjuice-tab-title">First</div><div class="helpjuice-tab-body"><p><em>One</em></p></div></div>
+            <div class="helpjuice-tab"><div class="helpjuice-tab-title">Second</div><div class="helpjuice-tab-body"><p>Two</p></div></div>
+            <div class="f-accordion-panel panel"><div class="panel-title">Section A</div><div class="panel-content"><p><u>Details</u></p></div></div>
+            <div class="f-accordion-panel panel"><div class="panel-title">Section B</div><div class="panel-content"><p>More</p></div></div>
+            """;
+        var result=HelpJuiceHtmlConverter.Convert(html);
+
+        Assert.Contains("\"type\":\"callout\"",result.TiptapJson);
+        Assert.Contains("\"variant\":\"warning\"",result.TiptapJson);
+        Assert.Contains("\"type\":\"tabs\"",result.TiptapJson);
+        Assert.Equal(1,Count(result.TiptapJson,"\"type\":\"tabs\""));
+        Assert.Contains("\"label\":\"First\"",result.TiptapJson);
+        Assert.True(result.TiptapJson.IndexOf("First",StringComparison.Ordinal)<result.TiptapJson.IndexOf("Second",StringComparison.Ordinal));
+        Assert.Contains("\"type\":\"accordion\"",result.TiptapJson);
+        Assert.Equal(1,Count(result.TiptapJson,"\"type\":\"accordion\""));
+        Assert.Contains("\"title\":\"Section A\"",result.TiptapJson);
+        Assert.Contains("\"type\":\"bold\"",result.TiptapJson);
+        Assert.Contains("\"type\":\"italic\"",result.TiptapJson);
+        Assert.DoesNotContain("helpjuice-callout-delete",result.RenderedHtml);
+        Assert.Contains("data-kb-callout",result.RenderedHtml);
+        Assert.Contains("data-kb-tabs",result.RenderedHtml);
+        Assert.Contains("data-kb-accordion",result.RenderedHtml);
+    }
+
+    [Fact]
+    public async Task Historical_authors_and_visibility_are_resolved_without_importing_RBAC()
+    {
+        using var package=Package(
+            "id,name,created_by_id,visibility_id,category_id\nq1,Internal article,u1,0,c1\nq2,Inherited article,u1,,c1",
+            "id,question_id,body\na1,q1,Body\na2,q2,Body",
+            "id,parent_id,name,accessibility\nc1,,Private guides,1",
+            users:"id,first_name,last_name,email\nu1,Ada,Lovelace,ada@example.test",
+            passes:"id,passable_type,passable_id\np1,Category,c1");
+        var source=await HelpJuiceSourceParser.ParseAndValidateAsync(package,new(),TimeProvider.System);
+
+        Assert.All(source.Questions,question=>Assert.Equal("Internal",question.Visibility));
+        Assert.Equal("Internal",Assert.Single(source.Categories).Visibility);
+        Assert.All(source.Questions,question=>Assert.Equal("Ada Lovelace",question.LegacyAuthorName));
+        Assert.All(source.Questions,question=>Assert.Equal("ada@example.test",question.LegacyAuthorEmail));
+        Assert.DoesNotContain(source.Issues,issue=>issue.ErrorCode is "HISTORICAL_USER_MAPPED_TO_MIGRATION_USER" or "LEGACY_PERMISSIONS_NOT_IMPORTED");
+        var preview=HelpJuicePreviewBuilder.Build(source,10);
+        Assert.All(preview.Articles,article=>Assert.Equal("Internal",article.Visibility));
+        Assert.All(preview.Articles,article=>Assert.Equal("Ada Lovelace",article.LegacyAuthorName));
+    }
+
+    [Fact]
     public void Word_nested_lists_tables_inline_media_and_temporary_media_remain_readable()
     {
         const string data="data:image/png;base64,iVBORw0KGgo=";
@@ -257,5 +308,5 @@ public sealed class HelpJuiceParsingTests
 
     private static string TempFile(string content){var path=Path.Combine(Path.GetTempPath(),$"hj-{Guid.NewGuid():N}.csv");File.WriteAllText(path,content,new UTF8Encoding(false));return path;}
     private static int Count(string value,string needle){var count=0;for(var index=0;(index=value.IndexOf(needle,index,StringComparison.Ordinal))>=0;index+=needle.Length)count++;return count;}
-    private static PackageContents Package(string questions,string answers,string? categories=null,string? categorizations=null,string? uploads=null,IReadOnlyList<string>? mediaNames=null){var root=Path.Combine(Path.GetTempPath(),$"hj-{Guid.NewGuid():N}");Directory.CreateDirectory(root);var q=Path.Combine(root,"questions.csv");var a=Path.Combine(root,"answers.csv");File.WriteAllText(q,questions);File.WriteAllText(a,answers);var files=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase){{"questions.csv",q},{"answers.csv",a}};if(categories is not null){var c=Path.Combine(root,"categories.csv");File.WriteAllText(c,categories);files["categories.csv"]=c;}if(categorizations is not null){var c=Path.Combine(root,"categorizations.csv");File.WriteAllText(c,categorizations);files["categorizations.csv"]=c;}if(uploads is not null){var u=Path.Combine(root,"uploads.csv");File.WriteAllText(u,uploads);files["uploads.csv"]=u;}var media=(mediaNames??[]).Select(name=>{var path=Path.Combine(root,name);File.WriteAllBytes(path,[1,2,3]);return path;}).ToArray();return new(root,files,media,files.Keys.Concat(mediaNames??[]).ToArray(),[]);}
+    private static PackageContents Package(string questions,string answers,string? categories=null,string? categorizations=null,string? uploads=null,IReadOnlyList<string>? mediaNames=null,string? users=null,string? passes=null){var root=Path.Combine(Path.GetTempPath(),$"hj-{Guid.NewGuid():N}");Directory.CreateDirectory(root);var q=Path.Combine(root,"questions.csv");var a=Path.Combine(root,"answers.csv");File.WriteAllText(q,questions);File.WriteAllText(a,answers);var files=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase){{"questions.csv",q},{"answers.csv",a}};if(categories is not null){var c=Path.Combine(root,"categories.csv");File.WriteAllText(c,categories);files["categories.csv"]=c;}if(categorizations is not null){var c=Path.Combine(root,"categorizations.csv");File.WriteAllText(c,categorizations);files["categorizations.csv"]=c;}if(uploads is not null){var u=Path.Combine(root,"uploads.csv");File.WriteAllText(u,uploads);files["uploads.csv"]=u;}if(users is not null){var u=Path.Combine(root,"users.csv");File.WriteAllText(u,users);files["users.csv"]=u;}if(passes is not null){var p=Path.Combine(root,"passes.csv");File.WriteAllText(p,passes);files["passes.csv"]=p;}var media=(mediaNames??[]).Select(name=>{var path=Path.Combine(root,name);File.WriteAllBytes(path,[1,2,3]);return path;}).ToArray();return new(root,files,media,files.Keys.Concat(mediaNames??[]).ToArray(),[]);}
 }

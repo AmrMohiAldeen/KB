@@ -135,7 +135,8 @@ public sealed class HelpJuiceMigrationsController(HelpJuiceMigrationService migr
         result.Articles.Select(article => new HelpJuiceMigrationPreviewArticleResponse(
             article.ExternalId, article.QuestionRowNumber, article.AnswerExternalId, article.AnswerRowNumber,
             article.Title, article.Slug, article.Description, article.IsPublished, article.IsArchived, article.CreatedAt,
-            article.UpdatedAt, article.CategoryExternalId, article.CategoryLocation, article.ContentHtml,
+            article.UpdatedAt, article.CategoryExternalId, article.CategoryLocation, article.Visibility,
+            article.LegacyAuthorName, article.LegacyAuthorEmail, article.LegacyAuthorExternalId, article.ContentHtml,
             article.ContentTextLength, article.SourceMetadata, article.Issues.Select(ToIssueResponse).ToArray()))
             .ToArray());
 

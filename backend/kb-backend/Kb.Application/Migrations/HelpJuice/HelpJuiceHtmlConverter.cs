@@ -13,7 +13,7 @@ public static partial class HelpJuiceHtmlConverter
     {
         "p", "br", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "b", "em", "i", "u", "a",
         "ul", "ol", "li", "blockquote", "pre", "code", "table", "thead", "tbody", "tfoot", "tr", "th", "td",
-        "img", "figure", "figcaption", "div", "span", "article", "section", "hr", "iframe", "video", "source",
+        "img", "figure", "figcaption", "div", "span", "article", "section", "details", "summary", "hr", "iframe", "video", "source",
         "s", "strike", "del", "sup", "sub", "font", "o:p", "o:lock", "v:stroke", "v:path", "v:f",
         "v:formulas", "v:imagedata", "v:shape", "v:shapetype", "w:wrap"
     };
@@ -34,6 +34,7 @@ public static partial class HelpJuiceHtmlConverter
         var stack = new Stack<Node>(); stack.Push(root);
         var marks = new Stack<Mark>();
         var droppedDepth = 0;
+        var ignoredControlDepth = 0;
 
         foreach (Match token in TokenRegex().Matches(sourceHtml ?? string.Empty))
         {
@@ -47,6 +48,17 @@ public static partial class HelpJuiceHtmlConverter
             var parsed = ParseTag(token.Value);
             if (parsed is null) continue;
             var (name, closing, attrs, selfClosing) = parsed.Value;
+            if (ignoredControlDepth > 0)
+            {
+                if (closing) ignoredControlDepth--;
+                else if (!selfClosing && !VoidTags.Contains(name)) ignoredControlDepth++;
+                continue;
+            }
+            if (!closing && IsHelpJuiceControl(attrs))
+            {
+                if (!selfClosing && !VoidTags.Contains(name)) ignoredControlDepth = 1;
+                continue;
+            }
             if (DropWithContent.Contains(name))
             {
                 if (!closing) { droppedDepth++; Warn("UNSAFE_ELEMENT_REMOVED", $"The unsafe <{name}> element was removed."); }
@@ -149,21 +161,52 @@ public static partial class HelpJuiceHtmlConverter
                 continue;
             }
 
-            var node = CreateNode(name, attrs, Warn);
+            var node = CreateNode(name, attrs, stack, Warn);
             if (node is null) continue;
             stack.Peek().Children.Add(node);
             if (!selfClosing && !VoidTags.Contains(name)) stack.Push(node);
         }
         while (stack.Count > 1) stack.Pop();
-        Normalize(root);
+        var accordionId = 0;
+        var tabId = 0;
+        Normalize(root, ref accordionId, ref tabId);
         var json = root.ToJson().ToJsonString(new JsonSerializerOptions { Encoder = JavaScriptEncoder.Default });
         return new(json, Render(root), PlainText(root), warnings.Distinct().ToArray(), mediaSources.Distinct().ToArray());
 
         void Warn(string code, string message) => warnings.Add((code, message));
     }
 
-    private static Node? CreateNode(string tag, Dictionary<string, string> attrs, Action<string, string> warning)
+    private static Node? CreateNode(string tag, Dictionary<string, string> attrs, Stack<Node> stack,
+        Action<string, string> warning)
     {
+        var classes = Classes(attrs);
+        if (classes.Contains("helpjuice-callout") || classes.Contains("callout") || attrs.ContainsKey("data-kb-callout"))
+            return new("callout", tag) { Attributes = new() { ["variant"] = CalloutVariant(classes, attrs) } };
+        if (classes.Contains("helpjuice-callout-body")) return new("fragment", tag);
+
+        if (classes.Contains("helpjuice-accordion-title") ||
+            classes.Contains("panel-title") && stack.Any(node => node.Type == "legacyAccordionItem") || tag == "summary")
+            return new("legacyStructuredTitle", tag);
+        if (classes.Contains("helpjuice-accordion-body") ||
+            classes.Contains("panel-content") && stack.Any(node => node.Type == "legacyAccordionItem"))
+            return new("legacyStructuredBody", tag);
+        if (classes.Contains("helpjuice-accordion") || classes.Contains("f-accordion-panel") || tag == "details")
+            return new("legacyAccordionItem", tag)
+            {
+                Attributes = new() { ["open"] = attrs.ContainsKey("open") }
+            };
+
+        if (classes.Contains("helpjuice-tab-title") || classes.Contains("f-tab-title"))
+            return new("legacyStructuredTitle", tag);
+        if (classes.Contains("helpjuice-tab-body") || classes.Contains("f-tab-content"))
+            return new("legacyStructuredBody", tag);
+        if (classes.Contains("panel-title") && stack.Any(node => node.Type == "legacyTabItem"))
+            return new("legacyStructuredTitle", tag);
+        if (classes.Contains("panel-content") && stack.Any(node => node.Type == "legacyTabItem"))
+            return new("legacyStructuredBody", tag);
+        if (classes.Contains("helpjuice-tab") || classes.Contains("f-tab-panel") || classes.Contains("f-tabs-panel"))
+            return new("legacyTabItem", tag);
+
         return tag.ToLowerInvariant() switch
         {
             "p" => WithDirection(new("paragraph", tag), attrs),
@@ -205,6 +248,31 @@ public static partial class HelpJuiceHtmlConverter
     }
     private static int ParsePositive(string? value, int fallback) => int.TryParse(value, out var number) && number > 0 ? Math.Min(number, 100) : fallback;
 
+    private static HashSet<string> Classes(IReadOnlyDictionary<string, string> attrs) =>
+        (attrs.GetValueOrDefault("class") ?? string.Empty)
+        .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    private static bool IsHelpJuiceControl(IReadOnlyDictionary<string, string> attrs)
+    {
+        var classes = Classes(attrs);
+        return classes.Overlaps(["helpjuice-callout-delete", "helpjuice-accordion-delete",
+            "helpjuice-accordion-toggle", "helpjuice-tab-delete", "helpjuice-tab-toggle"]);
+    }
+
+    private static string CalloutVariant(IReadOnlySet<string> classes,
+        IReadOnlyDictionary<string, string> attrs)
+    {
+        var explicitVariant = attrs.GetValueOrDefault("data-kb-callout-variant")?.ToLowerInvariant();
+        if (explicitVariant is "info" or "warning" or "success" or "danger" or "tip") return explicitVariant;
+        if (classes.Contains("warning")) return "warning";
+        if (classes.Contains("callout-warning")) return "warning";
+        if (classes.Contains("success") || classes.Contains("callout-success")) return "success";
+        if (classes.Contains("danger") || classes.Contains("error") || classes.Contains("callout-danger") || classes.Contains("callout-error")) return "danger";
+        if (classes.Contains("tip") || classes.Contains("callout-tip")) return "tip";
+        return "info";
+    }
+
     private static void AddText(Node parent, string value, IReadOnlyList<Mark> marks)
     {
         if (string.IsNullOrEmpty(value)) return;
@@ -213,20 +281,87 @@ public static partial class HelpJuiceHtmlConverter
         parent.Children.Add(new("text") { Text = normalized, Marks = marks.Where(mark => mark.Type is not ("invalidLink" or "passthrough")).ToList() });
     }
 
-    private static void Normalize(Node node)
+    private static void Normalize(Node node, ref int accordionId, ref int tabId)
     {
-        foreach (var child in node.Children.ToArray()) Normalize(child);
+        foreach (var child in node.Children.ToArray()) Normalize(child, ref accordionId, ref tabId);
+        if (node.Type is "legacyAccordionItem" or "legacyTabItem")
+        {
+            var titleNode = node.Children.FirstOrDefault(child => child.Type == "legacyStructuredTitle");
+            var bodyNode = node.Children.FirstOrDefault(child => child.Type == "legacyStructuredBody");
+            var title = NodeText(titleNode).Trim();
+            if (title.Length == 0) title = node.Type == "legacyTabItem" ? "Tab" : "Section";
+            var content = bodyNode?.Children.ToArray() ?? node.Children
+                .Where(child => child != titleNode && child != bodyNode).ToArray();
+            node.Children.Clear();
+            node.Children.AddRange(content);
+            if (node.Type == "legacyAccordionItem")
+            {
+                node.Type = "accordionItem";
+                node.Attributes = new()
+                {
+                    ["itemId"] = $"helpjuice-accordion-{++accordionId}",
+                    ["title"] = title,
+                    ["open"] = node.Attributes?.GetValueOrDefault("open") as bool? ?? false
+                };
+            }
+            else
+            {
+                node.Type = "tabItem";
+                node.Attributes = new()
+                {
+                    ["itemId"] = $"helpjuice-tab-{++tabId}",
+                    ["label"] = title
+                };
+            }
+        }
         for (var i = node.Children.Count - 1; i >= 0; i--)
         {
             var child = node.Children[i];
-            if (child.Type == "fragment") { node.Children.RemoveAt(i); node.Children.InsertRange(i, child.Children); }
+            if (child.Type is "fragment" or "legacyStructuredBody" or "legacyStructuredTitle")
+            { node.Children.RemoveAt(i); node.Children.InsertRange(i, child.Children); }
         }
+        if (node.Children.Any(child => child.Type is "accordionItem" or "tabItem"))
+            node.Children.RemoveAll(child => child.Type == "text" && string.IsNullOrWhiteSpace(child.Text));
+        GroupStructuredItems(node, "accordionItem", "accordion");
+        GroupStructuredItems(node, "tabItem", "tabs");
         if (node.Type == "doc" && node.Children.Count == 0) node.Children.Add(new("paragraph"));
         if (node.Type == "doc") WrapInlineRuns(node);
         if (node.Type is "listItem" or "tableCell" or "tableHeader" && node.Children.Count == 0) node.Children.Add(new("paragraph"));
         if (node.Type == "listItem" && node.Children.FirstOrDefault()?.Type is not ("paragraph" or "heading"))
         { var paragraph = new Node("paragraph"); while (node.Children.Count > 0 && node.Children[0].Type is not ("bulletList" or "orderedList")) { paragraph.Children.Add(node.Children[0]); node.Children.RemoveAt(0); } node.Children.Insert(0, paragraph); }
-        if (node.Type is "tableCell" or "tableHeader") WrapInlineRuns(node);
+        if (node.Type is "tableCell" or "tableHeader" or "callout" or "accordionItem" or "tabItem")
+        {
+            WrapInlineRuns(node);
+            if (node.Children.Count == 0) node.Children.Add(new("paragraph"));
+        }
+    }
+
+    private static void GroupStructuredItems(Node parent, string itemType, string containerType)
+    {
+        for (var index = 0; index < parent.Children.Count;)
+        {
+            if (parent.Children[index].Type != itemType) { index++; continue; }
+            var container = new Node(containerType);
+            while (index < parent.Children.Count && parent.Children[index].Type == itemType)
+            {
+                container.Children.Add(parent.Children[index]);
+                parent.Children.RemoveAt(index);
+            }
+            parent.Children.Insert(index++, container);
+        }
+    }
+
+    private static string NodeText(Node? node)
+    {
+        if (node is null) return string.Empty;
+        var builder = new StringBuilder();
+        void Visit(Node current)
+        {
+            if (current.Text is not null) builder.Append(current.Text);
+            foreach (var child in current.Children) Visit(child);
+        }
+        Visit(node);
+        return WhitespaceRegex().Replace(builder.ToString(), " ");
     }
 
     private static void WrapInlineRuns(Node parent)
@@ -266,11 +401,16 @@ public static partial class HelpJuiceHtmlConverter
             "image" => ($"<img src=\"{WebUtility.HtmlEncode(node.Attributes?["src"]?.ToString())}\" alt=\"{WebUtility.HtmlEncode(node.Attributes?["alt"]?.ToString())}\"{(node.Attributes?["mediaId"] is string id ? $" data-media-id=\"{id}\"" : "")}>", ""),
             "youtube" => ($"<div data-youtube-video><iframe src=\"{WebUtility.HtmlEncode(node.Attributes?["src"]?.ToString())}\" allowfullscreen></iframe></div>", ""),
             "video" => ($"<video src=\"{WebUtility.HtmlEncode(node.Attributes?["src"]?.ToString())}\" data-media-id=\"{WebUtility.HtmlEncode(node.Attributes?["mediaId"]?.ToString())}\" controls preload=\"metadata\"></video>", ""),
+            "callout" => ($"<aside data-kb-callout data-kb-callout-variant=\"{WebUtility.HtmlEncode(node.Attributes?["variant"]?.ToString())}\"><div data-kb-callout-content>", "</div></aside>"),
+            "tabs" => ("<div data-kb-tabs>", "</div>"),
+            "tabItem" => ($"<section data-kb-tab-item data-kb-tab-id=\"{WebUtility.HtmlEncode(node.Attributes?["itemId"]?.ToString())}\" data-kb-tab-label=\"{WebUtility.HtmlEncode(node.Attributes?["label"]?.ToString())}\"><div data-kb-tab-panel>", "</div></section>"),
+            "accordion" => ("<div data-kb-accordion>", "</div>"),
+            "accordionItem" => ($"<details data-kb-accordion-item data-kb-accordion-id=\"{WebUtility.HtmlEncode(node.Attributes?["itemId"]?.ToString())}\" data-kb-accordion-title=\"{WebUtility.HtmlEncode(node.Attributes?["title"]?.ToString())}\"{(node.Attributes?["open"] is true ? " open" : "")}><summary>{WebUtility.HtmlEncode(node.Attributes?["title"]?.ToString())}</summary><div data-kb-accordion-panel>", "</div></details>"),
             _ => ("", "")
         };
         b.Append(open); foreach (var child in node.Children) RenderNode(child, b); b.Append(close);
     }
-    private static string PlainText(Node root) { var b = new StringBuilder(); Visit(root); return b.ToString().Trim(); void Visit(Node n) { if (n.Text is not null) b.Append(n.Text); foreach (var c in n.Children) Visit(c); if (n.Type is "paragraph" or "heading" or "listItem" or "blockquote" or "codeBlock" or "tableRow") b.AppendLine(); } }
+    private static string PlainText(Node root) { var b = new StringBuilder(); Visit(root); return b.ToString().Trim(); void Visit(Node n) { if (n.Type == "tabItem" && n.Attributes?["label"] is { } label) b.AppendLine(label.ToString()); if (n.Type == "accordionItem" && n.Attributes?["title"] is { } title) b.AppendLine(title.ToString()); if (n.Text is not null) b.Append(n.Text); foreach (var c in n.Children) Visit(c); if (n.Type is "paragraph" or "heading" or "listItem" or "blockquote" or "codeBlock" or "tableRow") b.AppendLine(); } }
 
     private static bool TrySafeUrl(string? value, bool allowRelative, out string safe)
     {
@@ -299,7 +439,7 @@ public static partial class HelpJuiceHtmlConverter
 
     private sealed class Node(string type, string? sourceTag = null)
     {
-        public string Type { get; } = type; public string SourceTag { get; } = sourceTag ?? type;
+        public string Type { get; set; } = type; public string SourceTag { get; } = sourceTag ?? type;
         public string? Text { get; set; } public List<Node> Children { get; } = [];
         public List<Mark> Marks { get; set; } = []; public Dictionary<string, object?>? Attributes { get; set; }
         public JsonObject ToJson() { var o = new JsonObject { ["type"] = Type }; if (Text is not null) o["text"] = Text; if (Attributes?.Count > 0) o["attrs"] = JsonSerializer.SerializeToNode(Attributes); if (Marks.Count > 0) o["marks"] = new JsonArray(Marks.Select(m => m.ToJson()).ToArray()); if (Children.Count > 0) o["content"] = new JsonArray(Children.Select(c => c.ToJson()).ToArray()); return o; }
