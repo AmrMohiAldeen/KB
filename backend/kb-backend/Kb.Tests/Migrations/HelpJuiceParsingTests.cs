@@ -315,6 +315,105 @@ public sealed class HelpJuiceParsingTests
     }
 
     [Fact]
+    public async Task Historical_author_resolves_the_article_user_id_through_users_account_id()
+    {
+        using var package=Package(
+            "id,name,created_by_id\nq1,Account keyed author,account-42",
+            "id,question_id,body\na1,q1,Body",
+            users:"id,account_id,first_name,last_name,email\nrecord-7,account-42,Grace,Hopper,grace@example.test");
+        var source=await HelpJuiceSourceParser.ParseAndValidateAsync(package,new(),TimeProvider.System);
+
+        var article=Assert.Single(source.Questions);
+        Assert.Equal("account-42",article.LegacyAuthorExternalId);
+        Assert.Equal("Grace Hopper",article.LegacyAuthorName);
+        Assert.Equal("grace@example.test",article.LegacyAuthorEmail);
+        Assert.DoesNotContain(source.Issues,issue=>issue.ErrorCode=="UNSUPPORTED_FILE");
+    }
+
+    [Fact]
+    public async Task Extensionless_account_id_export_is_recognized_and_used_as_legacy_user_data()
+    {
+        using var package=Package("id,name,created_by_id\nq1,One,u1", "id,question_id,body\na1,q1,Body");
+        var accountPath=Path.Combine(package.RootPath,"account_id");
+        await File.WriteAllTextAsync(accountPath,"account_id,display_name,email\nu1,Ada Account,ada@example.test");
+        ((Dictionary<string,string>)package.KnownCsvFiles)["account_id"]=accountPath;
+
+        var source=await HelpJuiceSourceParser.ParseAndValidateAsync(package,new(),TimeProvider.System);
+
+        Assert.Equal("Ada Account",Assert.Single(source.Questions).LegacyAuthorName);
+        Assert.DoesNotContain(source.Issues,issue=>issue.ErrorCode=="UNSUPPORTED_FILE");
+    }
+
+    [Fact]
+    public async Task Category_relationships_are_recovered_only_from_explicit_or_unambiguous_export_metadata()
+    {
+        using var package=Package(
+            "id,name,language_id,categories_count,categories,first_category\nq1,Structured,3,1,\"[{\"\"id\"\":\"\"c1\"\"}]\",\nq2,Named,3,1,,Guides\nq3,Reverse,3,1,,",
+            "id,question_id,body\na1,q1,Body\na2,q2,Body\na3,q3,Body",
+            "id,parent_id,name,codename,language_id,question_ids\nc1,,Guides,guides,3,\nc2,,Reference,reference,3,q3");
+        var source=await HelpJuiceSourceParser.ParseAndValidateAsync(package,new(),TimeProvider.System);
+
+        Assert.Equal("c1",source.Questions.Single(question=>question.Id=="q1").CategoryId);
+        Assert.Equal("c1",source.Questions.Single(question=>question.Id=="q2").CategoryId);
+        Assert.Equal("c2",source.Questions.Single(question=>question.Id=="q3").CategoryId);
+        Assert.Equal(3,source.Issues.Count(issue=>issue.ErrorCode=="CATEGORY_RELATIONSHIP_RECONSTRUCTED"));
+        Assert.DoesNotContain(source.Issues,issue=>issue.ErrorCode is "CATEGORY_COUNT_MISMATCH" or "UNCATEGORIZED_ARTICLE");
+    }
+
+    [Fact]
+    public async Task Permission_rows_with_alternate_target_columns_only_affect_internal_visibility()
+    {
+        using var package=Package("id,name\nq1,Private", "id,question_id,body\na1,q1,Body",
+            passes:"id,user_id,document_id\np1,u1,q1");
+        var source=await HelpJuiceSourceParser.ParseAndValidateAsync(package,new(),TimeProvider.System);
+
+        Assert.Equal("Internal",Assert.Single(source.Questions).Visibility);
+        Assert.DoesNotContain(source.Issues,issue=>issue.ErrorCode=="LEGACY_PERMISSIONS_NOT_IMPORTED");
+    }
+
+    [Fact]
+    public void Internal_links_resolve_query_aliases_titles_and_migration_slugs()
+    {
+        var question=new HelpJuiceQuestion(2,"q1","allocated-target-q1","Manage Subjects",null,true,null,null,null,
+            new Dictionary<string,string>{{"codename","old-subjects"}});
+        var resolver=HelpJuiceSourceParser.CreateLinkResolver([question],question);
+
+        Assert.Equal("/kb/allocated-target-q1",resolver("https://docs.helpjuice.com/link?contentId=q1")?.Url);
+        Assert.Equal("/kb/allocated-target-q1",resolver("https://docs.helpjuice.com/manage-subjects")?.Url);
+        Assert.Equal("/kb/allocated-target-q1",resolver("https://docs.helpjuice.com/allocated-target-q1")?.Url);
+    }
+
+    [Fact]
+    public void Internal_links_prefer_the_persisted_old_to_new_article_mapping()
+    {
+        var question=new HelpJuiceQuestion(2,"1881001","source-slug","Mapped",null,true,null,null,null,
+            new Dictionary<string,string>{{"codename","source-slug"}});
+        var resolver=HelpJuiceSourceParser.CreateLinkResolver([question],question,
+            new Dictionary<string,string>{{"1881001","current-kb-slug"}});
+
+        Assert.Equal("/kb/current-kb-slug",resolver("https://docs.helpjuice.com/1881001-source-slug")?.Url);
+    }
+
+    [Fact]
+    public void Lazy_and_protocol_relative_embed_urls_are_recovered_safely()
+    {
+        var result=HelpJuiceHtmlConverter.Convert("<iframe data-src='//www.youtube.com/embed/dQw4w9WgXcQ'></iframe>");
+
+        Assert.Contains("https://www.youtube.com/watch?v=dQw4w9WgXcQ",result.TiptapJson);
+        Assert.DoesNotContain(result.Warnings,warning=>warning.Code=="UNSAFE_EMBED_REMOVED");
+    }
+
+    [Fact]
+    public async Task Packaged_media_matches_unambiguous_filename_punctuation_variants()
+    {
+        using var package=Package("id,name\nq1,One", "id,question_id,body\na1,q1,Body",
+            uploads:"id,image,preview_url\nu1,Attachment 4.png,", mediaNames:["Attachment_4.png"]);
+        var source=await HelpJuiceSourceParser.ParseAndValidateAsync(package,new(),TimeProvider.System);
+
+        Assert.DoesNotContain(source.Issues,issue=>issue.ErrorCode=="MISSING_MEDIA_URL");
+    }
+
+    [Fact]
     public async Task Genuinely_unrecoverable_source_data_keeps_diagnostic_warnings()
     {
         using var package=Package(

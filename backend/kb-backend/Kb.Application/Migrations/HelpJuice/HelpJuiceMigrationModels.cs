@@ -117,6 +117,7 @@ public interface IHelpJuiceImportWriter
     Task PersistJobResultAsync(Guid jobId, string status, string summaryJson,
         IReadOnlyList<MigrationIssueData> issues, DateTime completedAt, CancellationToken cancellationToken);
     Task<IReadOnlySet<string>> GetActiveArticleSlugsAsync(CancellationToken cancellationToken);
+    Task<IReadOnlyDictionary<string, string>> GetMappedArticleSlugsAsync(CancellationToken cancellationToken);
     Task<MigrationWriteResult> WriteCategoryAsync(Guid operationId, ImportedCategoryData category,
         string conflictBehavior, Guid actorId, CancellationToken cancellationToken);
     Task<MigrationWriteResult> WriteMediaAsync(Guid operationId, ImportedMediaData media, CancellationToken cancellationToken);

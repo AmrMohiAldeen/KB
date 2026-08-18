@@ -146,7 +146,10 @@ public static partial class HelpJuiceHtmlConverter
             }
             if (name is "iframe" or "video" or "source")
             {
-                var src = attrs.GetValueOrDefault("src");
+                var src = attrs.GetValueOrDefault("src") ?? attrs.GetValueOrDefault("data-src") ??
+                    attrs.GetValueOrDefault("data-lazy-src") ?? attrs.GetValueOrDefault("data-original") ??
+                    attrs.GetValueOrDefault("data-url") ?? attrs.GetValueOrDefault("href");
+                if (src?.StartsWith("//", StringComparison.Ordinal) == true) src = "https:" + src;
                 if (name is "video" or "source" && !string.IsNullOrWhiteSpace(src)) mediaSources.Add(src);
                 if (name is "video" or "source" && !string.IsNullOrWhiteSpace(src) && resolveMedia?.Invoke(src) is { } videoMedia)
                 {

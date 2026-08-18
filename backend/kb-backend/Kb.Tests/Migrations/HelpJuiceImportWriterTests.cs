@@ -75,6 +75,7 @@ public sealed class HelpJuiceImportWriterTests
     {
         await using var f=await Fixture.CreateAsync();
         var first=await f.Writer.WriteArticleAsync(f.OperationId,Article("external-1",true,f.UserId) with { Slug="original" },MigrationConflictBehaviors.Skip,default);
+        Assert.Equal("original",(await f.Writer.GetMappedArticleSlugsAsync(default))["external-1"]);
         var retry=await f.Writer.WriteArticleAsync(Guid.NewGuid(),Article("external-1",true,f.UserId) with { Slug="different-after-preview" },MigrationConflictBehaviors.CreateCopy,default);
         Assert.Equal(first.InternalId,retry.InternalId);Assert.Equal(MigrationWriteDisposition.Skipped,retry.Disposition);
         Assert.Single(await f.Context.Articles.ToListAsync());Assert.Single(await f.Context.MigrationExternalMappings.Where(x=>x.ExternalEntityType=="Article").ToListAsync());
@@ -100,6 +101,25 @@ public sealed class HelpJuiceImportWriterTests
             new("legacy-category","Internal","internal",null,0,0,"Internal"),MigrationConflictBehaviors.Skip,f.UserId,default);
         f.Context.ChangeTracker.Clear();
         Assert.Equal("Internal",(await f.Context.Categories.SingleAsync(x=>x.CategoryId==category.InternalId)).Visibility);
+    }
+
+    [Fact]
+    public async Task Update_replaces_stale_unknown_author_with_the_resolved_email_fallback()
+    {
+        await using var f=await Fixture.CreateAsync();
+        var original=Article("legacy-email",true,f.UserId) with
+        {
+            LegacyAuthorName="Unknown HelpJuice author",LegacyAuthorExternalId="account-42"
+        };
+        _=await f.Writer.WriteArticleAsync(f.OperationId,original,MigrationConflictBehaviors.Skip,default);
+        var resolved=original with { LegacyAuthorName=null,LegacyAuthorEmail="resolved@example.test" };
+
+        _=await f.Writer.WriteArticleAsync(Guid.NewGuid(),resolved,MigrationConflictBehaviors.UpdateExisting,default);
+
+        f.Context.ChangeTracker.Clear();
+        var article=await f.Context.Articles.SingleAsync(x=>x.LegacyAuthorExternalId=="account-42");
+        Assert.Null(article.LegacyAuthorName);
+        Assert.Equal("resolved@example.test",article.LegacyAuthorEmail);
     }
 
     private static ImportedArticleData Article(string id,bool published,Guid user)=>new(id,id,id,null,null,user,published?ArticleStatuses.Published:ArticleStatuses.Draft,published,DateTime.UtcNow.AddDays(-1),DateTime.UtcNow,null,new($"draft/{id}.json",$"draft/{id}.html",$"draft/{id}.txt","a".PadLeft(64,'0'),20,[],published?$"version/{id}.json":null,published?$"version/{id}.html":null,published?$"version/{id}.txt":null));

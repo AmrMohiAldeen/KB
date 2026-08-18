@@ -70,6 +70,15 @@ public sealed class HelpJuiceImportWriter(KbDbContext db, TimeProvider timeProvi
         (await db.Articles.AsNoTracking().Where(x => x.DeletedAt == null).Select(x => x.Slug).ToListAsync(ct))
         .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
+    public async Task<IReadOnlyDictionary<string, string>> GetMappedArticleSlugsAsync(CancellationToken ct)
+    {
+        var mappings = await (from mapping in db.MigrationExternalMappings.AsNoTracking()
+            join article in db.Articles.AsNoTracking() on mapping.InternalId equals article.ArticleId
+            where mapping.SourceSystem == "HelpJuice" && mapping.ExternalEntityType == "Article" && article.DeletedAt == null
+            select new { mapping.ExternalId, article.Slug }).ToListAsync(ct);
+        return mappings.ToDictionary(item => item.ExternalId, item => item.Slug, StringComparer.OrdinalIgnoreCase);
+    }
+
     public async Task<MigrationWriteResult> WriteCategoryAsync(Guid operationId, ImportedCategoryData source,
         string behavior, Guid actorId, CancellationToken ct)
     {
@@ -128,7 +137,7 @@ public sealed class HelpJuiceImportWriter(KbDbContext db, TimeProvider timeProvi
         {
             disposition=MigrationWriteDisposition.Updated; article=existing; draft=existing.CurrentDraftIdFkNavigation??throw new ConflictException("The destination article has no current draft.");
             article.Title=Normalize(source.Title,300);article.CategoryIdFk=source.CategoryId;article.UpdatedAt=source.UpdatedAt;article.Status=source.Status;article.Position=source.Position;article.Visibility=source.Visibility;
-            article.LegacyAuthorName=NormalizeNullable(source.LegacyAuthorName,300)??article.LegacyAuthorName;article.LegacyAuthorEmail=NormalizeNullable(source.LegacyAuthorEmail,320)??article.LegacyAuthorEmail;article.LegacyAuthorExternalId=NormalizeNullable(source.LegacyAuthorExternalId,100)??article.LegacyAuthorExternalId;
+            article.LegacyAuthorName=NormalizeNullable(source.LegacyAuthorName,300);article.LegacyAuthorEmail=NormalizeNullable(source.LegacyAuthorEmail,320);article.LegacyAuthorExternalId=NormalizeNullable(source.LegacyAuthorExternalId,100);
             draft.ContentJsonStoragePath=source.Content.JsonPath;draft.RenderedHtmlStoragePath=source.Content.HtmlPath;draft.PlainTextStoragePath=source.Content.TextPath;draft.ContentHash=source.Content.Hash;draft.ContentSizeBytes=source.Content.Size;draft.UpdatedByFk=source.UserId;draft.UpdatedAt=source.UpdatedAt;draft.Status=DraftStatus(source.Status);Touch(draft);
         }
         else

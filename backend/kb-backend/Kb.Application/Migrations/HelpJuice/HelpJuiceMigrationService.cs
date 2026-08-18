@@ -41,8 +41,9 @@ public sealed partial class HelpJuiceMigrationService(
                 FileShare.Read, 64 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
             using var package = await HelpJuicePackageReader.ExtractAsync(packageStream, limits, ct);
             var destinationSlugs = await writer.GetActiveArticleSlugsAsync(ct);
+            var mappedArticleSlugs = await writer.GetMappedArticleSlugsAsync(ct);
             var source = await HelpJuiceSourceParser.ParseAndValidateAsync(
-                package, limits, timeProvider, destinationSlugs, ct);
+                package, limits, timeProvider, destinationSlugs, mappedArticleSlugs, ct);
             return HelpJuicePreviewBuilder.Build(source, articleLimit);
         }
         finally
@@ -73,8 +74,9 @@ public sealed partial class HelpJuiceMigrationService(
                 FileShare.Read, 64 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
             using var package = await HelpJuicePackageReader.ExtractAsync(packageStream, limits, ct);
             var destinationSlugs = await writer.GetActiveArticleSlugsAsync(ct);
+            var mappedArticleSlugs = await writer.GetMappedArticleSlugsAsync(ct);
             var source = await HelpJuiceSourceParser.ParseAndValidateAsync(
-                package, limits, timeProvider, destinationSlugs, ct);
+                package, limits, timeProvider, destinationSlugs, mappedArticleSlugs, ct);
             var issues = source.Issues.ToList();
             var mediaIssues = await ValidateMediaFilesAsync(package.MediaFiles, ct);
             issues.AddRange(mediaIssues);
@@ -154,6 +156,10 @@ public sealed partial class HelpJuiceMigrationService(
                 var packagedByName = source.MediaFiles.Select(file => (File: file, Name: Path.GetFileName(file)))
                     .Where(x => !string.IsNullOrWhiteSpace(x.Name)).GroupBy(x => x.Name!, StringComparer.OrdinalIgnoreCase)
                     .ToDictionary(g => g.Key, g => g.First().File, StringComparer.OrdinalIgnoreCase);
+                var packagedByNormalizedName = source.MediaFiles
+                    .GroupBy(HelpJuiceSourceParser.MediaFileMatchKey, StringComparer.OrdinalIgnoreCase)
+                    .Where(group => group.Key.Length > 0 && group.Count() == 1)
+                    .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
                 var legacyUrlByName = source.ConvertedAnswersById.Values.SelectMany(x => x.MediaSources)
                     .Where(url => Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps &&
                         (uri.Host.Equals("helpjuice.com", StringComparison.OrdinalIgnoreCase) || uri.Host.EndsWith(".helpjuice.com", StringComparison.OrdinalIgnoreCase)))
@@ -168,7 +174,8 @@ public sealed partial class HelpJuiceMigrationService(
                     try
                     {
                         byte[] bytes;
-                        if (packagedByName.TryGetValue(Path.GetFileName(upload.FileName), out var packaged))
+                        if (packagedByName.TryGetValue(Path.GetFileName(upload.FileName), out var packaged) ||
+                            packagedByNormalizedName.TryGetValue(HelpJuiceSourceParser.MediaFileMatchKey(upload.FileName), out packaged))
                         {
                             consumedPackageFiles.Add(packaged);
                             bytes = await File.ReadAllBytesAsync(packaged, ct);
@@ -266,7 +273,8 @@ public sealed partial class HelpJuiceMigrationService(
                     }
                     var languageKey = question.LanguageId ?? int.MinValue;
                     if (!linkResolvers.TryGetValue(languageKey, out var linkResolver))
-                        linkResolvers[languageKey] = linkResolver = HelpJuiceSourceParser.CreateLinkResolver(source.Questions, question);
+                        linkResolvers[languageKey] = linkResolver = HelpJuiceSourceParser.CreateLinkResolver(
+                            source.Questions, question, mappedArticleSlugs);
                     var converted = HelpJuiceHtmlConverter.Convert(answer?.Body, Resolve, linkResolver);
                     foreach (var warning in converted.Warnings)
                         issues.Add(NewIssue("Warning", "answers.csv", answer?.RowNumber, "Answer", answer?.Id,

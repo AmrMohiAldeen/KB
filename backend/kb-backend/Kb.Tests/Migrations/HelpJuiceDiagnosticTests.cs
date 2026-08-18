@@ -34,7 +34,7 @@ public sealed class HelpJuiceDiagnosticTests
         try
         {
             Assert.Equal(202, report.TotalRecordsScanned);
-            Assert.Equal(1, writer.ReadCalls);
+            Assert.Equal(2, writer.ReadCalls);
             var csv = await File.ReadAllTextAsync(report.Path);
             Assert.Contains("\"questions.csv\",\"102\",\"q101\",\"Article\",\"Untitled HelpJuice article q101\",\"TITLE_DERIVED\"", csv);
             Assert.Contains("\"End: total records scanned\",\"202\"", csv);
@@ -99,6 +99,11 @@ public sealed class HelpJuiceDiagnosticTests
         {
             ReadCalls++;
             return Task.FromResult<IReadOnlySet<string>>(new HashSet<string>());
+        }
+        public Task<IReadOnlyDictionary<string, string>> GetMappedArticleSlugsAsync(CancellationToken cancellationToken)
+        {
+            ReadCalls++;
+            return Task.FromResult<IReadOnlyDictionary<string, string>>(new Dictionary<string,string>());
         }
         public Task WriteOperationAuditAsync(Guid operationId, string action, string status, Guid actorId, CancellationToken cancellationToken) => throw Mutation();
         public Task<Guid> StartOrResumeJobAsync(Guid proposedJobId, string packageHash, string optionsJson, Guid actorId, DateTime startedAt, CancellationToken cancellationToken) => throw Mutation();

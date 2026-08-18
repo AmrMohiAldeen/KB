@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Kb.Domain.Constants;
 
@@ -17,7 +18,8 @@ public sealed record HelpJuiceAnswer(int RowNumber, string Id, string QuestionId
     IReadOnlyDictionary<string, string> Source);
 public sealed record HelpJuiceCategory(int RowNumber, string Id, string? ParentId, string Name, int Depth = 0,
     string Slug = "", int SortOrder = 0, bool IsArchived = false, int? LanguageId = null,
-    string Visibility = "Public", bool VisibilityWasExplicit = false, string? TranslationId = null);
+    string Visibility = "Public", bool VisibilityWasExplicit = false, string? TranslationId = null,
+    IReadOnlyDictionary<string, string>? Source = null, IReadOnlyList<string>? RelatedQuestionIds = null);
 public sealed record HelpJuiceUpload(int RowNumber, string Id, string FileName, string? PreviewUrl,
     string? Checksum, string? MimeType, string Extension, long? Size, DateTime? CreatedAt,
     IReadOnlyDictionary<string, string> Source);
@@ -39,6 +41,7 @@ public static class HelpJuiceSourceParser
     public static async Task<HelpJuiceSource> ParseAndValidateAsync(PackageContents package,
         HelpJuiceMigrationLimits limits, TimeProvider timeProvider,
         IReadOnlySet<string>? destinationArticleSlugs = null,
+        IReadOnlyDictionary<string, string>? mappedArticleSlugs = null,
         CancellationToken cancellationToken = default)
     {
         var now = timeProvider.GetUtcNow().UtcDateTime;
@@ -68,7 +71,7 @@ public static class HelpJuiceSourceParser
         }
         RequireColumns(questionsCsv, ["id", "name"], issues, Issue);
         RequireColumns(answersCsv, ["id", "question_id", "body"], issues, Issue);
-        var legacyUsers = await ParseLegacyUsersAsync(package, limits, cancellationToken);
+        var legacyUsers = await ParseLegacyUsersAsync(package, limits, issues, Issue, cancellationToken);
 
         var questions = new List<HelpJuiceQuestion>();
         foreach (var row in questionsCsv.Rows)
@@ -116,12 +119,12 @@ public static class HelpJuiceSourceParser
             var externalAuthorId = NullIfEmpty(First(row, "created_by_id", "author_id", "user_id",
                 "creator_id", "created_by_user_id", "last_published_user_id", "published_by_id"));
             legacyUsers.TryGetValue(externalAuthorId ?? string.Empty, out var legacyUser);
-            var authorName = NullIfEmpty(First(row, "author_name", "created_by_name", "user_name", "last_published_user_name"))
+            var authorName = legacyUser?.Name
+                ?? NullIfEmpty(First(row, "author_name", "created_by_name", "user_name", "last_published_user_name"))
                 ?? CombineName(row, "author_first_name", "author_last_name")
-                ?? CombineName(row, "created_by_first_name", "created_by_last_name")
-                ?? legacyUser?.Name;
-            var authorEmail = NullIfEmpty(First(row, "author_email", "created_by_email", "user_email",
-                "last_published_user_email")) ?? legacyUser?.Email;
+                ?? CombineName(row, "created_by_first_name", "created_by_last_name");
+            var authorEmail = legacyUser?.Email ?? NullIfEmpty(First(row, "author_email", "created_by_email", "user_email",
+                "last_published_user_email"));
 
             questions.Add(new(row.RowNumber, id, slug, name, NullIfEmpty(row["description"]), published,
                 created, updated, NullIfEmpty(row["category_id"]), row.Values, archived, newerDraft, ParseInt(row["language_id"]),
@@ -142,10 +145,10 @@ public static class HelpJuiceSourceParser
                 "created_by_id", "author_id", "user_id", "creator_id", "created_by_user_id",
                 "last_published_user_id", "published_by_id"));
             legacyUsers.TryGetValue(externalId ?? string.Empty, out var legacyUser);
-            var name = question.LegacyAuthorName ?? NullIfEmpty(First(answer.Source,
-                "author_name", "created_by_name", "user_name", "last_published_user_name")) ?? legacyUser?.Name;
-            var email = question.LegacyAuthorEmail ?? NullIfEmpty(First(answer.Source,
-                "author_email", "created_by_email", "user_email", "last_published_user_email", "email")) ?? legacyUser?.Email;
+            var name = legacyUser?.Name ?? question.LegacyAuthorName ?? NullIfEmpty(First(answer.Source,
+                "author_name", "created_by_name", "user_name", "last_published_user_name"));
+            var email = legacyUser?.Email ?? question.LegacyAuthorEmail ?? NullIfEmpty(First(answer.Source,
+                "author_email", "created_by_email", "user_email", "last_published_user_email", "email"));
             questions[index] = question with
             {
                 LegacyAuthorExternalId = externalId, LegacyAuthorName = name, LegacyAuthorEmail = email
@@ -220,10 +223,24 @@ public static class HelpJuiceSourceParser
             Visibility = effectiveCategoryVisibility.GetValueOrDefault(c.Id, c.Visibility)
         }).ToList();
 
+        var reverseCategoryIdsByQuestion = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var category in categories)
+            foreach (var questionId in category.RelatedQuestionIds ?? [])
+            {
+                if (!reverseCategoryIdsByQuestion.TryGetValue(questionId, out var values))
+                    reverseCategoryIdsByQuestion[questionId] = values = [];
+                values.Add(category.Id);
+            }
+        var recoveredCategoryIdsByQuestion = questions.GroupBy(question => question.Id, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.SelectMany(question =>
+                    ExtractQuestionCategoryIds(question.Source, question, categories)
+                    .Concat(reverseCategoryIdsByQuestion.GetValueOrDefault(question.Id) ?? []))
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), StringComparer.OrdinalIgnoreCase);
         var rawCategoryIdsByQuestion = questions.GroupBy(question => question.Id, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.SelectMany(question =>
                     (categorizations.GetValueOrDefault(question.Id) ?? [])
-                    .Concat(question.CategoryId is null ? [] : [question.CategoryId]))
+                    .Concat(question.CategoryId is null ? [] : [question.CategoryId])
+                    .Concat(recoveredCategoryIdsByQuestion.GetValueOrDefault(question.Id) ?? []))
                 .Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), StringComparer.OrdinalIgnoreCase);
         var questionsByTranslation = questions
             .GroupBy(question => question.TranslationId ?? question.Id, StringComparer.OrdinalIgnoreCase)
@@ -239,6 +256,16 @@ public static class HelpJuiceSourceParser
             var question = questions[index];
             var related = rawCategoryIdsByQuestion[question.Id];
             var declaredCount = ParseInt(question.Source.GetValueOrDefault("categories_count") ?? "");
+            var directCategoryIds = (categorizations.GetValueOrDefault(question.Id) ?? [])
+                .Concat(question.CategoryId is null ? [] : [question.CategoryId])
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var metadataRecovered = (recoveredCategoryIdsByQuestion.GetValueOrDefault(question.Id) ?? [])
+                .Where(id => !directCategoryIds.Contains(id)).ToArray();
+            if (metadataRecovered.Length > 0)
+                issues.Add(Issue("Warning", "CATEGORY_RELATIONSHIP_RECONSTRUCTED",
+                    "Missing HelpJuice categorization rows were reconstructed from unambiguous article/category export metadata.",
+                    "questions.csv", question.RowNumber, "Question", question.Id,
+                    "automaticallyRepaired=true;field=category metadata"));
             var reconstructed = TryReconstructTranslatedCategories(question, related, declaredCount,
                 rawCategoryIdsByQuestion, questionsByTranslation, categoriesById, categoriesByTranslation);
             if (reconstructed is not null)
@@ -264,6 +291,7 @@ public static class HelpJuiceSourceParser
                     "categorizations.csv", null, "Question", question.Id, "automaticallyRepaired=true;field=category_id"));
             var sourceMetadata = new Dictionary<string, string>(question.Source, StringComparer.OrdinalIgnoreCase);
             if (related.Length > 0) sourceMetadata["categorizations.category_ids"] = string.Join(',', related);
+            if (metadataRecovered.Length > 0) sourceMetadata["migration.category_reconstruction"] = "export_metadata";
             if (reconstructed is not null) sourceMetadata["migration.category_reconstruction"] = "translation_id";
             var visibility = question.Visibility;
             if (!question.VisibilityWasExplicit && valid.Any(id => categories.Any(category =>
@@ -299,7 +327,7 @@ public static class HelpJuiceSourceParser
             var question = questionById[answer.QuestionId];
             var languageKey = question.LanguageId ?? int.MinValue;
             if (!linkResolvers.TryGetValue(languageKey, out var linkResolver))
-                linkResolvers[languageKey] = linkResolver = CreateLinkResolver(questions, question);
+                linkResolvers[languageKey] = linkResolver = CreateLinkResolver(questions, question, mappedArticleSlugs);
             (Guid MediaId, string Url)? InlineResolver(string source)
             {
                 if (!source.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase)) return null;
@@ -397,19 +425,27 @@ public static class HelpJuiceSourceParser
     }
 
     public static Func<string, HelpJuiceLinkResolution?> CreateLinkResolver(IReadOnlyList<HelpJuiceQuestion> questions,
-        HelpJuiceQuestion? sourceQuestion = null)
+        HelpJuiceQuestion? sourceQuestion = null,
+        IReadOnlyDictionary<string, string>? targetSlugsByExternalId = null)
     {
-        var byLegacySlug = questions.GroupBy(q => NormalizeSlug(q.Source.GetValueOrDefault("codename") ?? ""), StringComparer.OrdinalIgnoreCase)
-            .Where(g => g.Key.Length > 0).ToDictionary(g => g.Key, g => g.ToArray(), StringComparer.OrdinalIgnoreCase);
+        var byLegacySlug = questions.SelectMany(question => QuestionLinkAliases(question)
+                .Select(alias => (Alias: alias, Question: question)))
+            .GroupBy(item => item.Alias, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key,
+                group => group.Select(item => item.Question).DistinctBy(question => question.Id,
+                    StringComparer.OrdinalIgnoreCase).ToArray(), StringComparer.OrdinalIgnoreCase);
         var byId = questions.GroupBy(q => q.Id, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
-        return href => ResolveHelpJuiceLink(href, byLegacySlug, byId, sourceQuestion?.LanguageId);
+        return href => ResolveHelpJuiceLink(href, byLegacySlug, byId, sourceQuestion?.LanguageId,
+            targetSlugsByExternalId);
     }
 
     private static HelpJuiceLinkResolution? ResolveHelpJuiceLink(string href,
         IReadOnlyDictionary<string, HelpJuiceQuestion[]> byLegacySlug,
-        IReadOnlyDictionary<string, HelpJuiceQuestion> byId, int? sourceLanguageId)
+        IReadOnlyDictionary<string, HelpJuiceQuestion> byId, int? sourceLanguageId,
+        IReadOnlyDictionary<string, string>? targetSlugsByExternalId)
     {
+        string Target(HelpJuiceQuestion question) => $"/kb/{targetSlugsByExternalId?.GetValueOrDefault(question.Id) ?? question.Slug}";
         if (!Uri.TryCreate(href, UriKind.Absolute, out var uri) ||
             !(uri.Host.Equals("helpjuice.com", StringComparison.OrdinalIgnoreCase) ||
               uri.Host.EndsWith(".helpjuice.com", StringComparison.OrdinalIgnoreCase))) return null;
@@ -419,23 +455,24 @@ public static class HelpJuiceSourceParser
             .Select(Uri.UnescapeDataString).ToArray();
         foreach (var part in parts.Reverse())
         {
-            if (byId.TryGetValue(part, out var exact)) return new($"/kb/{exact.Slug}");
+            if (byId.TryGetValue(part, out var exact)) return new(Target(exact));
             foreach (Match match in Regex.Matches(part, @"\d+"))
-                if (byId.TryGetValue(match.Value, out var identified)) return new($"/kb/{identified.Slug}");
+                if (byId.TryGetValue(match.Value, out var identified)) return new(Target(identified));
         }
         var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
-        foreach (var name in new[] { "id", "question_id", "article_id" })
-            if (byId.TryGetValue(query[name] ?? string.Empty, out var identified)) return new($"/kb/{identified.Slug}");
+        foreach (var name in new[] { "id", "question_id", "article_id", "questionId", "articleId", "content_id", "contentId", "qid" })
+            if (byId.TryGetValue(query[name] ?? string.Empty, out var identified)) return new(Target(identified));
         var queryCandidates = new[] { "slug", "codename", "path", "url" }
             .Select(name => query[name]).Where(value => !string.IsNullOrWhiteSpace(value)).Select(value => value!);
         var key = parts.Concat(queryCandidates).Reverse().SelectMany(LinkSlugCandidates)
             .FirstOrDefault(byLegacySlug.ContainsKey);
-        if (key is null) return new(href, "UNRESOLVED_INTERNAL_LINK", "A HelpJuice link could not be matched and was preserved.");
+        if (key is null) return new(href, "UNRESOLVED_INTERNAL_LINK",
+            $"HelpJuice link '{Limit(href)}' could not be matched by article ID, codename, slug, or migration target and was preserved.");
         var matches = byLegacySlug[key];
-        if (matches.Length == 1) return new($"/kb/{matches[0].Slug}");
+        if (matches.Length == 1) return new(Target(matches[0]));
         var sameLanguage = matches.Where(question => question.LanguageId == sourceLanguageId).ToArray();
         return sameLanguage.Length == 1
-            ? new($"/kb/{sameLanguage[0].Slug}")
+            ? new(Target(sameLanguage[0]))
             : new(href, "AMBIGUOUS_INTERNAL_LINK", "A HelpJuice link matches multiple translated articles and was preserved.");
     }
 
@@ -451,6 +488,20 @@ public static class HelpJuiceSourceParser
         if (!withoutLeadingId.Equals(withoutHtml, StringComparison.OrdinalIgnoreCase)) yield return withoutLeadingId;
     }
 
+    private static IEnumerable<string> QuestionLinkAliases(HelpJuiceQuestion question)
+    {
+        foreach (var value in new[] { question.Slug, question.Name }.Concat(
+                     new[] { "codename", "slug", "url", "path", "permalink" }
+                         .Select(field => question.Source.GetValueOrDefault(field) ?? ""))
+                 .Where(value => !string.IsNullOrWhiteSpace(value)))
+        {
+            if (Uri.TryCreate(value, UriKind.Absolute, out var uri))
+                foreach (var part in uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries).Reverse())
+                    foreach (var candidate in LinkSlugCandidates(part)) yield return candidate;
+            foreach (var candidate in LinkSlugCandidates(value)) yield return candidate;
+        }
+    }
+
     private static async Task<List<HelpJuiceCategory>> ParseCategoriesAsync(PackageContents package, HelpJuiceMigrationLimits limits,
         List<MigrationIssueData> issues, Func<string,string,string,string?,int?,string?,string?,string?,MigrationIssueData> issue, CancellationToken ct)
     {
@@ -462,7 +513,10 @@ public static class HelpJuiceSourceParser
             return new HelpJuiceCategory(r.RowNumber, r["id"].Trim(), NullIfEmpty(r["parent_id"]), r["name"].Trim(), 0,
                 NormalizeSlug(First(r, "codename", "name")), ParseInt(r["position"]) ?? r.RowNumber,
                 ParseBoolean(r["archived"], out _), ParseInt(r["language_id"]), visibility.Value, visibility.WasExplicit,
-                NullIfEmpty(r["translation_id"]));
+                NullIfEmpty(r["translation_id"]), r.Values,
+                ExtractReferenceIds(r, ["question_ids", "questions_ids", "published_question_ids",
+                    "draft_question_ids", "article_ids"], ["questions", "published_questions", "draft_questions", "articles"],
+                    new HashSet<string>(["id", "question_id", "article_id"], StringComparer.OrdinalIgnoreCase)));
         }).ToList();
         AddDuplicateIssues(result.Select(x => (x.Id, x.RowNumber)), "CATEGORY_ID_DUPLICATE", "categories.csv", "Category", issues, issue);
         return result;
@@ -473,19 +527,37 @@ public static class HelpJuiceSourceParser
         List<int> UnresolvedRows);
 
     private static async Task<Dictionary<string, LegacyUser>> ParseLegacyUsersAsync(PackageContents package,
-        HelpJuiceMigrationLimits limits, CancellationToken ct)
+        HelpJuiceMigrationLimits limits, List<MigrationIssueData> issues,
+        Func<string,string,string,string?,int?,string?,string?,string?,MigrationIssueData> issue,
+        CancellationToken ct)
     {
-        if (!package.KnownCsvFiles.TryGetValue("users.csv", out var path))
-            return new(StringComparer.OrdinalIgnoreCase);
-        var csv = await HelpJuiceCsvReader.ReadAsync(path, limits.MaxCsvRows, ct);
+        var identityHeaders = new[] { "name", "full_name", "display_name", "first_name", "last_name", "email",
+            "email_address", "firstName", "lastName", "fullName", "displayName" };
         var result = new Dictionary<string, LegacyUser>(StringComparer.OrdinalIgnoreCase);
-        foreach (var row in csv.Rows)
+        foreach (var sourceName in new[] { "users.csv", "account_id" })
         {
-            var id = First(row, "id", "user_id");
-            if (id.Length == 0) continue;
-            var name = NullIfEmpty(First(row, "name", "full_name", "display_name"))
-                ?? CombineName(row, "first_name", "last_name");
-            result.TryAdd(id, new(name, NullIfEmpty(row["email"])));
+            if (!package.KnownCsvFiles.TryGetValue(sourceName, out var path)) continue;
+            var csv = await HelpJuiceCsvReader.ReadAsync(path, limits.MaxCsvRows, ct);
+            var hasAccountKey = csv.Headers.Contains("account_id", StringComparer.OrdinalIgnoreCase) ||
+                                csv.Headers.Contains("id", StringComparer.OrdinalIgnoreCase) ||
+                                csv.Headers.Contains("user_id", StringComparer.OrdinalIgnoreCase);
+            var hasIdentity = csv.Headers.Any(header => identityHeaders.Contains(header, StringComparer.OrdinalIgnoreCase));
+            if (!hasAccountKey || !hasIdentity)
+            {
+                issues.Add(issue("Warning", "UNSUPPORTED_FILE",
+                    $"Unsupported file '{sourceName}' does not contain recognizable HelpJuice account identity columns and will not be imported.",
+                    sourceName, null, "Package", null, null));
+                continue;
+            }
+            foreach (var row in csv.Rows)
+            {
+                var id = First(row, "account_id", "id", "user_id");
+                if (id.Length == 0) continue;
+                var name = NullIfEmpty(First(row, "name", "full_name", "display_name", "fullName", "displayName"))
+                    ?? CombineName(row, "first_name", "last_name")
+                    ?? CombineName(row, "firstName", "lastName");
+                result.TryAdd(id, new(name, NullIfEmpty(First(row, "email", "email_address"))));
+            }
         }
         return result;
     }
@@ -513,7 +585,16 @@ public static class HelpJuiceSourceParser
                 result.CategoryIds.Add(targetId);
             else if (questionIds.Contains(targetId) && !categoryIds.Contains(targetId)) result.QuestionIds.Add(targetId);
             else if (categoryIds.Contains(targetId) && !questionIds.Contains(targetId)) result.CategoryIds.Add(targetId);
-            else result.UnresolvedRows.Add(row.RowNumber);
+            else
+            {
+                var questionMatches = ExtractMatchingPermissionTargets(row, questionIds);
+                var categoryMatches = ExtractMatchingPermissionTargets(row, categoryIds);
+                if (questionMatches.Count > 0 && categoryMatches.Count == 0)
+                    result.QuestionIds.UnionWith(questionMatches);
+                else if (categoryMatches.Count > 0 && questionMatches.Count == 0)
+                    result.CategoryIds.UnionWith(categoryMatches);
+                else result.UnresolvedRows.Add(row.RowNumber);
+            }
         }
         return result;
     }
@@ -548,6 +629,91 @@ public static class HelpJuiceSourceParser
         var combined = $"{row[firstNameField].Trim()} {row[lastNameField].Trim()}".Trim();
         return NullIfEmpty(combined);
     }
+
+    private static HashSet<string> ExtractMatchingPermissionTargets(CsvRow row, IReadOnlySet<string> knownIds)
+    {
+        var targetFields = new HashSet<string>(["article_id", "article_ids", "document_id", "document_ids",
+            "question_ids", "category_ids", "target_id", "target_ids", "permissionable_id", "permissionable_ids",
+            "restrictable_id", "restrictable_ids"],
+            StringComparer.OrdinalIgnoreCase);
+        return row.Values.Where(pair => targetFields.Contains(pair.Key))
+            .SelectMany(pair => SplitReferenceList(pair.Value)).Where(knownIds.Contains)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static IReadOnlyList<string> ExtractQuestionCategoryIds(IReadOnlyDictionary<string, string> source,
+        HelpJuiceQuestion question, IReadOnlyList<HelpJuiceCategory> categories)
+    {
+        var row = new CsvRow(question.RowNumber, source);
+        var explicitIds = ExtractReferenceIds(row,
+            ["category_ids", "categories_ids", "joined_category_ids", "categorized_category_ids"],
+            ["categories"], new HashSet<string>(["id", "category_id"], StringComparer.OrdinalIgnoreCase));
+        if (explicitIds.Count > 0) return explicitIds;
+        if (ParseInt(source.GetValueOrDefault("categories_count") ?? "") is not 1) return [];
+        var labels = new[] { "first_category", "category", "category_name", "first_category_name",
+                "category_codename", "category_slug" }
+            .Select(field => source.GetValueOrDefault(field)?.Trim()).Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => NormalizeSlug(value!)).Where(value => value.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase);
+        foreach (var label in labels)
+        {
+            var matches = categories.Where(category =>
+                    (category.LanguageId is null || question.LanguageId is null || category.LanguageId == question.LanguageId) &&
+                    (category.Slug.Equals(label, StringComparison.OrdinalIgnoreCase) ||
+                     NormalizeSlug(category.Name).Equals(label, StringComparison.OrdinalIgnoreCase)))
+                .Select(category => category.Id).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            if (matches.Length == 1) return matches;
+        }
+        return [];
+    }
+
+    private static IReadOnlyList<string> ExtractReferenceIds(CsvRow row, IReadOnlyList<string> listFields,
+        IReadOnlyList<string> structuredFields, IReadOnlySet<string> objectIdNames)
+    {
+        var result = listFields.SelectMany(field => SplitReferenceList(row[field])).ToList();
+        foreach (var field in structuredFields)
+        {
+            var value = row[field].Trim();
+            if (value.Length == 0) continue;
+            try
+            {
+                using var document = JsonDocument.Parse(value);
+                CollectObjectIds(document.RootElement, objectIdNames, result);
+            }
+            catch (JsonException)
+            {
+                // Structured relationships are used only when valid JSON proves the target IDs.
+            }
+        }
+        return result.Where(value => value.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    private static void CollectObjectIds(JsonElement element, IReadOnlySet<string> objectIdNames, List<string> result)
+    {
+        if (element.ValueKind is JsonValueKind.String or JsonValueKind.Number)
+        {
+            result.Add(element.ToString().Trim());
+            return;
+        }
+        if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var child in element.EnumerateArray()) CollectObjectIds(child, objectIdNames, result);
+            return;
+        }
+        if (element.ValueKind != JsonValueKind.Object) return;
+        foreach (var property in element.EnumerateObject())
+        {
+            if (objectIdNames.Contains(property.Name) && property.Value.ValueKind is JsonValueKind.String or JsonValueKind.Number)
+                result.Add(property.Value.ToString().Trim());
+            else if (property.Value.ValueKind is JsonValueKind.Array or JsonValueKind.Object)
+                CollectObjectIds(property.Value, objectIdNames, result);
+        }
+    }
+
+    private static IEnumerable<string> SplitReferenceList(string value) => value
+        .Trim().Trim('[', ']', '(', ')', '{', '}')
+        .Split([',', ';', '|', ' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .Select(item => item.Trim('"', '\''))
+        .Where(item => item.Length > 0);
 
     private static string[]? TryReconstructTranslatedCategories(HelpJuiceQuestion question,
         IReadOnlyList<string> directCategoryIds, int? declaredCount,
@@ -610,6 +776,9 @@ public static class HelpJuiceSourceParser
         RequireColumns(csv, ["id", "image"], issues, issue);
         var result = new List<HelpJuiceUpload>();
         var packagedNames = p.MediaFiles.Select(Path.GetFileName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var normalizedPackagedNames = p.MediaFiles.GroupBy(MediaFileMatchKey, StringComparer.OrdinalIgnoreCase)
+            .Where(group => group.Key.Length > 0 && group.Count() == 1)
+            .Select(group => group.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var r in csv.Rows)
         {
             var id = r["id"].Trim(); var file = First(r, "image", "file_name", "filename", "path", "key");
@@ -617,7 +786,8 @@ public static class HelpJuiceSourceParser
             var extension = First(r, "ext_name"); if (extension.Length > 0 && !extension.StartsWith('.')) extension = "." + extension;
             if (extension.Length == 0) extension = Path.GetExtension(file);
             var preview = NullIfEmpty(r["preview_url"]);
-            if (preview is null && !packagedNames.Contains(Path.GetFileName(file)))
+            if (preview is null && !packagedNames.Contains(Path.GetFileName(file)) &&
+                !normalizedPackagedNames.Contains(MediaFileMatchKey(file)))
                 issues.Add(issue("Warning", "MISSING_MEDIA_URL", "The upload has no preview_url and no packaged filename match; its bytes cannot be recovered from this export.", "uploads.csv", r.RowNumber, "Media", id, "automaticallyRepaired=false;field=preview_url"));
             result.Add(new(r.RowNumber, id, file, preview, NullIfEmpty(r["checksum"]), MimeFromUpload(r, extension), extension,
                 long.TryParse(r["image_size"], out var size) ? size : null, ParseDate(r["created_at"], out _), r.Values));
@@ -635,6 +805,13 @@ public static class HelpJuiceSourceParser
             if (upload.PreviewUrl is not null && Uri.TryCreate(upload.PreviewUrl, UriKind.Absolute, out var uri)) result.TryAdd(uri.LocalPath, upload.Id);
         }
         return result;
+    }
+
+    public static string MediaFileMatchKey(string value)
+    {
+        var fileName = Path.GetFileName(value).Normalize(NormalizationForm.FormKC);
+        try { fileName = Uri.UnescapeDataString(fileName); } catch (UriFormatException) { }
+        return new string(fileName.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
     }
 
     private static string MimeFromUpload(CsvRow row, string extension) => row["file_type"].Trim().ToLowerInvariant() switch
