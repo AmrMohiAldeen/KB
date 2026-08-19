@@ -39,7 +39,9 @@ public sealed class PublicKnowledgeBaseRepository(KbDbContext db) : IPublicKnowl
     private IQueryable<Data.Entities.Category> VisibleCategories() => db.Categories.AsNoTracking().Where(category =>
         category.Status == CategoryStatuses.Active && category.Visibility == ContentVisibilities.Public &&
         category.Path != null && !db.Categories.Any(ancestor => ancestor.Path != null &&
-            category.Path.StartsWith(ancestor.Path) && ancestor.Visibility == ContentVisibilities.Internal));
+            category.Path.StartsWith(ancestor.Path) && ancestor.Visibility == ContentVisibilities.Internal) &&
+        !db.ViewerSolutions.Any(solution => solution.IsEnabled && solution.RootCategory.Path != null &&
+            category.Path.StartsWith(solution.RootCategory.Path)));
 
     private IQueryable<Data.Entities.Article> VisibleArticles() => db.Articles.AsNoTracking().Where(article =>
         article.Visibility == ContentVisibilities.Public && article.Status == ArticleStatuses.Published &&
@@ -48,5 +50,7 @@ public sealed class PublicKnowledgeBaseRepository(KbDbContext db) : IPublicKnowl
         article.CategoryIdFkNavigation.Visibility == ContentVisibilities.Public &&
         article.CategoryIdFkNavigation.Path != null && !db.Categories.Any(ancestor => ancestor.Path != null &&
             article.CategoryIdFkNavigation.Path.StartsWith(ancestor.Path) &&
-            ancestor.Visibility == ContentVisibilities.Internal));
+            ancestor.Visibility == ContentVisibilities.Internal) && !db.ViewerSolutions.Any(solution =>
+            solution.IsEnabled && solution.RootCategory.Path != null &&
+            article.CategoryIdFkNavigation.Path.StartsWith(solution.RootCategory.Path)));
 }

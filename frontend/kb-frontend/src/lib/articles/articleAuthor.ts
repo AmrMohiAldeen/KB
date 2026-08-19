@@ -5,15 +5,16 @@ export type ArticleAttribution = {
   legacyAuthorExternalId?: string | null
 }
 
-export const UNKNOWN_HELPJUICE_AUTHOR = 'Unknown HelpJuice author'
-
 export const isHistoricalHelpJuiceArticle = (article: ArticleAttribution) => Boolean(
   article.legacyAuthorName || article.legacyAuthorEmail || article.legacyAuthorExternalId
 )
 
 export const historicalHelpJuiceAuthor = (article: ArticleAttribution) => {
   if (!isHistoricalHelpJuiceArticle(article)) return undefined
-  return article.legacyAuthorName || article.legacyAuthorEmail || UNKNOWN_HELPJUICE_AUTHOR
+  return article.legacyAuthorName || article.legacyAuthorEmail ||
+    (article.legacyAuthorExternalId
+      ? `Unresolved Helpjuice author (${article.legacyAuthorExternalId})`
+      : 'Helpjuice author unavailable')
 }
 
 export const articleAuthor = (article: ArticleAttribution) =>

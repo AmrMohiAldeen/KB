@@ -75,12 +75,14 @@ internal sealed class InternalSearchDocumentSource(
         var categories = await LoadCategoriesAsync(cancellationToken);
         if (!categories.TryGetValue(article.CategoryIdFk ?? Guid.Empty, out var category) ||
             !IsPubliclyVisible(category, categories)) return null;
+        var solutionIds = await SolutionIdsAsync(category.Path, cancellationToken);
         var body = await ReadDraftTextAsync(article.PlainTextPath, article.JsonPath, cancellationToken);
         return new InternalSearchDocument($"article_{article.ArticleId:N}", "article", article.ArticleId.ToString("D"),
             article.Title, body, article.Slug, article.Status, article.CategoryIdFk?.ToString("D") ?? string.Empty,
             category.Name, BuildCategoryPath(category, categories), article.AuthorIdFk.ToString("D"),
             DisplayAuthor(article.LegacyAuthorName, article.LegacyAuthorEmail, article.LegacyAuthorExternalId,
-                article.OwnerName), $"{article.AuthorIdFk:D}|{article.OwnerName}", ToUnixTime(article.UpdatedAt));
+                article.OwnerName), $"{article.AuthorIdFk:D}|{article.OwnerName}", ToUnixTime(article.UpdatedAt),
+            solutionIds, true, true, false, false, CategoryAncestorIds(category, categories));
     }
 
     public async Task<InternalSearchDocument?> GetPublicCategoryAsync(Guid id, CancellationToken cancellationToken)
@@ -90,9 +92,11 @@ internal sealed class InternalSearchDocumentSource(
         var updatedAt = await dbContext.ArticleAuditLogs.AsNoTracking()
             .Where(log => log.EntityType == AuditEntityTypes.Category && log.EntityId == id)
             .MaxAsync(log => (DateTime?)log.CreatedAt, cancellationToken) ?? DateTime.UnixEpoch;
+        var solutionIds = await SolutionIdsAsync(category.Path, cancellationToken);
         return new InternalSearchDocument($"category_{id:N}", "category", id.ToString("D"), category.Name,
             category.Description ?? string.Empty, category.Slug, category.Status, id.ToString("D"), category.Name,
-            BuildCategoryPath(category, categories), string.Empty, string.Empty, string.Empty, ToUnixTime(updatedAt));
+            BuildCategoryPath(category, categories), string.Empty, string.Empty, string.Empty, ToUnixTime(updatedAt),
+            solutionIds, false, true, false, false, CategoryAncestorIds(category, categories));
     }
 
     public async Task<IReadOnlyList<InternalSearchDocument>> GetAllAsync(CancellationToken cancellationToken)
@@ -107,6 +111,20 @@ internal sealed class InternalSearchDocumentSource(
             if (await GetArticleAsync(id, cancellationToken) is { } document) documents.Add(document);
         foreach (var id in categoryIds)
             if (await GetCategoryAsync(id, cancellationToken) is { } document) documents.Add(document);
+        return documents;
+    }
+
+    public async Task<IReadOnlyList<InternalSearchDocument>> GetAllPublicAsync(CancellationToken cancellationToken)
+    {
+        var articleIds = await dbContext.Articles.AsNoTracking().Select(article => article.ArticleId)
+            .ToListAsync(cancellationToken);
+        var categoryIds = await dbContext.Categories.AsNoTracking().Select(category => category.CategoryId)
+            .ToListAsync(cancellationToken);
+        var documents = new List<InternalSearchDocument>();
+        foreach (var id in articleIds)
+            if (await GetPublicArticleAsync(id, cancellationToken) is { } document) documents.Add(document);
+        foreach (var id in categoryIds)
+            if (await GetPublicCategoryAsync(id, cancellationToken) is { } document) documents.Add(document);
         return documents;
     }
 
@@ -140,7 +158,16 @@ internal sealed class InternalSearchDocumentSource(
     private async Task<Dictionary<Guid, CategoryRow>> LoadCategoriesAsync(CancellationToken token) =>
         await dbContext.Categories.AsNoTracking().ToDictionaryAsync(category => category.CategoryId,
             category => new CategoryRow(category.CategoryId, category.ParentCategoryIdFk, category.Name,
-                category.Slug, category.Description, category.Status, category.Visibility), token);
+                category.Slug, category.Description, category.Status, category.Visibility, category.Path), token);
+
+    private async Task<string[]> SolutionIdsAsync(string? categoryPath, CancellationToken token)
+    {
+        if (string.IsNullOrWhiteSpace(categoryPath)) return [];
+        var ids = await dbContext.ViewerSolutions.AsNoTracking().Where(solution => solution.IsEnabled &&
+                solution.RootCategory.Path != null && categoryPath.StartsWith(solution.RootCategory.Path))
+            .Select(solution => solution.SolutionId).ToArrayAsync(token);
+        return ids.Select(id => id.ToString("D")).ToArray();
+    }
 
     private static bool IsPubliclyVisible(CategoryRow category, IReadOnlyDictionary<Guid, CategoryRow> all)
     {
@@ -169,10 +196,23 @@ internal sealed class InternalSearchDocumentSource(
         return string.Join(" / ", names);
     }
 
+    private static string[] CategoryAncestorIds(CategoryRow category, IReadOnlyDictionary<Guid, CategoryRow> all)
+    {
+        var ids = new List<string>();
+        var seen = new HashSet<Guid>();
+        for (var current = category; seen.Add(current.Id);)
+        {
+            ids.Add(current.Id.ToString("D"));
+            if (current.ParentId is not { } parentId || !all.TryGetValue(parentId, out var parent)) break;
+            current = parent;
+        }
+        return ids.ToArray();
+    }
+
     private static long ToUnixTime(DateTime value) => new DateTimeOffset(DateTime.SpecifyKind(value, DateTimeKind.Utc)).ToUnixTimeSeconds();
     private static string DisplayAuthor(string? legacyName, string? legacyEmail, string? legacyExternalId,
         string ownerName) => legacyName ?? legacyEmail ??
-        (legacyExternalId is null ? ownerName : "Unknown HelpJuice author");
+        (legacyExternalId is null ? ownerName : $"Unresolved Helpjuice author ({legacyExternalId})");
     private sealed record CategoryRow(Guid Id, Guid? ParentId, string Name, string Slug, string? Description,
-        string Status, string Visibility);
+        string Status, string Visibility, string? Path);
 }

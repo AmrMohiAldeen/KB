@@ -299,7 +299,7 @@ public sealed class HelpJuiceParsingTests
     }
 
     [Fact]
-    public async Task Historical_author_uses_email_then_neutral_fallback_without_exposing_the_external_id()
+    public async Task Historical_author_keeps_unresolved_id_and_distinguishes_missing_created_by_id()
     {
         using var package=Package(
             "id,name,created_by_id\nq1,Email author,u1\nq2,Missing account,u2\nq3,Missing attribution,",
@@ -310,17 +310,21 @@ public sealed class HelpJuiceParsingTests
         var emailAuthor=source.Questions.Single(question=>question.Id=="q1");
         Assert.Null(emailAuthor.LegacyAuthorName);Assert.Equal("ada@example.test",emailAuthor.LegacyAuthorEmail);
         var missingAccount=source.Questions.Single(question=>question.Id=="q2");
-        Assert.Equal("Unknown HelpJuice author",missingAccount.LegacyAuthorName);Assert.Equal("u2",missingAccount.LegacyAuthorExternalId);
-        Assert.Equal("Unknown HelpJuice author",source.Questions.Single(question=>question.Id=="q3").LegacyAuthorName);
+        Assert.Null(missingAccount.LegacyAuthorName);Assert.Null(missingAccount.LegacyAuthorEmail);
+        Assert.Equal("u2",missingAccount.LegacyAuthorExternalId);
+        Assert.Null(source.Questions.Single(question=>question.Id=="q3").LegacyAuthorExternalId);
+        Assert.Contains(source.Issues,issue=>issue.ErrorCode=="HELPJUICE_AUTHOR_MAPPING_MISSING"&&issue.ExternalId=="q2");
+        Assert.Contains(source.Issues,issue=>issue.ErrorCode=="HELPJUICE_AUTHOR_ID_MISSING"&&issue.ExternalId=="q3");
+        Assert.Contains(source.Issues,issue=>issue.ErrorCode=="HELPJUICE_AUTHOR_RESOLVED"&&issue.ExternalId=="q1");
     }
 
     [Fact]
-    public async Task Historical_author_resolves_the_article_user_id_through_users_account_id()
+    public async Task Historical_author_matches_created_by_id_to_users_id_only()
     {
         using var package=Package(
             "id,name,created_by_id\nq1,Account keyed author,account-42",
             "id,question_id,body\na1,q1,Body",
-            users:"id,account_id,first_name,last_name,email\nrecord-7,account-42,Grace,Hopper,grace@example.test");
+            users:"id,account_id,first_name,last_name,email\naccount-42,legacy-account,Grace,Hopper,grace@example.test");
         var source=await HelpJuiceSourceParser.ParseAndValidateAsync(package,new(),TimeProvider.System);
 
         var article=Assert.Single(source.Questions);
@@ -331,17 +335,74 @@ public sealed class HelpJuiceParsingTests
     }
 
     [Fact]
-    public async Task Extensionless_account_id_export_is_recognized_and_used_as_legacy_user_data()
+    public async Task Author_resolver_caches_optional_lookup_results_during_an_import()
     {
-        using var package=Package("id,name,created_by_id\nq1,One,u1", "id,question_id,body\na1,q1,Body");
-        var accountPath=Path.Combine(package.RootPath,"account_id");
-        await File.WriteAllTextAsync(accountPath,"account_id,display_name,email\nu1,Ada Account,ada@example.test");
-        ((Dictionary<string,string>)package.KnownCsvFiles)["account_id"]=accountPath;
+        using var package=Package("id,name,created_by_id\nq1,One,u1\nq2,Two,u1",
+            "id,question_id,body\na1,q1,Body\na2,q2,Body");
+        var lookup=new CountingAuthorLookup(new("u1","Ada API","ada@example.test"));
 
-        var source=await HelpJuiceSourceParser.ParseAndValidateAsync(package,new(),TimeProvider.System);
+        var source=await HelpJuiceSourceParser.ParseAndValidateAsync(package,new(),TimeProvider.System,
+            authorLookup:lookup);
 
-        Assert.Equal("Ada Account",Assert.Single(source.Questions).LegacyAuthorName);
-        Assert.DoesNotContain(source.Issues,issue=>issue.ErrorCode=="UNSUPPORTED_FILE");
+        Assert.All(source.Questions,question=>Assert.Equal("Ada API",question.LegacyAuthorName));
+        Assert.Equal(1,lookup.CallCount);
+    }
+
+    [Fact]
+    public void HelpJuice_text_colors_survive_nested_spans_and_legacy_font_markup()
+    {
+        var result=HelpJuiceHtmlConverter.Convert("""
+            <p style="color: rgb(10, 20, 30)">Outer
+              <span style="color:#ff0066">hex <span data-text-color="rgba(1, 2, 3, 0.5)">nested</span></span>
+              <font color="blue">named</font>
+            </p>
+            """);
+
+        Assert.Contains("\"color\":\"rgb(10, 20, 30)\"",result.TiptapJson);
+        Assert.Contains("\"color\":\"#ff0066\"",result.TiptapJson);
+        Assert.Contains("\"color\":\"rgba(1, 2, 3, 0.5)\"",result.TiptapJson);
+        Assert.Contains("\"color\":\"blue\"",result.TiptapJson);
+        Assert.Contains("color:#ff0066",result.RenderedHtml);
+        Assert.DoesNotContain(result.Warnings,warning=>warning.Code=="UNSUPPORTED_TEXT_COLOR");
+    }
+
+    [Fact]
+    public void Invalid_HelpJuice_text_color_is_reported_instead_of_silently_dropped()
+    {
+        var result=HelpJuiceHtmlConverter.Convert("<span style=\"color: var(--unsafe)\">Text</span>");
+
+        Assert.Contains(result.Warnings,warning=>warning.Code=="UNSUPPORTED_TEXT_COLOR");
+        Assert.DoesNotContain("var(--unsafe)",result.TiptapJson);
+    }
+
+    [Fact]
+    public void HelpJuice_percentage_table_and_colgroup_widths_map_to_Tiptap_attributes()
+    {
+        var result=HelpJuiceHtmlConverter.Convert("""
+            <table width="75%"><colgroup><col style="width:25%"><col width="75%"></colgroup>
+              <tr><th>Narrow</th><th>Wide</th></tr><tr><td>A</td><td>B</td></tr>
+            </table>
+            """);
+
+        Assert.Contains("\"tableWidthPct\":75",result.TiptapJson);
+        Assert.Contains("\"colwidth\":[250]",result.TiptapJson);
+        Assert.Contains("\"colwidth\":[750]",result.TiptapJson);
+        Assert.Contains("data-table-width-pct=\"75\"",result.RenderedHtml);
+        Assert.Contains("<colgroup><col width=\"250\"",result.RenderedHtml);
+    }
+
+    [Fact]
+    public void HelpJuice_pixel_table_and_uneven_cell_widths_survive_conversion()
+    {
+        var result=HelpJuiceHtmlConverter.Convert("""
+            <table style="width:640px"><tr><td width="180">Narrow</td><td style="width:460px">Wide</td></tr></table>
+            """);
+
+        Assert.Contains("\"tableWidthPx\":640",result.TiptapJson);
+        Assert.Contains("\"colwidth\":[180]",result.TiptapJson);
+        Assert.Contains("\"colwidth\":[460]",result.TiptapJson);
+        Assert.Contains("data-table-width-px=\"640\"",result.RenderedHtml);
+        Assert.DoesNotContain(result.Warnings,warning=>warning.Code.StartsWith("UNSUPPORTED_TABLE",StringComparison.Ordinal));
     }
 
     [Fact]
@@ -493,5 +554,11 @@ public sealed class HelpJuiceParsingTests
 
     private static string TempFile(string content){var path=Path.Combine(Path.GetTempPath(),$"hj-{Guid.NewGuid():N}.csv");File.WriteAllText(path,content,new UTF8Encoding(false));return path;}
     private static int Count(string value,string needle){var count=0;for(var index=0;(index=value.IndexOf(needle,index,StringComparison.Ordinal))>=0;index+=needle.Length)count++;return count;}
+    private sealed class CountingAuthorLookup(HelpJuiceLegacyAuthor author):IHelpJuiceAuthorLookup
+    {
+        public int CallCount { get; private set; }
+        public Task<HelpJuiceLegacyAuthor?> FindByIdAsync(string externalId,CancellationToken cancellationToken)
+        { CallCount++;return Task.FromResult<HelpJuiceLegacyAuthor?>(externalId==author.ExternalId?author:null); }
+    }
     private static PackageContents Package(string questions,string answers,string? categories=null,string? categorizations=null,string? uploads=null,IReadOnlyList<string>? mediaNames=null,string? users=null,string? passes=null){var root=Path.Combine(Path.GetTempPath(),$"hj-{Guid.NewGuid():N}");Directory.CreateDirectory(root);var q=Path.Combine(root,"questions.csv");var a=Path.Combine(root,"answers.csv");File.WriteAllText(q,questions);File.WriteAllText(a,answers);var files=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase){{"questions.csv",q},{"answers.csv",a}};if(categories is not null){var c=Path.Combine(root,"categories.csv");File.WriteAllText(c,categories);files["categories.csv"]=c;}if(categorizations is not null){var c=Path.Combine(root,"categorizations.csv");File.WriteAllText(c,categorizations);files["categorizations.csv"]=c;}if(uploads is not null){var u=Path.Combine(root,"uploads.csv");File.WriteAllText(u,uploads);files["uploads.csv"]=u;}if(users is not null){var u=Path.Combine(root,"users.csv");File.WriteAllText(u,users);files["users.csv"]=u;}if(passes is not null){var p=Path.Combine(root,"passes.csv");File.WriteAllText(p,passes);files["passes.csv"]=p;}var media=(mediaNames??[]).Select(name=>{var path=Path.Combine(root,name);File.WriteAllBytes(path,[1,2,3]);return path;}).ToArray();return new(root,files,media,files.Keys.Concat(mediaNames??[]).ToArray(),[]);}
 }

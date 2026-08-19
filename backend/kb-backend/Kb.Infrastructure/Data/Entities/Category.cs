@@ -32,4 +32,6 @@ public partial class Category
     public virtual ICollection<Category> InverseParentCategoryIdFkNavigation { get; set; } = new List<Category>();
 
     public virtual Category? ParentCategoryIdFkNavigation { get; set; }
+
+    public virtual ViewerSolution? ViewerSolution { get; set; }
 }

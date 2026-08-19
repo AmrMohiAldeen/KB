@@ -4,11 +4,13 @@ using System.Text;
 using System.Text.Json;
 using Kb.Application.Exceptions;
 using Kb.Application.Search;
+using Kb.Application.Viewer;
 using Microsoft.Extensions.Options;
 
 namespace Kb.Infrastructure.Search;
 
-internal sealed class TypesenseInternalSearchClient : IInternalSearchClient, ITypesenseInternalIndex, ITypesensePublicIndex
+internal sealed class TypesenseInternalSearchClient : IInternalSearchClient, ITypesenseInternalIndex,
+    ITypesensePublicIndex, IViewerSearchClient
 {
     private const string HighlightStart = "<mark>";
     private const string HighlightEnd = "</mark>";
@@ -110,11 +112,61 @@ internal sealed class TypesenseInternalSearchClient : IInternalSearchClient, ITy
             await EnsureSuccessAsync(response, "The public search document could not be removed.", cancellationToken);
     }
 
-    public async Task<string> RebuildAsync(IReadOnlyList<InternalSearchDocument> documents,
-        CancellationToken cancellationToken)
+    public Task<IReadOnlyList<ViewerArticleSummary>> SearchAsync(Guid solutionId, string query, int limit,
+        CancellationToken cancellationToken) => SearchViewerAsync(
+        $"solution_ids:={solutionId:D}", query, limit, cancellationToken);
+
+    public Task<IReadOnlyList<ViewerArticleSummary>> SearchPreviewAsync(Guid rootCategoryId, string query, int limit,
+        CancellationToken cancellationToken) => SearchViewerAsync(
+        $"category_ancestor_ids:={rootCategoryId:D}", query, limit, cancellationToken);
+
+    private async Task<IReadOnlyList<ViewerArticleSummary>> SearchViewerAsync(string scopeFilter, string query,
+        int limit, CancellationToken cancellationToken)
     {
         EnsureConfigured();
-        var collection = $"{options.CollectionAlias}_{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}";
+        await EnsurePublicCollectionAsync(cancellationToken);
+        var filter = $"record_type:={FilterValue("article")} && {scopeFilter} && " +
+                     "is_published:=true && is_public:=true && is_archived:=false && is_deleted:=false";
+        var parameters = new Dictionary<string, string>
+        {
+            ["q"] = query, ["query_by"] = "title,category_path,body", ["query_by_weights"] = "16,5,1",
+            ["filter_by"] = filter, ["sort_by"] = "_text_match:desc,updated_at:desc",
+            ["per_page"] = limit.ToString(), ["page"] = "1", ["include_fields"] =
+                "entity_id,title,slug,category_id,category_name,category_path,updated_at"
+        };
+        var uri = $"collections/{Uri.EscapeDataString(options.PublicCollectionAlias)}/documents/search?" +
+                  string.Join("&", parameters.Select(item =>
+                      $"{Uri.EscapeDataString(item.Key)}={Uri.EscapeDataString(item.Value)}"));
+        using var response = await SendAsync(() => http.GetAsync(uri, cancellationToken), cancellationToken);
+        await EnsureSuccessAsync(response, "Viewer search is temporarily unavailable.", cancellationToken);
+        using var payload = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(cancellationToken));
+        var results = new List<ViewerArticleSummary>();
+        if (!payload.RootElement.TryGetProperty("hits", out var hits)) return results;
+        foreach (var hit in hits.EnumerateArray())
+        {
+            var document = hit.GetProperty("document");
+            results.Add(new(Guid.Parse(document.GetProperty("entity_id").GetString()!),
+                document.GetProperty("title").GetString()!, document.GetProperty("slug").GetString()!,
+                Guid.Parse(document.GetProperty("category_id").GetString()!),
+                document.GetProperty("category_name").GetString()!, document.GetProperty("category_path").GetString()!,
+                DateTimeOffset.FromUnixTimeSeconds(document.GetProperty("updated_at").GetInt64()).UtcDateTime));
+        }
+        return results;
+    }
+
+    public Task<string> RebuildAsync(IReadOnlyList<InternalSearchDocument> documents,
+        CancellationToken cancellationToken) => RebuildCollectionAsync(options.CollectionAlias, documents,
+        "internal", cancellationToken);
+
+    Task<string> ITypesensePublicIndex.RebuildAsync(IReadOnlyList<InternalSearchDocument> documents,
+        CancellationToken cancellationToken) => RebuildCollectionAsync(options.PublicCollectionAlias, documents,
+        "Viewer", cancellationToken);
+
+    private async Task<string> RebuildCollectionAsync(string aliasName,
+        IReadOnlyList<InternalSearchDocument> documents, string scope, CancellationToken cancellationToken)
+    {
+        EnsureConfigured();
+        var collection = $"{aliasName}_{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}";
         await CreateCollectionAsync(collection, cancellationToken);
         try
         {
@@ -125,15 +177,15 @@ internal sealed class TypesenseInternalSearchClient : IInternalSearchClient, ITy
                 using var import = await SendAsync(() => http.PostAsync(
                     $"collections/{Uri.EscapeDataString(collection)}/documents/import?action=upsert", content,
                     cancellationToken), cancellationToken);
-                await EnsureSuccessAsync(import, "The replacement internal search index could not be populated.", cancellationToken);
+                await EnsureSuccessAsync(import, $"The replacement {scope} search index could not be populated.", cancellationToken);
                 var lines = (await import.Content.ReadAsStringAsync(cancellationToken)).Split('\n', StringSplitOptions.RemoveEmptyEntries);
                 if (lines.Any(line => !JsonDocument.Parse(line).RootElement.GetProperty("success").GetBoolean()))
-                    throw new ExternalServiceException("At least one document failed during the internal search rebuild.");
+                    throw new ExternalServiceException($"At least one document failed during the {scope} search rebuild.");
             }
             using var alias = await SendAsync(() => http.PutAsJsonAsync(
-                $"aliases/{Uri.EscapeDataString(options.CollectionAlias)}",
+                $"aliases/{Uri.EscapeDataString(aliasName)}",
                 new { collection_name = collection }, cancellationToken), cancellationToken);
-            await EnsureSuccessAsync(alias, "The rebuilt internal search index could not be activated.", cancellationToken);
+            await EnsureSuccessAsync(alias, $"The rebuilt {scope} search index could not be activated.", cancellationToken);
             return collection;
         }
         catch
@@ -195,6 +247,12 @@ internal sealed class TypesenseInternalSearchClient : IInternalSearchClient, ITy
                 new { name = "category_name", type = "string" }, new { name = "category_path", type = "string" },
                 new { name = "author_id", type = "string", facet = true },
                 new { name = "author_name", type = "string" }, new { name = "author_facet", type = "string", facet = true },
+                new { name = "solution_ids", type = "string[]", facet = true, optional = true },
+                new { name = "category_ancestor_ids", type = "string[]", facet = true, optional = true },
+                new { name = "is_published", type = "bool", facet = true, optional = true },
+                new { name = "is_public", type = "bool", facet = true, optional = true },
+                new { name = "is_archived", type = "bool", facet = true, optional = true },
+                new { name = "is_deleted", type = "bool", facet = true, optional = true },
                 new { name = "updated_at", type = "int64", sort = true }
             },
             default_sorting_field = "updated_at"

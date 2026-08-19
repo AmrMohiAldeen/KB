@@ -23,9 +23,11 @@ public sealed class AuditLogRepository(KbDbContext dbContext) : IAuditLogReposit
                  log.ArticleIdFkNavigation.Slug.Contains(query.Article)));
         if (query.User is not null)
             source = source.Where(log =>
-                log.ActorIdFkNavigation != null &&
+                (log.ActorIdFkNavigation != null &&
                 (log.ActorIdFkNavigation.FullName.Contains(query.User) ||
-                 log.ActorIdFkNavigation.Email.Contains(query.User)));
+                 log.ActorIdFkNavigation.Email.Contains(query.User))) ||
+                log.ExternalActorId != null && (log.ExternalActorId.Contains(query.User) ||
+                    log.ExternalActorEmail != null && log.ExternalActorEmail.Contains(query.User)));
         if (query.ActionType is not null)
             source = source.Where(log => log.ActionType == query.ActionType);
         if (query.From is { } from)
@@ -55,6 +57,8 @@ public sealed class AuditLogRepository(KbDbContext dbContext) : IAuditLogReposit
                     : new AuditUserData(
                         log.ActorIdFkNavigation.UserId,
                         log.ActorIdFkNavigation.FullName),
+                log.ExternalActorId == null ? null : new AuditExternalActorData(log.ExternalActorId,
+                    log.ExternalActorEmail, log.ViewerCustomerId, log.ViewerSessionId, log.ViewerSolutionId),
                 log.ActionType,
                 log.EntityType,
                 log.EntityId,

@@ -42,7 +42,8 @@ public static class HelpJuiceSourceParser
         HelpJuiceMigrationLimits limits, TimeProvider timeProvider,
         IReadOnlySet<string>? destinationArticleSlugs = null,
         IReadOnlyDictionary<string, string>? mappedArticleSlugs = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IHelpJuiceAuthorLookup? authorLookup = null)
     {
         var now = timeProvider.GetUtcNow().UtcDateTime;
         var issues = new List<MigrationIssueData>();
@@ -72,6 +73,7 @@ public static class HelpJuiceSourceParser
         RequireColumns(questionsCsv, ["id", "name"], issues, Issue);
         RequireColumns(answersCsv, ["id", "question_id", "body"], issues, Issue);
         var legacyUsers = await ParseLegacyUsersAsync(package, limits, issues, Issue, cancellationToken);
+        var authorResolver = new HelpJuiceAuthorResolver(legacyUsers, authorLookup);
 
         var questions = new List<HelpJuiceQuestion>();
         foreach (var row in questionsCsv.Rows)
@@ -116,50 +118,39 @@ public static class HelpJuiceSourceParser
                 issues.Add(Issue("Warning", "TAGS_IGNORED", "HelpJuice tags are not imported because the KB has no article-tag model.", "questions.csv", row.RowNumber, "Question", id));
 
             var visibility = ParseVisibility(row);
-            var externalAuthorId = NullIfEmpty(First(row, "created_by_id", "author_id", "user_id",
-                "creator_id", "created_by_user_id", "last_published_user_id", "published_by_id"));
-            legacyUsers.TryGetValue(externalAuthorId ?? string.Empty, out var legacyUser);
-            var authorName = legacyUser?.Name
-                ?? NullIfEmpty(First(row, "author_name", "created_by_name", "user_name", "last_published_user_name"))
-                ?? CombineName(row, "author_first_name", "author_last_name")
-                ?? CombineName(row, "created_by_first_name", "created_by_last_name");
-            var authorEmail = legacyUser?.Email ?? NullIfEmpty(First(row, "author_email", "created_by_email", "user_email",
-                "last_published_user_email"));
+            var externalAuthorId = NullIfEmpty(row["created_by_id"]);
+            HelpJuiceLegacyAuthor? legacyUser = null;
+            if (externalAuthorId is null)
+            {
+                issues.Add(Issue("Warning", "HELPJUICE_AUTHOR_ID_MISSING",
+                    "The article has no created_by_id, so its Helpjuice author cannot be resolved.",
+                    "questions.csv", row.RowNumber, "Question", id,
+                    "authorStatus=missing-created-by-id"));
+            }
+            else
+            {
+                legacyUser = await authorResolver.ResolveAsync(externalAuthorId, cancellationToken);
+                if (legacyUser is null)
+                    issues.Add(Issue("Warning", "HELPJUICE_AUTHOR_MAPPING_MISSING",
+                        $"Helpjuice author ID '{externalAuthorId}' has no user mapping. The external ID was retained for review.",
+                        "questions.csv", row.RowNumber, "Question", id,
+                        $"authorStatus=unresolved;created_by_id={externalAuthorId};usersCsvAvailable={package.KnownCsvFiles.ContainsKey("users.csv").ToString().ToLowerInvariant()}"));
+                else
+                    issues.Add(Issue("Info", "HELPJUICE_AUTHOR_RESOLVED",
+                        $"Helpjuice author ID '{externalAuthorId}' was resolved to legacy author metadata.",
+                        "questions.csv", row.RowNumber, "Question", id,
+                        $"authorStatus=resolved;created_by_id={externalAuthorId}"));
+            }
 
             questions.Add(new(row.RowNumber, id, slug, name, NullIfEmpty(row["description"]), published,
                 created, updated, NullIfEmpty(row["category_id"]), row.Values, archived, newerDraft, ParseInt(row["language_id"]),
                 NullIfEmpty(row["translation_id"]), NullIfEmpty(row["created_by_id"]), NullIfEmpty(row["updated_by_id"]),
                 ParseInt(row["position"]) ?? 0, SplitIds(row["related_question_ids"]), SplitIds(row["upload_ids"]),
-                visibility.Value, visibility.WasExplicit, authorName, authorEmail, externalAuthorId));
+                visibility.Value, visibility.WasExplicit, legacyUser?.Name, legacyUser?.Email, externalAuthorId));
         }
 
         var answers = answersCsv.Rows.Select(row => new HelpJuiceAnswer(row.RowNumber,
             row["id"].Trim(), row["question_id"].Trim(), row["body"], row.Values)).ToArray();
-        var firstAnswerByQuestion = answers.GroupBy(answer => answer.QuestionId, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
-        for (var index = 0; index < questions.Count; index++)
-        {
-            var question = questions[index];
-            if (!firstAnswerByQuestion.TryGetValue(question.Id, out var answer)) continue;
-            var externalId = question.LegacyAuthorExternalId ?? NullIfEmpty(First(answer.Source,
-                "created_by_id", "author_id", "user_id", "creator_id", "created_by_user_id",
-                "last_published_user_id", "published_by_id"));
-            legacyUsers.TryGetValue(externalId ?? string.Empty, out var legacyUser);
-            var name = legacyUser?.Name ?? question.LegacyAuthorName ?? NullIfEmpty(First(answer.Source,
-                "author_name", "created_by_name", "user_name", "last_published_user_name"));
-            var email = legacyUser?.Email ?? question.LegacyAuthorEmail ?? NullIfEmpty(First(answer.Source,
-                "author_email", "created_by_email", "user_email", "last_published_user_email", "email"));
-            questions[index] = question with
-            {
-                LegacyAuthorExternalId = externalId, LegacyAuthorName = name, LegacyAuthorEmail = email
-            };
-        }
-        for (var index = 0; index < questions.Count; index++)
-        {
-            var question = questions[index];
-            if (question.LegacyAuthorName is null && question.LegacyAuthorEmail is null)
-                questions[index] = question with { LegacyAuthorName = "Unknown HelpJuice author" };
-        }
         AddDuplicateIssues(questions.Select(x => (x.Id, x.RowNumber)), "QUESTION_ID_DUPLICATE", "questions.csv", "Question", issues, Issue);
         AddDuplicateIssues(answers.Select(x => (x.Id, x.RowNumber)), "ANSWER_ID_DUPLICATE", "answers.csv", "Answer", issues, Issue);
 
@@ -522,41 +513,43 @@ public static class HelpJuiceSourceParser
         return result;
     }
 
-    private sealed record LegacyUser(string? Name, string? Email);
     private sealed record PermissionVisibility(HashSet<string> QuestionIds, HashSet<string> CategoryIds,
         List<int> UnresolvedRows);
 
-    private static async Task<Dictionary<string, LegacyUser>> ParseLegacyUsersAsync(PackageContents package,
+    private static async Task<Dictionary<string, HelpJuiceLegacyAuthor>> ParseLegacyUsersAsync(PackageContents package,
         HelpJuiceMigrationLimits limits, List<MigrationIssueData> issues,
         Func<string,string,string,string?,int?,string?,string?,string?,MigrationIssueData> issue,
         CancellationToken ct)
     {
         var identityHeaders = new[] { "name", "full_name", "display_name", "first_name", "last_name", "email",
             "email_address", "firstName", "lastName", "fullName", "displayName" };
-        var result = new Dictionary<string, LegacyUser>(StringComparer.OrdinalIgnoreCase);
-        foreach (var sourceName in new[] { "users.csv", "account_id" })
+        var result = new Dictionary<string, HelpJuiceLegacyAuthor>(StringComparer.OrdinalIgnoreCase);
+        const string sourceName = "users.csv";
+        if (package.KnownCsvFiles.TryGetValue(sourceName, out var path))
         {
-            if (!package.KnownCsvFiles.TryGetValue(sourceName, out var path)) continue;
             var csv = await HelpJuiceCsvReader.ReadAsync(path, limits.MaxCsvRows, ct);
-            var hasAccountKey = csv.Headers.Contains("account_id", StringComparer.OrdinalIgnoreCase) ||
-                                csv.Headers.Contains("id", StringComparer.OrdinalIgnoreCase) ||
-                                csv.Headers.Contains("user_id", StringComparer.OrdinalIgnoreCase);
+            var hasAccountKey = csv.Headers.Contains("id", StringComparer.OrdinalIgnoreCase);
             var hasIdentity = csv.Headers.Any(header => identityHeaders.Contains(header, StringComparer.OrdinalIgnoreCase));
             if (!hasAccountKey || !hasIdentity)
             {
                 issues.Add(issue("Warning", "UNSUPPORTED_FILE",
                     $"Unsupported file '{sourceName}' does not contain recognizable HelpJuice account identity columns and will not be imported.",
                     sourceName, null, "Package", null, null));
-                continue;
+                return result;
             }
             foreach (var row in csv.Rows)
             {
-                var id = First(row, "account_id", "id", "user_id");
+                var id = row["id"].Trim();
                 if (id.Length == 0) continue;
                 var name = NullIfEmpty(First(row, "name", "full_name", "display_name", "fullName", "displayName"))
                     ?? CombineName(row, "first_name", "last_name")
                     ?? CombineName(row, "firstName", "lastName");
-                result.TryAdd(id, new(name, NullIfEmpty(First(row, "email", "email_address"))));
+                var author = new HelpJuiceLegacyAuthor(id, name,
+                    NullIfEmpty(First(row, "email", "email_address")));
+                if (!result.TryAdd(id, author))
+                    issues.Add(issue("Warning", "HELPJUICE_USER_ID_DUPLICATE",
+                        $"Duplicate Helpjuice user ID '{id}' was ignored after the first mapping.",
+                        sourceName, row.RowNumber, "User", id, "authorStatus=duplicate-user-mapping"));
             }
         }
         return result;

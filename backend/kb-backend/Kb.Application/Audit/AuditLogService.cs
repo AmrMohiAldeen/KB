@@ -64,6 +64,7 @@ public sealed class AuditLogService(
                 item.ArticleId,
                 item.Article,
                 item.Actor,
+                item.ExternalActor,
                 item.ActionType,
                 item.EntityType,
                 item.EntityId,

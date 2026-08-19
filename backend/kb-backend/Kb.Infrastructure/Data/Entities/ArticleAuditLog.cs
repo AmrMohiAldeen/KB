@@ -21,6 +21,16 @@ public partial class ArticleAuditLog
 
     public DateTime CreatedAt { get; set; }
 
+    public string? ExternalActorId { get; set; }
+
+    public string? ExternalActorEmail { get; set; }
+
+    public Guid? ViewerCustomerId { get; set; }
+
+    public Guid? ViewerSessionId { get; set; }
+
+    public Guid? ViewerSolutionId { get; set; }
+
     public virtual User? ActorIdFkNavigation { get; set; }
 
     public virtual Article? ArticleIdFkNavigation { get; set; }

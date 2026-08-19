@@ -28,7 +28,13 @@ internal sealed record InternalSearchDocument(
     [property: JsonPropertyName("author_id")] string AuthorId,
     [property: JsonPropertyName("author_name")] string AuthorName,
     [property: JsonPropertyName("author_facet")] string AuthorFacet,
-    [property: JsonPropertyName("updated_at")] long UpdatedAt);
+    [property: JsonPropertyName("updated_at")] long UpdatedAt,
+    [property: JsonPropertyName("solution_ids")] string[]? SolutionIds = null,
+    [property: JsonPropertyName("is_published")] bool IsPublished = false,
+    [property: JsonPropertyName("is_public")] bool IsPublic = false,
+    [property: JsonPropertyName("is_archived")] bool IsArchived = false,
+    [property: JsonPropertyName("is_deleted")] bool IsDeleted = false,
+    [property: JsonPropertyName("category_ancestor_ids")] string[]? CategoryAncestorIds = null);
 
 internal interface ITypesenseInternalIndex
 {
@@ -41,4 +47,5 @@ internal interface ITypesensePublicIndex
 {
     Task UpsertAsync(InternalSearchDocument document, CancellationToken cancellationToken);
     Task DeleteAsync(string documentId, CancellationToken cancellationToken);
+    Task<string> RebuildAsync(IReadOnlyList<InternalSearchDocument> documents, CancellationToken cancellationToken);
 }

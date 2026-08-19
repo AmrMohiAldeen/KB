@@ -55,6 +55,16 @@ public partial class KbDbContext : DbContext
 
     public virtual DbSet<UserRole> UserRoles { get; set; }
 
+    public virtual DbSet<ViewerSolution> ViewerSolutions { get; set; }
+
+    public virtual DbSet<ViewerCustomer> ViewerCustomers { get; set; }
+
+    public virtual DbSet<ViewerEntitlement> ViewerEntitlements { get; set; }
+
+    public virtual DbSet<ViewerSession> ViewerSessions { get; set; }
+
+    public virtual DbSet<ViewerSessionSolution> ViewerSessionSolutions { get; set; }
+
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
         EnsureAuditLogsAreAppendOnly();
@@ -162,6 +172,11 @@ public partial class KbDbContext : DbContext
             entity.Property(e => e.EntityId).HasColumnName("EntityID");
             entity.Property(e => e.EntityType).HasMaxLength(100);
             entity.Property(e => e.MetaDataJson).HasColumnName("MetaDataJSON");
+            entity.Property(e => e.ExternalActorId).HasMaxLength(256);
+            entity.Property(e => e.ExternalActorEmail).HasMaxLength(320);
+            entity.Property(e => e.ViewerCustomerId).HasColumnName("ViewerCustomerID");
+            entity.Property(e => e.ViewerSessionId).HasColumnName("ViewerSessionID");
+            entity.Property(e => e.ViewerSolutionId).HasColumnName("ViewerSolutionID");
 
             entity.HasOne(d => d.ActorIdFkNavigation).WithMany(p => p.ArticleAuditLogs)
                 .HasForeignKey(d => d.ActorIdFk)
@@ -748,6 +763,79 @@ public partial class KbDbContext : DbContext
             entity.HasOne(d => d.VersionIdFkNavigation).WithMany(p => p.SearchIndexJobs)
                 .HasForeignKey(d => d.VersionIdFk)
                 .HasConstraintName("FK_SEARCH_INDEX_JOBS_ARTICLE_VERSIONS");
+        });
+
+        modelBuilder.Entity<ViewerSolution>(entity =>
+        {
+            entity.ToTable("VIEWER_SOLUTIONS");
+            entity.HasKey(e => e.SolutionId);
+            entity.HasIndex(e => e.Slug).IsUnique();
+            entity.HasIndex(e => e.RootCategoryIdFk).IsUnique();
+            entity.Property(e => e.SolutionId).HasColumnName("SolutionID").HasDefaultValueSql("(newsequentialid())");
+            entity.Property(e => e.RootCategoryIdFk).HasColumnName("RootCategoryID_FK");
+            entity.Property(e => e.Slug).HasMaxLength(100);
+            entity.Property(e => e.CreatedAt).HasPrecision(3).HasDefaultValueSql("(sysutcdatetime())");
+            entity.Property(e => e.UpdatedAt).HasPrecision(3).HasDefaultValueSql("(sysutcdatetime())");
+            entity.HasOne(e => e.RootCategory).WithOne(e => e.ViewerSolution)
+                .HasForeignKey<ViewerSolution>(e => e.RootCategoryIdFk).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<ViewerCustomer>(entity =>
+        {
+            entity.ToTable("VIEWER_CUSTOMERS", table => table.HasCheckConstraint(
+                "CK_VIEWER_CUSTOMERS_MaxConcurrentSessions", "[MaxConcurrentSessions] > 0"));
+            entity.HasKey(e => e.CustomerId);
+            entity.HasIndex(e => e.ExternalCustomerId).IsUnique();
+            entity.Property(e => e.CustomerId).HasColumnName("CustomerID").HasDefaultValueSql("(newsequentialid())");
+            entity.Property(e => e.ExternalCustomerId).HasMaxLength(256);
+            entity.Property(e => e.DisplayName).HasMaxLength(200);
+            entity.Property(e => e.CreatedAt).HasPrecision(3).HasDefaultValueSql("(sysutcdatetime())");
+            entity.Property(e => e.UpdatedAt).HasPrecision(3).HasDefaultValueSql("(sysutcdatetime())");
+        });
+
+        modelBuilder.Entity<ViewerEntitlement>(entity =>
+        {
+            entity.ToTable("VIEWER_ENTITLEMENTS");
+            entity.HasKey(e => new { e.CustomerIdFk, e.SolutionIdFk });
+            entity.Property(e => e.CustomerIdFk).HasColumnName("CustomerID_FK");
+            entity.Property(e => e.SolutionIdFk).HasColumnName("SolutionID_FK");
+            entity.Property(e => e.CreatedAt).HasPrecision(3).HasDefaultValueSql("(sysutcdatetime())");
+            entity.HasOne(e => e.Customer).WithMany(e => e.Entitlements).HasForeignKey(e => e.CustomerIdFk)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.Solution).WithMany(e => e.Entitlements).HasForeignKey(e => e.SolutionIdFk)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ViewerSession>(entity =>
+        {
+            entity.ToTable("VIEWER_SESSIONS");
+            entity.HasKey(e => e.SessionId);
+            entity.HasIndex(e => e.HandoffId).IsUnique();
+            entity.HasIndex(e => new { e.CustomerIdFk, e.RevokedAt, e.ExpiresAt });
+            entity.Property(e => e.SessionId).HasColumnName("SessionID").HasDefaultValueSql("(newsequentialid())");
+            entity.Property(e => e.CustomerIdFk).HasColumnName("CustomerID_FK");
+            entity.Property(e => e.ExternalUserId).HasMaxLength(256);
+            entity.Property(e => e.ExternalUserEmail).HasMaxLength(320);
+            entity.Property(e => e.HandoffId).HasMaxLength(256);
+            entity.Property(e => e.CreatedAt).HasPrecision(3).HasDefaultValueSql("(sysutcdatetime())");
+            entity.Property(e => e.ExpiresAt).HasPrecision(3);
+            entity.Property(e => e.LastSeenAt).HasPrecision(3);
+            entity.Property(e => e.RevokedAt).HasPrecision(3);
+            entity.Property(e => e.RevokedReason).HasMaxLength(500);
+            entity.HasOne(e => e.Customer).WithMany(e => e.Sessions).HasForeignKey(e => e.CustomerIdFk)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<ViewerSessionSolution>(entity =>
+        {
+            entity.ToTable("VIEWER_SESSION_SOLUTIONS");
+            entity.HasKey(e => new { e.SessionIdFk, e.SolutionIdFk });
+            entity.Property(e => e.SessionIdFk).HasColumnName("SessionID_FK");
+            entity.Property(e => e.SolutionIdFk).HasColumnName("SolutionID_FK");
+            entity.HasOne(e => e.Session).WithMany(e => e.Solutions).HasForeignKey(e => e.SessionIdFk)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.Solution).WithMany().HasForeignKey(e => e.SolutionIdFk)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<User>(entity =>

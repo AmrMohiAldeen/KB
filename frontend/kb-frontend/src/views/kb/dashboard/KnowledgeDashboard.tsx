@@ -1120,8 +1120,9 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
         {action('Copy link', <ExternalLink size={15} />, () => void copyItemLink(item), { hidden: !canRead })}
         {action(`Export ${exportSubject} as PDF`, <Download size={15} />, () => void startExport(item, 'PDF'), { hidden: !canRead })}
         {action(`Export ${exportSubject} as HTML`, <FileCode2 size={15} />, () => void startExport(item, 'HTML'), { hidden: !canRead })}
-        {/* TODO: Connect preview to the localized preview surface when it is available. */}
-        {action('Preview', <Eye size={15} />, () => setSuccessMessage('Preview is coming soon.'), { hidden: !canRead })}
+        {item.kind === 'category' && action('Preview', <Eye size={15} />, () => {
+          window.open(`/viewer/preview/${encodeURIComponent(item.category.id)}`, '_blank', 'noopener,noreferrer')
+        }, { hidden: !canViewArticles })}
         {item.kind === 'category' && action(
           item.category.status === 'Archived' ? 'Unarchive' : 'Archive',
           item.category.status === 'Archived' ? <RotateCcw size={15} /> : <Archive size={15} />,

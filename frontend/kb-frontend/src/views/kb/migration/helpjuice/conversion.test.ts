@@ -1,9 +1,10 @@
-import type { JSONContent } from '@tiptap/core'
+import { generateHTML, type JSONContent } from '@tiptap/core'
 import { describe, expect, it } from 'vitest'
 
 import { convertHelpJuiceHtml } from './conversion'
 import { normalizeHelpjuiceHtml } from './normalizeHelpjuiceHtml'
 import { prepareHelpjuiceSemanticHtml } from './convertNormalizedHelpjuiceHtml'
+import { getEditorExtensions } from '../../../../features/editor/extensions'
 
 function nodesByType(json: unknown, type: string): JSONContent[] {
   const matches: JSONContent[] = []
@@ -158,6 +159,59 @@ describe('Helpjuice semantic HTML conversion', () => {
     expect(nodesByType(layout.tiptapJson, 'table')).toHaveLength(0)
     expect(nodesByType(layout.tiptapJson, 'image')).toHaveLength(1)
     expect(layout.migrationWarnings).toContainEqual(expect.objectContaining({ code: 'LAYOUT_TABLE_FLATTENED' }))
+  })
+
+  it('preserves nested Helpjuice text colors as Tiptap textStyle marks', () => {
+    const result = convertHelpJuiceHtml(`
+      <p style="color: rgb(10, 20, 30)">Outer
+        <span style="color:#ff0066">hex <span style="color:rgba(1, 2, 3, 0.5)">nested</span></span>
+        <font color="blue">named</font>
+      </p>
+    `)
+    const colors = nodesByType(result.tiptapJson, 'text')
+      .flatMap(node => node.marks ?? [])
+      .filter(mark => mark.type === 'textStyle')
+      .map(mark => mark.attrs?.color)
+
+    expect(colors).toEqual(expect.arrayContaining([
+      'rgb(10, 20, 30)', 'rgb(255, 0, 102)', 'rgba(1, 2, 3, 0.5)', 'blue'
+    ]))
+    const rendered = generateHTML(result.tiptapJson as JSONContent, getEditorExtensions())
+    expect(rendered).toContain('color: rgb(255, 0, 102)')
+    expect(rendered).toContain('color: rgba(1, 2, 3, 0.5)')
+  })
+
+  it('preserves percentage, pixel, colgroup, and uneven table widths', () => {
+    const percentage = convertHelpJuiceHtml(`
+      <table style="width:75%"><colgroup><col width="25%"><col style="width:75%"></colgroup>
+        <tr><td>A</td><td>B</td></tr>
+      </table>
+    `)
+    const pixels = convertHelpJuiceHtml(`
+      <table style="width:640px"><tr><td width="180px">A</td><td style="width:460px">B</td></tr></table>
+    `)
+    const percentageTable = nodesByType(percentage.tiptapJson, 'table')[0]
+    const percentageCells = nodesByType(percentage.tiptapJson, 'tableCell')
+    const pixelTable = nodesByType(pixels.tiptapJson, 'table')[0]
+    const pixelCells = nodesByType(pixels.tiptapJson, 'tableCell')
+
+    expect(percentageTable.attrs).toMatchObject({ tableWidthPct: 75 })
+    expect(percentageCells.map(cell => cell.attrs?.colwidth)).toEqual([[250], [750]])
+    expect(pixelTable.attrs).toMatchObject({ tableWidthPx: 640 })
+    expect(pixelCells.map(cell => cell.attrs?.colwidth)).toEqual([[180], [460]])
+    const rendered = generateHTML(pixels.tiptapJson as JSONContent, getEditorExtensions())
+    expect(rendered).toContain('data-table-width-px="640"')
+    expect(rendered).toContain('colwidth="180"')
+  })
+
+  it('reports unsupported colors and table widths instead of silently dropping them', () => {
+    const result = convertHelpJuiceHtml('<span style="color:var(--bad)">Text</span><table style="width:calc(100% - 2px)"><tr><td width="wide">A</td></tr></table>')
+
+    expect(result.migrationWarnings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'UNSUPPORTED_TEXT_COLOR' }),
+      expect.objectContaining({ code: 'UNSUPPORTED_TABLE_WIDTH' }),
+      expect.objectContaining({ code: 'UNSUPPORTED_TABLE_COLUMN_WIDTH' })
+    ]))
   })
 
   it('maps H5, resolves duplicate IDs, generates TOC data and preserves RTL', () => {

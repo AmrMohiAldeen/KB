@@ -604,16 +604,17 @@ describe('sanitizePastedHTML', () => {
     expect(table?.style.marginLeft).toBe('20%');
   });
 
-  it('falls back to default table layout when pasted width and offset are invalid', () => {
+  it('preserves a valid pixel table width while dropping an unsupported pixel offset', () => {
     const fragment = sanitizedFragment(
       '<table width="500" style="width: 500px; margin-left: 500px"><tbody><tr><td>A</td></tr></tbody></table>',
     );
 
     const table = fragment.querySelector('table');
-    expect(table?.getAttribute('data-table-width-pct')).toBe('100');
+    expect(table?.getAttribute('data-table-width-pct')).toBeNull();
+    expect(table?.getAttribute('data-table-width-px')).toBe('500');
     expect(table?.getAttribute('data-table-offset-pct')).toBe('0');
     expect(table?.hasAttribute('width')).toBe(false);
-    expect(table?.style.width).toBe('100%');
+    expect(table?.style.width).toBe('500px');
     expect(table?.style.marginLeft).toBe('0%');
   });
 

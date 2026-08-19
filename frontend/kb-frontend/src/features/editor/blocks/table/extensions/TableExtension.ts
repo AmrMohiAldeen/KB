@@ -23,10 +23,12 @@ import {
 } from '../utils/tableBorders';
 import {
   applyTableOffsetPct,
+  applyTableWidthPx,
   applyTableWidthPct,
   DEFAULT_TABLE_OFFSET_PCT,
   DEFAULT_TABLE_WIDTH_PCT,
   normalizeTableOffsetPct,
+  normalizeTableWidthPx,
   normalizeTableWidthPct,
 } from '../resizing/tableDimensions';
 import { normalizeTextDirection } from '../../../extensions/TextDirection';
@@ -38,6 +40,11 @@ function readPercentStyle(
   // Supports imported/legacy HTML where table dimensions were stored as inline styles
   // instead of data-* attributes.
   const match = element.style[property].match(/^(\d+(?:\.\d+)?)%$/);
+  return match?.[1] ?? null;
+}
+
+function readPixelStyle(element: HTMLElement, property: 'width'): string | null {
+  const match = element.style[property].match(/^(\d+(?:\.\d+)?)px$/);
   return match?.[1] ?? null;
 }
 
@@ -273,10 +280,11 @@ class KnowledgeBaseTableView extends TableView {
   }
 
   private applyStoredAttributes(node: ProseMirrorNode): void {
-    const width = applyTableWidthPct(
-      this.table,
-      normalizeTableWidthPct(node.attrs.tableWidthPct),
-    );
+    const storedPixels = normalizeTableWidthPx(node.attrs.tableWidthPx);
+    const width = storedPixels == null
+      ? applyTableWidthPct(this.table, normalizeTableWidthPct(node.attrs.tableWidthPct))
+      : normalizeTableWidthPct(node.attrs.tableWidthPct);
+    if (storedPixels != null) applyTableWidthPx(this.table, storedPixels);
 
     applyTableOffsetPct(
       this.table,
@@ -410,6 +418,23 @@ export const KnowledgeBaseTable = Table.extend({
             'data-table-width-pct': String(width),
             style: `--table-width-pct: ${width}%; width: ${width}%;`,
           };
+        },
+      },
+
+      tableWidthPx: {
+        default: null,
+        parseHTML: (element) =>
+          normalizeTableWidthPx(
+            element.getAttribute('data-table-width-px') ?? readPixelStyle(element, 'width'),
+          ),
+        renderHTML: (attributes) => {
+          const width = normalizeTableWidthPx(attributes.tableWidthPx);
+          return width == null
+            ? {}
+            : {
+                'data-table-width-px': String(width),
+                style: `--table-width: ${width}px; width: ${width}px; max-width: 100%;`,
+              };
         },
       },
 

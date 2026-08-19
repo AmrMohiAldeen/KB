@@ -355,6 +355,9 @@ public sealed partial class ExportDocumentBuilder(
                     "highlight" => $"<mark>{value}</mark>",
                     "link" when Attributes(mark) is { } link && StringProperty(link, "href") is { } href =>
                         $"<a href=\"{E(href)}\">{value}</a>",
+                    "textStyle" when Attributes(mark) is { } textStyle &&
+                        SafeCssColor(StringProperty(textStyle, "color")) is { } color =>
+                        $"<span style=\"color:{E(color)};\">{value}</span>",
                     _ => value
                 };
             }
@@ -375,10 +378,10 @@ public sealed partial class ExportDocumentBuilder(
             "orderedList" => $"<ol{(IntProperty(attrs, "start") is { } start && start != 1 ? $" start=\"{start}\"" : string.Empty)}>{content}</ol>",
             "listItem" or "taskItem" => $"<li>{content}</li>",
             "taskList" => $"<ul class=\"task-list\">{content}</ul>",
-            "table" => $"<table><tbody>{content}</tbody></table>",
+            "table" => $"<table{RenderTableWidth(attrs)}><tbody>{content}</tbody></table>",
             "tableRow" => $"<tr>{content}</tr>",
-            "tableHeader" => $"<th>{content}</th>",
-            "tableCell" => $"<td>{content}</td>",
+            "tableHeader" => $"<th{RenderCellAttributes(attrs)}>{content}</th>",
+            "tableCell" => $"<td{RenderCellAttributes(attrs)}>{content}</td>",
             "callout" => RenderJsonCallout(attrs, content),
             "tabs" => $"<div class=\"kb-tabs\">{content}</div>",
             "tabItem" => $"<section class=\"kb-tabs__static-item\"><h3>{E(StringProperty(attrs, "label") ?? "Tab")}</h3>{content}</section>",
@@ -390,6 +393,44 @@ public sealed partial class ExportDocumentBuilder(
             "youtube" => RenderJsonYoutube(attrs),
             _ => content
         };
+    }
+
+    private static string RenderTableWidth(JsonElement? attrs)
+    {
+        if (IntProperty(attrs, "tableWidthPx") is { } pixels and >= 25 and <= 4000)
+            return $" style=\"width:{pixels}px;max-width:100%;\"";
+        if (NumberProperty(attrs, "tableWidthPct") is { } percentage and >= 10 and <= 100)
+            return $" style=\"width:{percentage.ToString(System.Globalization.CultureInfo.InvariantCulture)}%;\"";
+        return string.Empty;
+    }
+
+    private static string RenderCellAttributes(JsonElement? attrs)
+    {
+        var result = new StringBuilder();
+        if (IntProperty(attrs, "colspan") is { } colspan and > 1 and <= 50)
+            result.Append(" colspan=\"").Append(colspan).Append('"');
+        if (IntProperty(attrs, "rowspan") is { } rowspan and > 1 and <= 50)
+            result.Append(" rowspan=\"").Append(rowspan).Append('"');
+        if (attrs is { ValueKind: JsonValueKind.Object } value &&
+            value.TryGetProperty("colwidth", out var widths) && widths.ValueKind == JsonValueKind.Array)
+        {
+            var safeWidths = widths.EnumerateArray().Select(width => width.TryGetInt32(out var number) ? number : 0)
+                .Where(width => width is >= 25 and <= 2000).ToArray();
+            if (safeWidths.Length > 0)
+                result.Append(" colwidth=\"").Append(string.Join(',', safeWidths))
+                    .Append("\" style=\"width:").Append(safeWidths.Sum()).Append("px;\"");
+        }
+        return result.ToString();
+    }
+
+    private static string? SafeCssColor(string? value)
+    {
+        var color = value?.Trim() ?? string.Empty;
+        return color.Length is > 0 and <= 80 &&
+               Regex.IsMatch(color, @"^(?:#[0-9a-f]{3,8}|[a-z]+|rgba?\([0-9.%\s,]+\))$",
+                   RegexOptions.IgnoreCase)
+            ? color
+            : null;
     }
 
     private static string RenderJsonCallout(JsonElement? attrs, string content)
@@ -453,6 +494,10 @@ public sealed partial class ExportDocumentBuilder(
     private static int? IntProperty(JsonElement? node, string name) =>
         node is { ValueKind: JsonValueKind.Object } value && value.TryGetProperty(name, out var property) &&
         property.TryGetInt32(out var number) ? number : null;
+
+    private static double? NumberProperty(JsonElement? node, string name) =>
+        node is { ValueKind: JsonValueKind.Object } value && value.TryGetProperty(name, out var property) &&
+        property.TryGetDouble(out var number) ? number : null;
 
     private static string BuildTableOfContents(ExportSnapshot snapshot)
     {

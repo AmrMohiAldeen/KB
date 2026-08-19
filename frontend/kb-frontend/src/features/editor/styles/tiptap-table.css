@@ -8,7 +8,7 @@
 }
 
 :is(.tiptap, .ProseMirror) table {
-  width: var(--table-width-pct, 100%) !important;
+  width: var(--table-width, var(--table-width-pct, 100%)) !important;
   min-width: 0 !important;
   max-width: 100%;
   margin-top: 0;

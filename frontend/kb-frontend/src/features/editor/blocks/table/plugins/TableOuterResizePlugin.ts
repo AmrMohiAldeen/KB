@@ -20,10 +20,12 @@ import {
 } from '../dom/tableDom';
 import {
   applyTableOffsetPct,
+  applyTableWidthPx,
   applyTableWidthPct,
   clampTableWidthPct,
   normalizeTableOffsetPct,
   readTableOffsetPct,
+  readTableWidthPx,
   readTableWidthPct,
 } from '../resizing/tableDimensions';
 import {
@@ -45,6 +47,7 @@ type OuterResizeDrag = {
   table: HTMLTableElement;
   startX: number;
   startWidthPct: number;
+  startWidthPx: number | null;
   startOffsetPct: number;
   containerWidthPx: number;
 };
@@ -98,7 +101,9 @@ function positionResizeHandle(view: EditorView, table: HTMLTableElement): void {
 }
 
 function restoreTablePreview(drag: OuterResizeDrag): void {
-  const width = applyTableWidthPct(drag.table, drag.startWidthPct);
+  const width = drag.startWidthPx == null
+    ? applyTableWidthPct(drag.table, drag.startWidthPct)
+    : (applyTableWidthPx(drag.table, drag.startWidthPx), drag.startWidthPct);
   applyTableOffsetPct(drag.table, drag.startOffsetPct, width);
 }
 
@@ -123,6 +128,7 @@ function commitTableWidth(view: EditorView, tablePos: number, width: number): bo
         view.state.tr.setNodeMarkup(tablePos, undefined, {
           ...tableNode.attrs,
           tableWidthPct: nextWidth,
+          tableWidthPx: null,
           tableOffsetPct: nextOffset,
         }),
       ),
@@ -354,13 +360,18 @@ export function TableOuterResizePlugin() {
 
     setOuterResizeCursor(view, true);
 
+    const startWidthPx = readTableWidthPx(table);
+    const containerWidthPx = getContainerWidthPx(wrapper);
     const drag: OuterResizeDrag = {
       tablePos,
       table,
       startX: event.clientX,
-      startWidthPct: readTableWidthPct(table),
+      startWidthPct: startWidthPx == null
+        ? readTableWidthPct(table)
+        : clampTableWidthPct((startWidthPx / containerWidthPx) * 100),
+      startWidthPx,
       startOffsetPct: readTableOffsetPct(table),
-      containerWidthPx: getContainerWidthPx(wrapper),
+      containerWidthPx,
     };
     let latestWidth = drag.startWidthPct;
 

@@ -33,7 +33,7 @@ public static partial class HelpJuiceHtmlConverter
         var mediaSources = new List<string>();
         var root = new Node("doc");
         var stack = new Stack<Node>(); stack.Push(root);
-        var marks = new Stack<Mark>();
+        var marks = new Stack<ActiveMark>();
         var droppedDepth = 0;
         var ignoredControlDepth = 0;
 
@@ -43,7 +43,8 @@ public static partial class HelpJuiceHtmlConverter
                 continue;
             if (!token.Value.StartsWith('<'))
             {
-                if (droppedDepth == 0) AddText(stack.Peek(), WebUtility.HtmlDecode(token.Value), marks.Reverse().ToArray());
+                if (droppedDepth == 0) AddText(stack.Peek(), WebUtility.HtmlDecode(token.Value),
+                    EffectiveMarks(marks));
                 continue;
             }
             var parsed = ParseTag(token.Value);
@@ -70,9 +71,9 @@ public static partial class HelpJuiceHtmlConverter
             if (closing)
             {
                 if (!Supported.Contains(name)) continue;
+                CloseMarks(name, marks);
                 if (name is "strong" or "b" or "em" or "i" or "u" or "a" or "code" or "s" or "strike" or "del" or "sup" or "sub" or "font")
                 {
-                    if (marks.Count > 0) marks.Pop();
                     continue;
                 }
                 while (stack.Count > 1)
@@ -88,14 +89,20 @@ public static partial class HelpJuiceHtmlConverter
                 Warn("UNSUPPORTED_ELEMENT", $"Unsupported <{name}> markup was flattened while preserving readable text.");
                 continue;
             }
-            if (name is "strong" or "b") { marks.Push(new("bold")); continue; }
-            if (name is "em" or "i") { marks.Push(new("italic")); continue; }
-            if (name == "u") { marks.Push(new("underline")); continue; }
-            if (name is "s" or "strike" or "del") { marks.Push(new("strike")); continue; }
-            if (name == "sup") { marks.Push(new("superscript")); continue; }
-            if (name == "sub") { marks.Push(new("subscript")); continue; }
-            if (name == "font") { marks.Push(LegacyFontMark(attrs)); continue; }
-            if (name == "code" && stack.Peek().Type != "codeBlock") { marks.Push(new("code")); continue; }
+            if (name == "font")
+            {
+                marks.Push(new(name, LegacyFontMark(attrs, Warn)));
+                continue;
+            }
+            if (!selfClosing && !VoidTags.Contains(name) && TextStyleMark(attrs, Warn) is { } styleMark)
+                marks.Push(new(name, styleMark));
+            if (name is "strong" or "b") { marks.Push(new(name, new("bold"))); continue; }
+            if (name is "em" or "i") { marks.Push(new(name, new("italic"))); continue; }
+            if (name == "u") { marks.Push(new(name, new("underline"))); continue; }
+            if (name is "s" or "strike" or "del") { marks.Push(new(name, new("strike"))); continue; }
+            if (name == "sup") { marks.Push(new(name, new("superscript"))); continue; }
+            if (name == "sub") { marks.Push(new(name, new("subscript"))); continue; }
+            if (name == "code" && stack.Peek().Type != "codeBlock") { marks.Push(new(name, new("code"))); continue; }
             if (name == "a")
             {
                 var href = attrs.GetValueOrDefault("href");
@@ -103,10 +110,10 @@ public static partial class HelpJuiceHtmlConverter
                 if (rewritten?.WarningCode is not null)
                     Warn(rewritten.WarningCode, rewritten.WarningMessage ?? "A HelpJuice link could not be rewritten safely.");
                 if (TrySafeUrl(rewritten?.Url ?? href, allowRelative: true, out var safe))
-                    marks.Push(new("link", new() { ["href"] = safe, ["target"] = "_blank", ["rel"] = "noopener noreferrer nofollow" }));
+                    marks.Push(new(name, new("link", new() { ["href"] = safe, ["target"] = "_blank", ["rel"] = "noopener noreferrer nofollow" })));
                 else
                 {
-                    marks.Push(new("invalidLink"));
+                    marks.Push(new(name, new("invalidLink")));
                     if (!string.IsNullOrWhiteSpace(href))
                         Warn("DANGEROUS_URL_REMOVED", "A link with an unsafe URL was converted to text.");
                 }
@@ -116,7 +123,7 @@ public static partial class HelpJuiceHtmlConverter
             if (name == "hr") { stack.Peek().Children.Add(new("horizontalRule")); continue; }
             if (name == "input")
             {
-                AddLegacyInputText(stack.Peek(), attrs, marks.Reverse().ToArray());
+                AddLegacyInputText(stack.Peek(), attrs, EffectiveMarks(marks));
                 continue;
             }
             if (name is "img" or "v:imagedata")
@@ -170,6 +177,11 @@ public static partial class HelpJuiceHtmlConverter
                 continue;
             }
 
+            if (name == "col")
+            {
+                CaptureColumnWidth(stack, attrs, Warn);
+                continue;
+            }
             var node = CreateNode(name, attrs, stack, Warn);
             if (node is null) continue;
             stack.Peek().Children.Add(node);
@@ -179,6 +191,7 @@ public static partial class HelpJuiceHtmlConverter
         var accordionId = 0;
         var tabId = 0;
         Normalize(root, ref accordionId, ref tabId);
+        NormalizeTableWidths(root, Warn);
         var json = root.ToJson().ToJsonString(new JsonSerializerOptions { Encoder = JavaScriptEncoder.Default });
         return new(json, Render(root), PlainText(root), warnings.Distinct().ToArray(), mediaSources.Distinct().ToArray());
 
@@ -225,30 +238,85 @@ public static partial class HelpJuiceHtmlConverter
             "li" => WithDirection(new("listItem", tag), attrs),
             "blockquote" => WithDirection(new("blockquote", tag), attrs),
             "pre" => new("codeBlock", tag),
-            "table" => WithDirection(new("table", tag), attrs),
+            "table" => WithDirection(new("table", tag) { Attributes = TableAttrs(attrs, warning) }, attrs),
             "tr" => new("tableRow", tag),
-            "th" => WithDirection(new("tableHeader", tag) { Attributes = CellAttrs(attrs) }, attrs),
-            "td" => WithDirection(new("tableCell", tag) { Attributes = CellAttrs(attrs) }, attrs),
+            "th" => WithDirection(new("tableHeader", tag) { Attributes = CellAttrs(attrs, warning) }, attrs),
+            "td" => WithDirection(new("tableCell", tag) { Attributes = CellAttrs(attrs, warning) }, attrs),
             "div" or "span" or "button" or "figure" or "figcaption" or "thead" or "tbody" or "tfoot" or "colgroup" or "col" or "article" or "section" or
                 "o:p" or "o:lock" or "v:stroke" or "v:path" or "v:f" or "v:formulas" or "v:shape" or "v:shapetype" or "w:wrap" => new("fragment", tag),
             _ => null
         };
     }
 
-    private static Mark LegacyFontMark(IReadOnlyDictionary<string, string> attrs)
+    private static Mark LegacyFontMark(IReadOnlyDictionary<string, string> attrs,
+        Action<string, string> warning)
     {
         var values = new Dictionary<string, object?>();
         var face = attrs.GetValueOrDefault("face")?.Trim();
         if (!string.IsNullOrWhiteSpace(face) && face.Length <= 160 && face.All(ch => !char.IsControl(ch) && ch is not ';' and not '<' and not '>'))
             values["fontFamily"] = face;
-        var color = attrs.GetValueOrDefault("color")?.Trim();
-        if (!string.IsNullOrWhiteSpace(color) && SafeCssColorRegex().IsMatch(color)) values["color"] = color;
+        var color = ParseStyle(attrs.GetValueOrDefault("style")).GetValueOrDefault("color") ??
+                    FirstAttribute(attrs, "color", "data-color", "data-text-color", "data-font-color");
+        if (!string.IsNullOrWhiteSpace(color))
+        {
+            if (TryNormalizeCssColor(color, out var safeColor)) values["color"] = safeColor;
+            else warning("UNSUPPORTED_TEXT_COLOR", $"Unsupported Helpjuice text color '{Limit(color)}' was omitted.");
+        }
         if (int.TryParse(attrs.GetValueOrDefault("size"), out var size) && size is >= 1 and <= 7)
             values["fontSize"] = new[] { "10px", "13px", "16px", "18px", "24px", "32px", "48px" }[size - 1];
         return values.Count == 0 ? new("passthrough") : new("textStyle", values);
     }
-    private static Dictionary<string, object?> CellAttrs(Dictionary<string, string> attrs) => new()
-        { ["colspan"] = ParsePositive(attrs.GetValueOrDefault("colspan"), 1), ["rowspan"] = ParsePositive(attrs.GetValueOrDefault("rowspan"), 1) };
+
+    private static Mark? TextStyleMark(IReadOnlyDictionary<string, string> attrs,
+        Action<string, string> warning)
+    {
+        var values = new Dictionary<string, object?>();
+        var styles = ParseStyle(attrs.GetValueOrDefault("style"));
+        var color = styles.GetValueOrDefault("color") ??
+            FirstAttribute(attrs, "color", "data-color", "data-text-color", "data-font-color");
+        if (!string.IsNullOrWhiteSpace(color))
+        {
+            if (TryNormalizeCssColor(color, out var safeColor)) values["color"] = safeColor;
+            else warning("UNSUPPORTED_TEXT_COLOR", $"Unsupported Helpjuice text color '{Limit(color)}' was omitted.");
+        }
+        return values.Count == 0 ? null : new("textStyle", values);
+    }
+
+    private static Dictionary<string, object?> TableAttrs(Dictionary<string, string> attrs,
+        Action<string, string> warning)
+    {
+        var result = new Dictionary<string, object?>();
+        var rawWidth = ParseStyle(attrs.GetValueOrDefault("style")).GetValueOrDefault("width") ??
+                       attrs.GetValueOrDefault("width");
+        if (string.IsNullOrWhiteSpace(rawWidth)) return result;
+        if (TryCssLength(rawWidth, out var value, out var unit))
+        {
+            if (unit == "%" && value is >= 10 and <= 100) result["tableWidthPct"] = value;
+            else if (unit == "px" && value is >= 25 and <= 4000) result["tableWidthPx"] = (int)Math.Round(value);
+            else warning("UNSUPPORTED_TABLE_WIDTH", $"Table width '{Limit(rawWidth)}' is outside supported migration limits.");
+        }
+        else warning("UNSUPPORTED_TABLE_WIDTH", $"Unsupported table width '{Limit(rawWidth)}' was omitted.");
+        return result;
+    }
+
+    private static Dictionary<string, object?> CellAttrs(Dictionary<string, string> attrs,
+        Action<string, string> warning)
+    {
+        var result = new Dictionary<string, object?>
+        {
+            ["colspan"] = ParsePositive(attrs.GetValueOrDefault("colspan"), 1),
+            ["rowspan"] = ParsePositive(attrs.GetValueOrDefault("rowspan"), 1)
+        };
+        var rawWidth = ParseStyle(attrs.GetValueOrDefault("style")).GetValueOrDefault("width") ??
+                       attrs.GetValueOrDefault("width");
+        if (!string.IsNullOrWhiteSpace(rawWidth))
+        {
+            if (TryCssLength(rawWidth, out _, out _)) result["_sourceWidth"] = rawWidth.Trim();
+            else warning("UNSUPPORTED_TABLE_COLUMN_WIDTH",
+                $"Unsupported table cell width '{Limit(rawWidth)}' was omitted.");
+        }
+        return result;
+    }
     private static Node WithDirection(Node node, IReadOnlyDictionary<string, string> attrs)
     {
         var direction = attrs.GetValueOrDefault("dir")?.ToLowerInvariant();
@@ -281,6 +349,241 @@ public static partial class HelpJuiceHtmlConverter
         if (classes.Contains("tip") || classes.Contains("callout-tip")) return "tip";
         return "info";
     }
+
+    private static void CaptureColumnWidth(Stack<Node> stack,
+        IReadOnlyDictionary<string, string> attrs, Action<string, string> warning)
+    {
+        var table = stack.FirstOrDefault(node => node.Type == "table");
+        if (table is null) return;
+        var width = ParseStyle(attrs.GetValueOrDefault("style")).GetValueOrDefault("width") ??
+                    attrs.GetValueOrDefault("width");
+        if (string.IsNullOrWhiteSpace(width)) return;
+        if (!TryCssLength(width, out _, out _))
+        {
+            warning("UNSUPPORTED_TABLE_COLUMN_WIDTH",
+                $"Unsupported <col> width '{Limit(width)}' was omitted.");
+            return;
+        }
+        var span = ParsePositive(attrs.GetValueOrDefault("span"), 1);
+        for (var index = 0; index < span; index++) table.TransientColumnWidths.Add(width.Trim());
+    }
+
+    private static void NormalizeTableWidths(Node root, Action<string, string> warning)
+    {
+        Visit(root);
+        return;
+
+        void Visit(Node node)
+        {
+            if (node.Type == "table") NormalizeTable(node, warning);
+            foreach (var child in node.Children) Visit(child);
+        }
+    }
+
+    private static void NormalizeTable(Node table, Action<string, string> warning)
+    {
+        var rows = table.Children.Where(child => child.Type == "tableRow").ToArray();
+        if (rows.Length == 0) return;
+        var columnCount = rows.Max(row => row.Children
+            .Where(IsTableCell).Sum(cell => AttributeInt(cell, "colspan", 1)));
+        if (columnCount <= 0) return;
+
+        var tablePixelWidth = AttributeInt(table, "tableWidthPx", 0);
+        var percentageBase = tablePixelWidth > 0 ? tablePixelWidth : 1000;
+        var widths = new int?[columnCount];
+        for (var index = 0; index < Math.Min(columnCount, table.TransientColumnWidths.Count); index++)
+            widths[index] = ResolveColumnPixels(table.TransientColumnWidths[index], percentageBase, warning);
+
+        ForEachCell(rows, (cell, column, colspan) =>
+        {
+            if (cell.Attributes?.GetValueOrDefault("_sourceWidth") is not string sourceWidth) return;
+            var pixels = ResolveColumnPixels(sourceWidth, percentageBase, warning);
+            if (pixels is null) return;
+            var perColumn = Math.Max(25, (int)Math.Round(pixels.Value / (double)colspan));
+            for (var offset = 0; offset < colspan && column + offset < widths.Length; offset++)
+                widths[column + offset] ??= perColumn;
+        });
+
+        var hasExplicitWidth = widths.Any(width => width is not null);
+        if (hasExplicitWidth)
+        {
+            var fallback = Math.Max(25, percentageBase / columnCount);
+            for (var index = 0; index < widths.Length; index++) widths[index] ??= fallback;
+            ForEachCell(rows, (cell, column, colspan) =>
+            {
+                var cellWidths = widths.Skip(column).Take(colspan).Select(value => value!.Value).ToArray();
+                if (cellWidths.Length == colspan) (cell.Attributes ??= [])["colwidth"] = cellWidths;
+            });
+        }
+
+        foreach (var cell in rows.SelectMany(row => row.Children).Where(IsTableCell))
+            cell.Attributes?.Remove("_sourceWidth");
+        table.TransientColumnWidths.Clear();
+    }
+
+    private static void ForEachCell(IEnumerable<Node> rows, Action<Node, int, int> action)
+    {
+        var occupied = new List<int>();
+        foreach (var row in rows)
+        {
+            for (var index = 0; index < occupied.Count; index++) occupied[index] = Math.Max(0, occupied[index] - 1);
+            var column = 0;
+            foreach (var cell in row.Children.Where(IsTableCell))
+            {
+                while (column < occupied.Count && occupied[column] > 0) column++;
+                var colspan = AttributeInt(cell, "colspan", 1);
+                var rowspan = AttributeInt(cell, "rowspan", 1);
+                action(cell, column, colspan);
+                while (occupied.Count < column + colspan) occupied.Add(0);
+                if (rowspan > 1)
+                    for (var offset = 0; offset < colspan; offset++)
+                        occupied[column + offset] = Math.Max(occupied[column + offset], rowspan);
+                column += colspan;
+            }
+        }
+    }
+
+    private static bool IsTableCell(Node node) => node.Type is "tableCell" or "tableHeader";
+
+    private static int AttributeInt(Node node, string name, int fallback) =>
+        node.Attributes?.GetValueOrDefault(name) switch
+        {
+            int value => value,
+            long value when value is >= int.MinValue and <= int.MaxValue => (int)value,
+            _ => fallback
+        };
+
+    private static int? ResolveColumnPixels(string value, int percentageBase,
+        Action<string, string> warning)
+    {
+        if (!TryCssLength(value, out var amount, out var unit)) return null;
+        var pixels = unit == "%" ? percentageBase * amount / 100d : amount;
+        if (pixels is < 25 or > 2000)
+        {
+            warning("UNSUPPORTED_TABLE_COLUMN_WIDTH",
+                $"Table column width '{Limit(value)}' is outside supported migration limits.");
+            return null;
+        }
+        return (int)Math.Round(pixels);
+    }
+
+    private static IReadOnlyList<Mark> EffectiveMarks(IEnumerable<ActiveMark> activeMarks)
+    {
+        var result = new List<Mark>();
+        var textStyle = new Dictionary<string, object?>();
+        foreach (var active in activeMarks.Reverse())
+        {
+            var mark = active.Mark;
+            if (mark.Type == "textStyle")
+            {
+                foreach (var attribute in mark.Attrs ?? []) textStyle[attribute.Key] = attribute.Value;
+                continue;
+            }
+            if (mark.Type is "passthrough" or "invalidLink") continue;
+            var existing = result.FindIndex(item => item.Type == mark.Type);
+            if (existing >= 0) result[existing] = mark;
+            else result.Add(mark);
+        }
+        if (textStyle.Count > 0) result.Add(new("textStyle", textStyle));
+        return result;
+    }
+
+    private static void CloseMarks(string tag, Stack<ActiveMark> marks)
+    {
+        if (!marks.Any(mark => mark.SourceTag.Equals(tag, StringComparison.OrdinalIgnoreCase))) return;
+        while (marks.Count > 0)
+        {
+            var matched = marks.Pop().SourceTag.Equals(tag, StringComparison.OrdinalIgnoreCase);
+            if (!matched) continue;
+            while (marks.Count > 0 && marks.Peek().SourceTag.Equals(tag, StringComparison.OrdinalIgnoreCase)) marks.Pop();
+            return;
+        }
+    }
+
+    private static Dictionary<string, string> ParseStyle(string? style)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var declaration in (style ?? string.Empty).Split(';', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var separator = declaration.IndexOf(':');
+            if (separator <= 0) continue;
+            var property = declaration[..separator].Trim();
+            var value = declaration[(separator + 1)..].Trim();
+            if (property.Length > 0 && value.Length > 0) result[property] = value;
+        }
+        return result;
+    }
+
+    private static string? FirstAttribute(IReadOnlyDictionary<string, string> attrs,
+        params string[] names) => names.Select(name => attrs.GetValueOrDefault(name))
+        .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim();
+
+    private static bool TryCssLength(string value, out double amount, out string unit)
+    {
+        amount = 0;
+        unit = string.Empty;
+        var normalized = Regex.Replace(value.Trim(), @"\s*!important\s*$", string.Empty,
+            RegexOptions.IgnoreCase).Trim();
+        var match = CssLengthRegex().Match(normalized);
+        if (!match.Success || !double.TryParse(match.Groups[1].Value,
+                System.Globalization.NumberStyles.AllowDecimalPoint,
+                System.Globalization.CultureInfo.InvariantCulture, out amount) || !double.IsFinite(amount)) return false;
+        unit = match.Groups[2].Success ? match.Groups[2].Value.ToLowerInvariant() : "px";
+        return amount > 0;
+    }
+
+    private static bool TryNormalizeCssColor(string value, out string safe)
+    {
+        safe = Regex.Replace(value.Trim(), @"\s*!important\s*$", string.Empty,
+            RegexOptions.IgnoreCase).Trim();
+        if (HexColorRegex().IsMatch(safe)) return true;
+        if (CssNamedColors.Contains(safe))
+        {
+            safe = safe.ToLowerInvariant();
+            return true;
+        }
+        var match = RgbColorRegex().Match(safe);
+        if (!match.Success) return false;
+        var parts = match.Groups[3].Value.Split(',', StringSplitOptions.TrimEntries);
+        var alpha = match.Groups[2].Success;
+        if (parts.Length != (alpha ? 4 : 3)) return false;
+        for (var index = 0; index < 3; index++)
+        {
+            var component = parts[index];
+            var percentage = component.EndsWith('%');
+            var numberText = percentage ? component[..^1] : component;
+            if (!double.TryParse(numberText, System.Globalization.NumberStyles.AllowDecimalPoint,
+                    System.Globalization.CultureInfo.InvariantCulture, out var number) ||
+                number < 0 || number > (percentage ? 100 : 255)) return false;
+        }
+        if (alpha)
+        {
+            var component = parts[3];
+            var percentage = component.EndsWith('%');
+            var numberText = percentage ? component[..^1] : component;
+            if (!double.TryParse(numberText, System.Globalization.NumberStyles.AllowDecimalPoint,
+                    System.Globalization.CultureInfo.InvariantCulture, out var number) ||
+                number < 0 || number > (percentage ? 100 : 1)) return false;
+        }
+        safe = safe.ToLowerInvariant();
+        return true;
+    }
+
+    private static readonly HashSet<string> CssNamedColors = new(
+        ("aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue blueviolet brown burlywood " +
+         "cadetblue chartreuse chocolate coral cornflowerblue cornsilk crimson cyan darkblue darkcyan darkgoldenrod darkgray " +
+         "darkgreen darkgrey darkkhaki darkmagenta darkolivegreen darkorange darkorchid darkred darksalmon darkseagreen " +
+         "darkslateblue darkslategray darkslategrey darkturquoise darkviolet deeppink deepskyblue dimgray dimgrey dodgerblue " +
+         "firebrick floralwhite forestgreen fuchsia gainsboro ghostwhite gold goldenrod gray green greenyellow grey honeydew " +
+         "hotpink indianred indigo ivory khaki lavender lavenderblush lawngreen lemonchiffon lightblue lightcoral lightcyan " +
+         "lightgoldenrodyellow lightgray lightgreen lightgrey lightpink lightsalmon lightseagreen lightskyblue lightslategray " +
+         "lightslategrey lightsteelblue lightyellow lime limegreen linen magenta maroon mediumaquamarine mediumblue mediumorchid " +
+         "mediumpurple mediumseagreen mediumslateblue mediumspringgreen mediumturquoise mediumvioletred midnightblue mintcream " +
+         "mistyrose moccasin navajowhite navy oldlace olive olivedrab orange orangered orchid palegoldenrod palegreen paleturquoise " +
+         "palevioletred papayawhip peachpuff peru pink plum powderblue purple rebeccapurple red rosybrown royalblue saddlebrown " +
+         "salmon sandybrown seagreen seashell sienna silver skyblue slateblue slategray slategrey snow springgreen steelblue tan " +
+         "teal thistle tomato transparent turquoise violet wheat white whitesmoke yellow yellowgreen")
+        .Split(' ', StringSplitOptions.RemoveEmptyEntries), StringComparer.OrdinalIgnoreCase);
 
     private static void AddText(Node parent, string value, IReadOnlyList<Mark> marks)
     {
@@ -417,7 +720,8 @@ public static partial class HelpJuiceHtmlConverter
             "paragraph" => ("<p>", "</p>"), "heading" => ($"<h{node.Attributes?["level"]}>", $"</h{node.Attributes?["level"]}>"),
             "bulletList" => ("<ul>", "</ul>"), "orderedList" => ("<ol>", "</ol>"), "listItem" => ("<li>", "</li>"),
             "blockquote" => ("<blockquote>", "</blockquote>"), "codeBlock" => ("<pre><code>", "</code></pre>"),
-            "table" => ("<table>", "</table>"), "tableRow" => ("<tr>", "</tr>"), "tableHeader" => ("<th>", "</th>"), "tableCell" => ("<td>", "</td>"),
+            "table" => (RenderTableOpen(node), "</table>"), "tableRow" => ("<tr>", "</tr>"),
+            "tableHeader" => (RenderCellOpen(node, "th"), "</th>"), "tableCell" => (RenderCellOpen(node, "td"), "</td>"),
             "hardBreak" => ("<br>", ""), "horizontalRule" => ("<hr>", ""),
             "image" => ($"<img src=\"{WebUtility.HtmlEncode(node.Attributes?["src"]?.ToString())}\" alt=\"{WebUtility.HtmlEncode(node.Attributes?["alt"]?.ToString())}\"{(node.Attributes?["mediaId"] is string id ? $" data-media-id=\"{id}\"" : "")}>", ""),
             "youtube" => ($"<div data-youtube-video><iframe src=\"{WebUtility.HtmlEncode(node.Attributes?["src"]?.ToString())}\" allowfullscreen></iframe></div>", ""),
@@ -431,6 +735,56 @@ public static partial class HelpJuiceHtmlConverter
         };
         b.Append(open); foreach (var child in node.Children) RenderNode(child, b); b.Append(close);
     }
+
+    private static string RenderTableOpen(Node node)
+    {
+        var attributes = new StringBuilder("<table");
+        if (AttributeInt(node, "tableWidthPx", 0) is > 0 and var pixels)
+            attributes.Append(" data-table-width-px=\"").Append(pixels).Append("\" style=\"width:")
+                .Append(pixels).Append("px; max-width:100%;\"");
+        else if (node.Attributes?.GetValueOrDefault("tableWidthPct") is { } percentage)
+            attributes.Append(" data-table-width-pct=\"").Append(EInvariant(percentage)).Append("\" style=\"width:")
+                .Append(EInvariant(percentage)).Append("%;\"");
+        attributes.Append('>');
+
+        var firstRow = node.Children.FirstOrDefault(child => child.Type == "tableRow");
+        var widths = firstRow?.Children.Where(IsTableCell)
+            .SelectMany(cell => AttributeWidths(cell)).ToArray() ?? [];
+        if (widths.Length > 0)
+        {
+            attributes.Append("<colgroup>");
+            foreach (var width in widths) attributes.Append("<col width=\"").Append(width)
+                .Append("\" style=\"width:").Append(width).Append("px;\">");
+            attributes.Append("</colgroup>");
+        }
+        return attributes.ToString();
+    }
+
+    private static string RenderCellOpen(Node node, string tag)
+    {
+        var result = new StringBuilder("<").Append(tag);
+        var colspan = AttributeInt(node, "colspan", 1);
+        var rowspan = AttributeInt(node, "rowspan", 1);
+        var widths = AttributeWidths(node);
+        if (colspan > 1) result.Append(" colspan=\"").Append(colspan).Append('"');
+        if (rowspan > 1) result.Append(" rowspan=\"").Append(rowspan).Append('"');
+        if (widths.Length > 0)
+        {
+            result.Append(" colwidth=\"").Append(string.Join(',', widths)).Append("\" style=\"width:")
+                .Append(widths.Sum()).Append("px;\"");
+        }
+        return result.Append('>').ToString();
+    }
+
+    private static int[] AttributeWidths(Node node) => node.Attributes?.GetValueOrDefault("colwidth") switch
+    {
+        int[] values => values,
+        IEnumerable<int> values => values.ToArray(),
+        _ => []
+    };
+
+    private static string EInvariant(object value) => System.Convert.ToString(value,
+        System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
     private static string PlainText(Node root) { var b = new StringBuilder(); Visit(root); return b.ToString().Trim(); void Visit(Node n) { if (n.Type == "tabItem" && n.Attributes?["label"] is { } label) b.AppendLine(label.ToString()); if (n.Type == "accordionItem" && n.Attributes?["title"] is { } title) b.AppendLine(title.ToString()); if (n.Text is not null) b.Append(n.Text); foreach (var c in n.Children) Visit(c); if (n.Type is "paragraph" or "heading" or "listItem" or "blockquote" or "codeBlock" or "tableRow") b.AppendLine(); } }
 
     private static bool TrySafeUrl(string? value, bool allowRelative, out string safe)
@@ -452,7 +806,7 @@ public static partial class HelpJuiceHtmlConverter
         foreach (Match attr in AttributeRegex().Matches(match.Groups[3].Value))
         {
             var key = attr.Groups[1].Value;
-            if (key.StartsWith("on", StringComparison.OrdinalIgnoreCase) || key is "style" or "srcdoc") continue;
+            if (key.StartsWith("on", StringComparison.OrdinalIgnoreCase) || key is "srcdoc") continue;
             attrs[key] = WebUtility.HtmlDecode(attr.Groups[2].Success ? attr.Groups[2].Value : attr.Groups[3].Success ? attr.Groups[3].Value : attr.Groups[4].Value);
         }
         return (match.Groups[2].Value.ToLowerInvariant(), match.Groups[1].Success, attrs, token.EndsWith("/>", StringComparison.Ordinal));
@@ -462,9 +816,11 @@ public static partial class HelpJuiceHtmlConverter
     {
         public string Type { get; set; } = type; public string SourceTag { get; } = sourceTag ?? type;
         public string? Text { get; set; } public List<Node> Children { get; } = [];
+        public List<string> TransientColumnWidths { get; } = [];
         public List<Mark> Marks { get; set; } = []; public Dictionary<string, object?>? Attributes { get; set; }
         public JsonObject ToJson() { var o = new JsonObject { ["type"] = Type }; if (Text is not null) o["text"] = Text; if (Attributes?.Count > 0) o["attrs"] = JsonSerializer.SerializeToNode(Attributes); if (Marks.Count > 0) o["marks"] = new JsonArray(Marks.Select(m => m.ToJson()).ToArray()); if (Children.Count > 0) o["content"] = new JsonArray(Children.Select(c => c.ToJson()).ToArray()); return o; }
     }
+    private sealed record ActiveMark(string SourceTag, Mark Mark);
     private sealed record Mark(string Type, Dictionary<string, object?>? Attrs = null)
     {
         public JsonObject ToJson() { var o = new JsonObject { ["type"] = Type }; if (Attrs?.Count > 0) o["attrs"] = JsonSerializer.SerializeToNode(Attrs); return o; }
@@ -482,5 +838,7 @@ public static partial class HelpJuiceHtmlConverter
     [GeneratedRegex(@"^<\s*(/)?\s*([a-zA-Z0-9:-]+)([\s\S]*?)/?\s*>$", RegexOptions.Compiled)] private static partial Regex TagRegex();
     [GeneratedRegex("""([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))""", RegexOptions.Compiled)] private static partial Regex AttributeRegex();
     [GeneratedRegex(@"\s+", RegexOptions.Compiled)] private static partial Regex WhitespaceRegex();
-    [GeneratedRegex(@"^(?:#[0-9a-fA-F]{3,8}|[a-zA-Z]{1,32}|rgba?\(\s*[0-9.%\s,]+\)|hsla?\(\s*[0-9.%\s,]+\))$", RegexOptions.Compiled)] private static partial Regex SafeCssColorRegex();
+    [GeneratedRegex(@"^(\d+(?:\.\d+)?)(%|px)?$", RegexOptions.Compiled | RegexOptions.IgnoreCase)] private static partial Regex CssLengthRegex();
+    [GeneratedRegex(@"^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$", RegexOptions.Compiled | RegexOptions.IgnoreCase)] private static partial Regex HexColorRegex();
+    [GeneratedRegex(@"^(rgb)(a)?\(([^)]*)\)$", RegexOptions.Compiled | RegexOptions.IgnoreCase)] private static partial Regex RgbColorRegex();
 }

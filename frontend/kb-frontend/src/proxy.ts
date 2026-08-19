@@ -15,6 +15,10 @@ import { ensurePrefix } from '@/utils/string'
 
 // Constants
 const HOME_PAGE_URL = '/dashboard'
+const INTERNAL_ROOTS = new Set([
+  'dashboard', 'kb', 'audit-logs', 'editor', 'export-jobs', 'media', 'notifications', 'review', 'roles',
+  'settings', 'templates', 'users', 'account', 'reusable-blocks', 'search-index', 'not-authorized'
+])
 
 const getLocale = (request: NextRequest): string => {
   const urlLocale = i18n.locales.find(locale =>
@@ -64,6 +68,12 @@ export function proxy(request: NextRequest) {
   }
 
   if (isUrlMissingLocale(pathname)) {
+    const firstSegment = pathname.split('/').filter(Boolean)[0]
+    if (firstSegment && !INTERNAL_ROOTS.has(firstSegment)) {
+      const url = request.nextUrl.clone()
+      url.pathname = getLocalizedUrl(pathname, locale)
+      return NextResponse.rewrite(url)
+    }
     return localizedRedirect(pathname, locale, request)
   }
 

@@ -42,6 +42,30 @@ describe('ArticleDraftAutosaveCoordinator', () => {
     expect(save.mock.calls[0][0]).toMatchObject({ rowVersion: 'v1', renderedHtml: '<p>first</p>', plainText: 'first' })
   })
 
+  it('saves imported color and table-width attributes without rewriting them', async () => {
+    const save = vi.fn().mockResolvedValue(response('v2'))
+    const coordinator = new ArticleDraftAutosaveCoordinator({ rowVersion: 'v1', debounceMs: 1, save })
+    const imported: JSONContent = {
+      type: 'doc',
+      content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'Color', marks: [{ type: 'textStyle', attrs: { color: '#ff0066' } }] }] },
+        { type: 'table', attrs: { tableWidthPct: 75 }, content: [
+          { type: 'tableRow', content: [
+            { type: 'tableCell', attrs: { colspan: 1, rowspan: 1, colwidth: [250] }, content: [{ type: 'paragraph' }] },
+            { type: 'tableCell', attrs: { colspan: 1, rowspan: 1, colwidth: [750] }, content: [{ type: 'paragraph' }] }
+          ] }
+        ] }
+      ]
+    }
+
+    coordinator.update(imported, '<p><span style="color:#ff0066">Color</span></p><table style="width:75%"></table>', 'Color')
+    await vi.advanceTimersByTimeAsync(1)
+
+    expect(save.mock.calls[0][0].content).toEqual(imported)
+    expect(save.mock.calls[0][0].renderedHtml).toContain('color:#ff0066')
+    expect(save.mock.calls[0][0].renderedHtml).toContain('width:75%')
+  })
+
   it('never overlaps saves and queues one latest follow-up with the replaced row version', async () => {
     const first = deferred<SaveArticleDraftResponse>()
     const second = deferred<SaveArticleDraftResponse>()

@@ -14,6 +14,9 @@ export type MigrationWarningCode =
   | 'EMPTY_ANSWER'
   | 'TEXT_CONTENT_MISMATCH'
   | 'TIPTAP_SCHEMA_VALIDATION_FAILED'
+  | 'UNSUPPORTED_TEXT_COLOR'
+  | 'UNSUPPORTED_TABLE_WIDTH'
+  | 'UNSUPPORTED_TABLE_COLUMN_WIDTH'
 
 export type MigrationWarning = {
   code: MigrationWarningCode
@@ -263,6 +266,47 @@ function normalizeStyle(element: HTMLElement): void {
   else element.removeAttribute('style')
 }
 
+function validDimension(value: string, kind: 'table' | 'column'): boolean {
+  const match = value.trim().match(/^(\d+(?:\.\d+)?)(%|px)?$/i)
+  if (!match) return false
+  const amount = Number(match[1])
+  if (!Number.isFinite(amount)) return false
+  if (match[2] === '%') return amount >= (kind === 'table' ? 10 : 2.5) && amount <= 100
+  return amount >= 25 && amount <= (kind === 'table' ? 4000 : 2000)
+}
+
+function diagnoseFormatting(element: HTMLElement, warnings: MigrationWarning[]): void {
+  const rawStyle = element.getAttribute('style') ?? ''
+  let rawWidth = ''
+  rawStyle.split(';').forEach(declaration => {
+    const separator = declaration.indexOf(':')
+    if (separator <= 0) return
+    const property = declaration.slice(0, separator).trim().toLowerCase()
+    const value = declaration.slice(separator + 1).trim().replace(/\s*!important\s*$/i, '')
+    if (property === 'width') rawWidth = value
+    if (property === 'color' && value) {
+      const probe = element.ownerDocument.createElement('span')
+      probe.style.color = value
+      if (!probe.style.color || /(?:expression\s*\(|javascript\s*:|vbscript\s*:|var\s*\(|url\s*\()/i.test(value)) {
+        warnings.push(warning('UNSUPPORTED_TEXT_COLOR', 'warning', `Unsupported text color "${value}" was omitted.`, element.tagName.toLowerCase()))
+      }
+    }
+  })
+
+  const tag = element.tagName.toLowerCase()
+  if (tag === 'table') {
+    const width = rawWidth || element.getAttribute('width') || ''
+    if (width && !validDimension(width, 'table')) {
+      warnings.push(warning('UNSUPPORTED_TABLE_WIDTH', 'warning', `Unsupported table width "${width}" was omitted.`, 'table'))
+    }
+  } else if (tag === 'col' || tag === 'td' || tag === 'th') {
+    const width = rawWidth || element.getAttribute('width') || ''
+    if (width && !validDimension(width, 'column')) {
+      warnings.push(warning('UNSUPPORTED_TABLE_COLUMN_WIDTH', 'warning', `Unsupported table column width "${width}" was omitted.`, tag))
+    }
+  }
+}
+
 function normalizeImageSource(element: HTMLElement, warnings: MigrationWarning[]): void {
   if (element.tagName.toLowerCase() !== 'img' && element.tagName.toLowerCase() !== 'v:imagedata') return
 
@@ -379,6 +423,7 @@ export function normalizeHelpjuiceHtml(html: string): { html: string; warnings: 
   normalizeOfficeWrappers(root, warnings)
 
   Array.from(root.querySelectorAll<HTMLElement>('*')).forEach(element => {
+    diagnoseFormatting(element, warnings)
     normalizeImageSource(element, warnings)
 
     Array.from(element.attributes).forEach(attribute => {

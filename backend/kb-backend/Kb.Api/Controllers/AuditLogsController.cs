@@ -52,6 +52,9 @@ public sealed class AuditLogsController(AuditLogService auditLogs) : ControllerB
         log.Actor is null
             ? null
             : new UserSummaryResponse(log.Actor.Id, log.Actor.Name),
+        log.ExternalActor is null ? null : new ExternalViewerAuditActorResponse(
+            log.ExternalActor.ExternalUserId, log.ExternalActor.ExternalEmail, log.ExternalActor.CustomerId,
+            log.ExternalActor.SessionId, log.ExternalActor.SolutionId),
         log.ActionType,
         log.EntityType,
         log.EntityId,

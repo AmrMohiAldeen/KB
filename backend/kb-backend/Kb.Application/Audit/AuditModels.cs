@@ -15,6 +15,8 @@ public sealed record AuditLogQuery(
     bool Descending);
 
 public sealed record AuditUserData(Guid Id, string Name);
+public sealed record AuditExternalActorData(string ExternalUserId, string? ExternalEmail, Guid? CustomerId,
+    Guid? SessionId, Guid? SolutionId);
 
 public sealed record AuditArticleData(Guid Id, string Title, string Slug);
 
@@ -23,6 +25,7 @@ public sealed record AuditLogRecordData(
     Guid? ArticleId,
     AuditArticleData? Article,
     AuditUserData? Actor,
+    AuditExternalActorData? ExternalActor,
     string ActionType,
     string? EntityType,
     Guid? EntityId,
@@ -34,6 +37,7 @@ public sealed record AuditLogData(
     Guid? ArticleId,
     AuditArticleData? Article,
     AuditUserData? Actor,
+    AuditExternalActorData? ExternalActor,
     string ActionType,
     string? EntityType,
     Guid? EntityId,

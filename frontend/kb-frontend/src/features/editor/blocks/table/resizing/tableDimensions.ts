@@ -3,6 +3,8 @@ export const MAX_TABLE_WIDTH_PCT = 100;
 export const DEFAULT_TABLE_WIDTH_PCT = MAX_TABLE_WIDTH_PCT;
 export const DEFAULT_TABLE_OFFSET_PCT = 0;
 export const MIN_ROW_HEIGHT_PX = 20;
+export const MIN_TABLE_WIDTH_PX = 25;
+export const MAX_TABLE_WIDTH_PX = 4000;
 
 function roundToTenth(value: number): number {
   return Math.round(value * 10) / 10;
@@ -36,10 +38,37 @@ export function applyTableWidthPct(table: HTMLTableElement, value: number): numb
   const cssWidth = `${width}%`;
 
   table.dataset.tableWidthPct = String(width);
+  delete table.dataset.tableWidthPx;
+  table.style.removeProperty('--table-width');
   table.style.setProperty('--table-width-pct', cssWidth);
   table.style.width = cssWidth;
   applyTableOffsetPct(table, readTableOffsetPct(table, width), width);
 
+  return width;
+}
+
+export function normalizeTableWidthPx(value: unknown): number | null {
+  const width = typeof value === 'string' && value.trim().endsWith('px')
+    ? Number(value.trim().slice(0, -2))
+    : Number(value);
+  return Number.isFinite(width) && width >= MIN_TABLE_WIDTH_PX && width <= MAX_TABLE_WIDTH_PX
+    ? Math.round(width)
+    : null;
+}
+
+export function readTableWidthPx(table: HTMLTableElement): number | null {
+  return normalizeTableWidthPx(table.dataset.tableWidthPx) ??
+    normalizeTableWidthPx(table.style.width);
+}
+
+export function applyTableWidthPx(table: HTMLTableElement, value: unknown): number | null {
+  const width = normalizeTableWidthPx(value);
+  if (width == null) return null;
+  delete table.dataset.tableWidthPct;
+  table.dataset.tableWidthPx = String(width);
+  table.style.removeProperty('--table-width-pct');
+  table.style.setProperty('--table-width', `${width}px`);
+  table.style.width = `${width}px`;
   return width;
 }
 

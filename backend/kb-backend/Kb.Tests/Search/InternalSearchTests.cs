@@ -5,6 +5,7 @@ using Kb.Application.Abstractions;
 using Kb.Application.Abstractions.Storage;
 using Kb.Application.Exceptions;
 using Kb.Application.Search;
+using Kb.Application.Viewer;
 using Kb.Domain.Constants;
 using Kb.Infrastructure.Data;
 using Kb.Infrastructure.Data.Entities;
@@ -54,6 +55,52 @@ public sealed class InternalSearchTests
         Assert.Contains("prioritize_exact_match=true", query);
         Assert.Contains("status%3A%3D%60Archived%60", query);
         Assert.Equal("server-only-key", handler.ApiKey);
+    }
+
+    [Fact]
+    public async Task Viewer_typesense_query_has_non_overridable_solution_and_visibility_filters()
+    {
+        var handler = new TypesenseHandler();
+        var solutionId = Guid.Parse("33333333-3333-3333-3333-333333333333");
+        var client = new TypesenseInternalSearchClient(new HttpClient(handler), Options.Create(new InternalSearchOptions
+        {
+            Endpoint = "https://typesense.example.test/", AdminApiKey = "server-only-key",
+            CollectionAlias = "internal_kb_documents", PublicCollectionAlias = "public_kb_documents"
+        }));
+
+        await ((IViewerSearchClient)client).SearchAsync(solutionId, "onboarding", 25, default);
+
+        var query = Uri.UnescapeDataString(handler.SearchUri!.Query);
+        Assert.Contains($"solution_ids:={solutionId:D}", query);
+        Assert.Contains("record_type:=`article`", query);
+        Assert.Contains("is_published:=true", query);
+        Assert.Contains("is_public:=true", query);
+        Assert.Contains("is_archived:=false", query);
+        Assert.Contains("is_deleted:=false", query);
+        Assert.DoesNotContain("internal_kb_documents/documents/search", handler.SearchUri.AbsolutePath);
+    }
+
+    [Fact]
+    public async Task Viewer_preview_search_has_non_overridable_category_subtree_and_visibility_filters()
+    {
+        var handler = new TypesenseHandler();
+        var rootCategoryId = Guid.Parse("44444444-4444-4444-4444-444444444444");
+        var client = new TypesenseInternalSearchClient(new HttpClient(handler), Options.Create(new InternalSearchOptions
+        {
+            Endpoint = "https://typesense.example.test/", AdminApiKey = "server-only-key",
+            CollectionAlias = "internal_kb_documents", PublicCollectionAlias = "public_kb_documents"
+        }));
+
+        await ((IViewerSearchClient)client).SearchPreviewAsync(rootCategoryId, "onboarding", 25, default);
+
+        var query = Uri.UnescapeDataString(handler.SearchUri!.Query);
+        Assert.Contains($"category_ancestor_ids:={rootCategoryId:D}", query);
+        Assert.DoesNotContain("solution_ids:=", query);
+        Assert.Contains("record_type:=`article`", query);
+        Assert.Contains("is_published:=true", query);
+        Assert.Contains("is_public:=true", query);
+        Assert.Contains("is_archived:=false", query);
+        Assert.Contains("is_deleted:=false", query);
     }
 
     [Fact]

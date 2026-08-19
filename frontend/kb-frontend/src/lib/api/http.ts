@@ -137,6 +137,33 @@ export async function publicApiRequest<T>(path: string, init: RequestInit = {}):
   return body as T
 }
 
+export async function viewerApiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers)
+
+  headers.set('Accept', 'application/json')
+  if (init.body) headers.set('Content-Type', 'application/json')
+
+  let response: Response
+
+  try {
+    response = await fetch(`${getApiBaseUrl()}${path}`, {
+      ...init,
+      cache: 'no-store',
+      credentials: 'include',
+      headers
+    })
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error
+    throw new ApiError(0, { status: 0, title: 'Network error', detail: 'The Viewer knowledge base API could not be reached.' })
+  }
+
+  if (response.status === 204) return undefined as T
+  const contentType = response.headers.get('content-type') ?? ''
+  const body = contentType.includes('json') ? await response.json().catch(() => undefined) : undefined
+  if (!response.ok) throw new ApiError(response.status, (body as ProblemDetails | undefined) ?? defaultProblem(response.status))
+  return body as T
+}
+
 export async function apiBlobRequest(
   path: string,
   accessToken: string,

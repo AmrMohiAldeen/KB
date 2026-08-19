@@ -5,7 +5,7 @@ import {
 } from '../extensions/Glossary';
 import { normalizeLinkUrl } from '../lib/link/linkUrl';
 import { getTagName } from './domUtils';
-import { readTableOffsetPercent, readTableWidthPercent } from './normalizeTables';
+import { readTableOffsetPercent, readTableWidthPercent, readTableWidthPixels } from './normalizeTables';
 import {
   ALLOWED_EXPLICIT_URL_PROTOCOLS,
   BLOCK_TEXT_ALIGN_VALUES,
@@ -171,6 +171,15 @@ function sanitizePercentStyle(value: string): string | null {
     : null;
 }
 
+function sanitizePixelStyle(value: string, min: number, max: number): string | null {
+  const match = value.trim().match(/^(\d+(?:\.\d+)?)px$/i);
+  if (!match) return null;
+  const amount = Number(match[1]);
+  return Number.isFinite(amount) && amount >= min && amount <= max
+    ? `${amount}px`
+    : null;
+}
+
 function sanitizeStyleProperty(
   element: HTMLElement,
   property: string,
@@ -217,8 +226,10 @@ function sanitizeStyleProperty(
   }
 
   if (tagName === 'table') {
+    if (normalizedProperty === 'width') {
+      return sanitizePercentStyle(value) ?? sanitizePixelStyle(value, 25, 4000);
+    }
     if (
-      normalizedProperty === 'width' ||
       normalizedProperty === 'margin-left' ||
       normalizedProperty === 'margin-inline-start'
     ) {
@@ -482,9 +493,11 @@ function collectSafeAttributes(element: HTMLElement): Map<string, string> {
 
   if (tagName === 'table') {
     const width = readTableWidthPercent(element);
+    const pixelWidth = readTableWidthPixels(element);
     const offset = readTableOffsetPercent(element);
 
-    if (width != null) attributes.set('data-table-width-pct', String(width));
+    if (pixelWidth != null) attributes.set('data-table-width-px', String(pixelWidth));
+    else if (width != null) attributes.set('data-table-width-pct', String(width));
     if (offset != null) attributes.set('data-table-offset-pct', String(offset));
 
     TABLE_BORDER_ATTRIBUTES.forEach((attributeName) => {

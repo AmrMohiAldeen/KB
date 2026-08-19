@@ -104,12 +104,12 @@ public sealed class HelpJuiceImportWriterTests
     }
 
     [Fact]
-    public async Task Update_replaces_stale_unknown_author_with_the_resolved_email_fallback()
+    public async Task Update_replaces_an_unresolved_author_with_the_resolved_email()
     {
         await using var f=await Fixture.CreateAsync();
         var original=Article("legacy-email",true,f.UserId) with
         {
-            LegacyAuthorName="Unknown HelpJuice author",LegacyAuthorExternalId="account-42"
+            LegacyAuthorExternalId="account-42"
         };
         _=await f.Writer.WriteArticleAsync(f.OperationId,original,MigrationConflictBehaviors.Skip,default);
         var resolved=original with { LegacyAuthorName=null,LegacyAuthorEmail="resolved@example.test" };

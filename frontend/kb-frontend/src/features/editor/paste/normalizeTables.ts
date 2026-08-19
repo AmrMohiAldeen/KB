@@ -66,15 +66,21 @@ function readTableSpan(element: HTMLElement, attributeName: string): number {
   return readInteger(element.getAttribute(attributeName), 1, MAX_TABLE_SPAN) ?? 1;
 }
 
-function readColumnWidth(col: HTMLTableColElement): number | null {
-  return readSafePixelLength(col.getAttribute('width') ?? col.style.width, {
+function readColumnWidth(col: HTMLTableColElement, percentageBase: number): number | null {
+  const raw = col.getAttribute('width') || col.style.width;
+  const percentage = readPercent(raw, { max: 100, min: 2.5 });
+  if (percentage != null) return Math.max(25, Math.round(percentageBase * percentage / 100));
+  return readSafePixelLength(raw, {
     max: 2000,
     min: 25,
   });
 }
 
-function readCellWidth(cell: HTMLTableCellElement): number | null {
-  return readSafePixelLength(cell.getAttribute('width') ?? cell.style.width, {
+function readCellWidth(cell: HTMLTableCellElement, percentageBase: number): number | null {
+  const raw = cell.getAttribute('width') || cell.style.width;
+  const percentage = readPercent(raw, { max: 100, min: 2.5 });
+  if (percentage != null) return Math.max(25, Math.round(percentageBase * percentage / 100));
+  return readSafePixelLength(raw, {
     max: 2000,
     min: 25,
   });
@@ -112,6 +118,7 @@ function readColwidthList(value: string | null, expectedLength: number): number[
 
 function tableColumnWidths(table: HTMLTableElement): number[] {
   const widths: number[] = [];
+  const percentageBase = readTableWidthPixels(table) ?? 1000;
 
   Array.from(table.children).forEach((child) => {
     if (getTagName(child) !== 'colgroup') return;
@@ -119,7 +126,7 @@ function tableColumnWidths(table: HTMLTableElement): number[] {
     Array.from(child.children).forEach((col) => {
       if (getTagName(col) !== 'col') return;
 
-      const width = readColumnWidth(col as HTMLTableColElement);
+      const width = readColumnWidth(col as HTMLTableColElement, percentageBase);
       const span = readTableSpan(col as HTMLElement, 'span');
       if (width == null || widths.length >= MAX_TABLE_SPAN) return;
 
@@ -140,6 +147,7 @@ function directTableCells(row: HTMLTableRowElement): HTMLTableCellElement[] {
 
 function normalizeTableCellColwidths(table: HTMLTableElement): void {
   const columnWidths = tableColumnWidths(table);
+  const percentageBase = readTableWidthPixels(table) ?? 1000;
   const occupiedRowspans: number[] = [];
 
   Array.from(table.querySelectorAll<HTMLTableRowElement>('tr')).forEach((row) => {
@@ -156,7 +164,7 @@ function normalizeTableCellColwidths(table: HTMLTableElement): void {
       const rowspan = readTableSpan(cell, 'rowspan');
       const existing = readColwidthList(cell.getAttribute('colwidth'), colspan);
       const fromColumns = columnWidths.slice(columnIndex, columnIndex + colspan);
-      const cellWidth = readCellWidth(cell);
+      const cellWidth = readCellWidth(cell, percentageBase);
       const fallback =
         cellWidth == null
           ? null
@@ -198,6 +206,15 @@ export function readTableWidthPercent(table: HTMLElement): number | null {
     }) ??
     readPercent(table.style.width, { max: 100, min: 10 }) ??
     readPercent(table.getAttribute('width'), { max: 100, min: 10 })
+  );
+}
+
+export function readTableWidthPixels(table: HTMLElement): number | null {
+  const value = table.getAttribute('data-table-width-px')?.trim() ||
+    table.style.width.trim() || table.getAttribute('width');
+  return readSafePixelLength(
+    value,
+    { max: 4000, min: 25 },
   );
 }
 
@@ -251,6 +268,8 @@ function wrapDirectTableRows(table: HTMLTableElement): void {
 
 export function normalizePastedTableImportMetadata(root: ParentNode): void {
   root.querySelectorAll<HTMLTableElement>('table').forEach((table) => {
+    const pixelWidth = readTableWidthPixels(table);
+    if (pixelWidth != null) table.setAttribute('data-table-width-px', String(pixelWidth));
     normalizeTableCellColwidths(table);
     normalizeTableRowHeights(table);
   });
@@ -321,16 +340,22 @@ export function normalizePastedTables(root: ParentNode): void {
       return;
     }
 
+    const pixelWidth = readTableWidthPixels(table);
     const width = readTableWidthPercent(table) ?? 100;
     const offset = readTableOffsetPercent(table) ?? 0;
     const clampedOffset = Math.max(0, Math.min(100 - width, offset));
 
-    table.setAttribute('data-table-width-pct', String(width));
+    if (pixelWidth == null) table.setAttribute('data-table-width-pct', String(width));
+    else {
+      table.removeAttribute('data-table-width-pct');
+      table.setAttribute('data-table-width-px', String(pixelWidth));
+    }
     table.setAttribute('data-table-offset-pct', String(clampedOffset));
     table.setAttribute(
       'style',
       [
-        `width: ${width}%`,
+        `width: ${pixelWidth == null ? `${width}%` : `${pixelWidth}px`}`,
+        ...(pixelWidth == null ? [] : ['max-width: 100%']),
         `margin-left: ${clampedOffset}%`,
         `margin-inline-start: ${clampedOffset}%`,
       ].join('; '),

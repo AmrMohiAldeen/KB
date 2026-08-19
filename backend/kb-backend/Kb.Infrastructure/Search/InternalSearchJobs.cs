@@ -17,6 +17,7 @@ internal sealed class InternalSearchSynchronization
 internal sealed class InternalSearchMaintenance(
     InternalSearchDocumentSource source,
     ITypesenseInternalIndex index,
+    ITypesensePublicIndex publicIndex,
     InternalSearchSynchronization synchronization) : IInternalSearchMaintenance
 {
     public async Task<InternalSearchRebuildResult> RebuildAsync(CancellationToken cancellationToken)
@@ -26,6 +27,8 @@ internal sealed class InternalSearchMaintenance(
         {
             var documents = await source.GetAllAsync(cancellationToken);
             var collection = await index.RebuildAsync(documents, cancellationToken);
+            var publicDocuments = await source.GetAllPublicAsync(cancellationToken);
+            await publicIndex.RebuildAsync(publicDocuments, cancellationToken);
             return new InternalSearchRebuildResult(collection,
                 documents.Count(document => document.RecordType == "article"),
                 documents.Count(document => document.RecordType == "category"));

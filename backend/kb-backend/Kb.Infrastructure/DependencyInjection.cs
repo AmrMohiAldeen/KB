@@ -30,6 +30,8 @@ using Kb.Application.Search;
 using Kb.Infrastructure.Search;
 using Kb.Application.Public;
 using Kb.Infrastructure.Public;
+using Kb.Application.Viewer;
+using Kb.Infrastructure.Viewer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -68,6 +70,7 @@ public static class DependencyInjection
         services.AddScoped<ICategoryRepository, CategoryRepository>();
         services.AddScoped<IArticleRepository, ArticleRepository>();
         services.AddScoped<IPublicKnowledgeBaseRepository, PublicKnowledgeBaseRepository>();
+        services.AddScoped<IViewerRepository, ViewerRepository>();
         services.AddScoped<IArticleDraftRepository, ArticleDraftRepository>();
         services.AddScoped<IAuditLogRepository, AuditLogRepository>();
         services.AddScoped<IMediaRepository, MediaRepository>();
@@ -90,6 +93,7 @@ public static class DependencyInjection
         services.AddScoped<IInternalSearchClient>(provider => provider.GetRequiredService<TypesenseInternalSearchClient>());
         services.AddScoped<ITypesenseInternalIndex>(provider => provider.GetRequiredService<TypesenseInternalSearchClient>());
         services.AddScoped<ITypesensePublicIndex>(provider => provider.GetRequiredService<TypesenseInternalSearchClient>());
+        services.AddScoped<IViewerSearchClient>(provider => provider.GetRequiredService<TypesenseInternalSearchClient>());
         services.AddScoped<InternalSearchDocumentSource>();
         services.AddSingleton<InternalSearchSynchronization>();
         services.AddScoped<IInternalSearchMaintenance, InternalSearchMaintenance>();
@@ -144,6 +148,13 @@ public static class DependencyInjection
         services.Configure<PublicKnowledgeBaseOptions>(options =>
         {
             options.ArticleContentContainerName = configuration["Storage:Containers:ArticleContent"] ?? "article-content";
+        });
+        services.Configure<ViewerAuthenticationOptions>(options =>
+        {
+            options.SessionLifetime = TimeSpan.FromMinutes(
+                configuration.GetValue<int?>("ViewerAuthentication:SessionLifetimeMinutes") ?? 60);
+            options.MaximumHandoffLifetime = TimeSpan.FromSeconds(
+                configuration.GetValue<int?>("ViewerAuthentication:MaximumHandoffLifetimeSeconds") ?? 300);
         });
         services.AddSingleton<ISlugGenerator, SlugGenerator>();
         services.AddSingleton(TimeProvider.System);
