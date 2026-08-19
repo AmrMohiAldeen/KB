@@ -28,10 +28,11 @@ const CategoryNode = ({ node, depth = 0 }: CategoryNodeProps) => (
       sx={theme => ({
         minBlockSize: 36,
         gap: 1.5,
-        borderRadius: 1.5,
+        borderRadius: 'var(--mui-shape-customBorderRadius-md)',
         color: theme.palette.text.primary,
         '& .MuiListItemIcon-root': {
-          minInlineSize: 0
+          minInlineSize: 0,
+          color: 'var(--mui-palette-primary-main)'
         }
       })}
     >

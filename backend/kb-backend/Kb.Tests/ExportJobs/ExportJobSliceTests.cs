@@ -131,7 +131,7 @@ public sealed class ExportJobSliceTests
     [Theory]
     [InlineData(ExportTypes.Html)]
     [InlineData(ExportTypes.Pdf)]
-    public async Task Category_export_prefers_current_drafts_and_preserves_nested_hierarchy(string format)
+    public async Task Category_export_prefers_live_published_versions_and_preserves_nested_hierarchy(string format)
     {
         await using var f = await Fixture.CreateAsync();
         var job = await f.Repository.CreateCategoryAsync(f.RootCategoryId, format, f.UserId,
@@ -142,8 +142,8 @@ public sealed class ExportJobSliceTests
         var completed = await f.Repository.GetAsync(job.Id, default);
         var html = format == ExportTypes.Pdf ? f.Pdf.LastHtml :
             f.Storage.Text(f.Options.ContainerName, completed!.ResultPath!);
-        Assert.Contains("current draft content", html);
-        Assert.DoesNotContain("stable article one", html);
+        Assert.Contains("stable article one", html);
+        Assert.DoesNotContain("current draft content", html);
         Assert.True(html.IndexOf("Article zero", StringComparison.Ordinal) <
                     html.IndexOf("Article one", StringComparison.Ordinal));
         Assert.True(html.IndexOf("Article one", StringComparison.Ordinal) <
@@ -273,7 +273,7 @@ public sealed class ExportJobSliceTests
         var completed = await f.Repository.GetAsync(job.Id, default);
         var html = f.Storage.Text(f.Options.ContainerName, completed!.ResultPath!);
         Assert.Equal(JobStatuses.Completed, completed.Status);
-        Assert.Contains("current draft content", html);
+        Assert.Contains("stable article one", html);
         Assert.Contains("stored content is unavailable", html);
     }
 

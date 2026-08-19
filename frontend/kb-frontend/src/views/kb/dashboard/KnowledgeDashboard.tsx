@@ -66,6 +66,7 @@ import KbValidationSummary from '@/views/shared/forms/KbValidationSummary'
 import KbConfirmDialog from '@/views/shared/dialogs/KbConfirmDialog'
 import KbFormDialog from '@/views/shared/dialogs/KbFormDialog'
 import KbTableFilter from '@/views/shared/tables/KbTableFilter'
+import { KbTableControls } from '@/views/shared/tables/KbTableToolbar'
 import type { ArticleFormState } from '../articles/components/KbArticleDialog'
 import KbArticleDialog from '../articles/components/KbArticleDialog'
 import type { CategoryFormState } from '../categories/utils/categoryForm'
@@ -112,6 +113,7 @@ import {
   searchDashboard
 } from '@/lib/api/dashboardApi'
 import { describeApiError } from '@/lib/api/http'
+import { openInternalPreview } from '@/lib/auth/openInternalPreview'
 import {
   downloadExport,
   requestArticleExport,
@@ -174,18 +176,16 @@ const HighlightedText = ({ value, fallback }: { value?: string | null; fallback:
 const ItemName = ({ item }: { item: DashboardItem }) => (
   <Stack direction='row' spacing={1.75} sx={{ alignItems: 'center', minInlineSize: 220 }}>
     <Box
-      sx={theme => ({
+      sx={{
         display: 'grid',
         placeItems: 'center',
         inlineSize: 34,
         blockSize: 34,
         borderRadius: 1.25,
         flexShrink: 0,
-        bgcolor: item.kind === 'category'
-          ? `rgba(${theme.vars.palette.warning.mainChannel} / 0.12)`
-          : `rgba(${theme.vars.palette.primary.mainChannel} / 0.1)`,
-        color: item.kind === 'category' ? 'warning.main' : 'primary.main'
-      })}
+        bgcolor: 'primary.lighterOpacity',
+        color: 'primary.main'
+      }}
     >
       {item.kind === 'category' ? <Folder size={18} /> : <FileText size={18} />}
     </Box>
@@ -1121,7 +1121,7 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
         {action(`Export ${exportSubject} as PDF`, <Download size={15} />, () => void startExport(item, 'PDF'), { hidden: !canRead })}
         {action(`Export ${exportSubject} as HTML`, <FileCode2 size={15} />, () => void startExport(item, 'HTML'), { hidden: !canRead })}
         {item.kind === 'category' && action('Preview', <Eye size={15} />, () => {
-          window.open(`/viewer/preview/${encodeURIComponent(item.category.id)}`, '_blank', 'noopener,noreferrer')
+          openInternalPreview(item.category.slug, accessToken)
         }, { hidden: !canViewArticles })}
         {item.kind === 'category' && action(
           item.category.status === 'Archived' ? 'Unarchive' : 'Archive',
@@ -1265,10 +1265,9 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
                 </Typography>
               </Box>
               {(canManageCategories || canCreateArticle) && (
-                <Stack direction='row' spacing={1.25} sx={{ flexShrink: 0 }}>
+                <Stack direction='row' spacing={2.5} sx={{ flexShrink: 0 }}>
                   {canManageCategories && (
                     <Button
-                      size='small'
                       variant='outlined'
                       startIcon={<Plus size={16} />}
                       disabled={mutating}
@@ -1283,7 +1282,6 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
                   )}
                   {canCreateArticle && (
                     <Button
-                      size='small'
                       variant='contained'
                       startIcon={<Plus size={16} />}
                       disabled={mutating || !categories.length}
@@ -1323,14 +1321,11 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
             </Stack>
           )}
 
-          <Box
+          <KbTableControls
             role='toolbar'
             aria-label='Content controls'
             sx={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 1,
-              flexWrap: 'wrap',
+              gap: 2.5,
               px: { xs: 2.5, sm: 3.5, xl: 4.5 },
               py: 1.5,
               borderBlockEnd: 1,
@@ -1402,7 +1397,7 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
               </MenuItem>
             </Menu>
 
-            <CustomTextField
+            <KbTableFilter
               value={search}
               onChange={event => setSearch(event.target.value)}
               placeholder='Search articles and categories'
@@ -1552,7 +1547,7 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
                 Clear
               </Button>
             )}
-          </Box>
+          </KbTableControls>
 
           <Box sx={{ bgcolor: 'background.paper', minBlockSize: 420 }}>
             {contentLoading ? (
@@ -1617,6 +1612,7 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
                           onDragLeave={leaveDragTarget}
                           onDrop={event => dropOnItem(event, item)}
                           sx={{
+                            blockSize: 62,
                             '& > *': { borderBlockEndColor: 'divider' },
                             '&.Mui-selected': { bgcolor: 'action.selected' },
                             cursor: 'pointer',

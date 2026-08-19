@@ -87,7 +87,7 @@ export type VersionDiffSegmentResponse = {
 }
 
 export type VersionDiffEntryResponse = {
-  changeType: 'Added' | 'Removed' | 'Changed'
+  changeType: 'Added' | 'Removed' | 'Changed' | 'Unchanged'
   blockType: string
   blockLabel: string
   beforePosition: number | null

@@ -143,8 +143,11 @@ public sealed class ArticleDraftRepository(KbDbContext dbContext, IOptions<Inter
                 if (changed == 1)
                 {
                     await SynchronizeDraftMediaReferencesAsync(articleId, draftId, mediaIds, token);
-                    await SearchIndexJobQueue.EnqueueArticleAsync(dbContext, articleId, SearchIndexJobTypes.Upsert,
-                        changedAt.Add(searchOptions?.Value.DraftDebounce ?? TimeSpan.FromSeconds(3)), token);
+                    var isPublished = await dbContext.Articles.AsNoTracking().AnyAsync(article =>
+                        article.ArticleId == articleId && article.Status == ArticleStatuses.Published, token);
+                    if (!isPublished)
+                        await SearchIndexJobQueue.EnqueueArticleAsync(dbContext, articleId, SearchIndexJobTypes.Upsert,
+                            changedAt.Add(searchOptions?.Value.DraftDebounce ?? TimeSpan.FromSeconds(3)), token);
                 }
                 return changed;
             }, null,

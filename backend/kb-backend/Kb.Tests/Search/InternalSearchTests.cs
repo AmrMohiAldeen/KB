@@ -147,7 +147,7 @@ public sealed class InternalSearchTests
     }
 
     [Fact]
-    public async Task Search_document_uses_current_draft_content_and_falls_back_to_latest_retained_version()
+    public async Task Search_document_uses_live_version_while_a_published_article_has_a_new_draft()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
@@ -188,6 +188,7 @@ public sealed class InternalSearchTests
         db.ArticleVersions.Add(version);
         var article = await db.Articles.SingleAsync();
         article.CurrentDraftIdFk = draftId;
+        article.LastPublishedVersionIdFk = version.VersionId;
         article.LegacyAuthorName = "Historical Author";
         article.LegacyAuthorExternalId = "helpjuice-42";
         await db.SaveChangesAsync();
@@ -200,7 +201,7 @@ public sealed class InternalSearchTests
         var source = new InternalSearchDocumentSource(db, storage, Options.Create(new InternalSearchOptions()));
 
         var current = await source.GetArticleAsync(articleId, default);
-        Assert.Equal("new draft text", current!.Body);
+        Assert.Equal("old published text", current!.Body);
         Assert.Equal("Historical Author", current.AuthorName);
         Assert.Equal($"{userId:D}|Owner", current.AuthorFacet);
         await db.Articles.Where(item => item.ArticleId == articleId)

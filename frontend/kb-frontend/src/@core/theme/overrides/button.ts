@@ -31,6 +31,8 @@ const button: Theme['components'] = {
   MuiButton: {
     styleOverrides: {
       root: ({ theme, ownerState }) => ({
+        borderRadius: 'var(--mui-shape-customBorderRadius-md)',
+        fontWeight: 600,
         '&.Mui-disabled': {
           opacity: 0.45
         },
@@ -82,12 +84,17 @@ const button: Theme['components'] = {
       sizeSmall: ({ theme }) => ({
         lineHeight: 1.38462,
         fontSize: theme.typography.body2.fontSize,
-        borderRadius: 'var(--mui-shape-customBorderRadius-sm)'
+        borderRadius: 'var(--mui-shape-customBorderRadius-sm)',
+        minBlockSize: 36
       }),
+      sizeMedium: {
+        minBlockSize: 44
+      },
       sizeLarge: {
         fontSize: '1.0625rem',
         lineHeight: 1.529412,
-        borderRadius: 'var(--mui-shape-customBorderRadius-lg)'
+        borderRadius: 'var(--mui-shape-customBorderRadius-lg)',
+        minBlockSize: 48
       },
       startIcon: ({ theme, ownerState }) => ({
         ...(ownerState.size === 'small'
@@ -212,14 +219,15 @@ const button: Theme['components'] = {
       {
         props: { variant: 'outlined', color: 'secondary' },
         style: {
-          borderColor: 'var(--mui-palette-secondary-main)',
+          borderColor: 'var(--mui-palette-customColors-inputBorder)',
+          color: 'var(--mui-palette-text-secondary)',
           '&:not(.Mui-disabled):hover, &:not(.Mui-disabled):active, &.Mui-focusVisible:not(:has(span.MuiTouchRipple-root))':
             {
               backgroundColor: 'var(--mui-palette-secondary-lighterOpacity)'
             },
           '&.Mui-disabled': {
-            color: 'var(--mui-palette-secondary-main)',
-            borderColor: 'var(--mui-palette-secondary-main)'
+            color: 'var(--mui-palette-text-disabled)',
+            borderColor: 'var(--mui-palette-divider)'
           }
         }
       },

@@ -25,7 +25,7 @@ export const KbSectionCard = ({ title, description, actions, children, contentSx
     variant='outlined'
     sx={{
       overflow: 'hidden',
-      borderRadius: 2,
+      borderRadius: 'var(--mui-shape-customBorderRadius-lg)',
       bgcolor: 'background.paper',
       boxShadow: 'none',
       ...sx

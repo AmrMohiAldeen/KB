@@ -145,7 +145,7 @@ const HelpJuiceMigrationPage = ({ accessToken, api = helpJuiceMigrationsApi }: H
     { id: 'article', label: 'Article', render: article => <Box><Typography color='text.primary' sx={{ fontWeight: 700 }}>{article.title || 'Untitled article'}</Typography><Typography variant='body2' color='text.secondary'>questions.csv row {article.questionRowNumber} · ID {article.externalId}</Typography></Box> },
     { id: 'location', label: 'Category / location', render: article => <Typography variant='body2'>{article.categoryLocation || 'Uncategorized'}</Typography> },
     { id: 'visibility', label: 'Visibility', render: article => <StatusChip label={article.visibility} color={article.visibility === 'Internal' ? 'warning' : 'success'} /> },
-    { id: 'state', label: 'Import state', render: article => <StatusChip label={article.isArchived ? 'Archived' : article.isPublished ? 'Published' : 'Draft'} color={article.isArchived ? 'warning' : article.isPublished ? 'success' : 'secondary'} /> },
+    { id: 'state', label: 'Import state', render: article => <StatusChip label={article.isArchived ? 'Archived' : article.isPublished ? 'Published' : 'Draft'} color={article.isArchived ? 'secondary' : article.isPublished ? 'success' : 'secondary'} /> },
     { id: 'issues', label: 'Validation', render: article => <ArticleIssueStatus issues={article.issues} /> },
     { id: 'view', label: '', align: 'right', render: article => <Button size='small' variant='outlined' startIcon={<Eye size={16} />} onClick={() => setSelectedArticle(article)}>View article</Button> }
   ], [])

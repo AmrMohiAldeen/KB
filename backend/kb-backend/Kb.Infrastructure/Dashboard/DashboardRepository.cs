@@ -290,8 +290,11 @@ public sealed class DashboardRepository(KbDbContext dbContext) : IDashboardRepos
                 article.Status != ArticleStatuses.Published && article.Status != ArticleStatuses.Deleted &&
                 article.Status != ArticleStatuses.Archived),
             DashboardFilter.ToReview => source.Where(article =>
-                article.Status == ArticleStatuses.SubmittedForReview ||
-                article.Status == ArticleStatuses.InReview),
+                article.CurrentDraftIdFkNavigation == null
+                    ? article.Status == ArticleStatuses.SubmittedForReview ||
+                      article.Status == ArticleStatuses.InReview
+                    : article.CurrentDraftIdFkNavigation.Status == ArticleStatuses.SubmittedForReview ||
+                      article.CurrentDraftIdFkNavigation.Status == ArticleStatuses.InReview),
             _ => source
         };
 

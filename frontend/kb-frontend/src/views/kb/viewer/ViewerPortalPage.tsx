@@ -30,7 +30,7 @@ import {
 
 type ViewerPortalPageProps =
   | { solutionSlug: string; preview?: never }
-  | { solutionSlug?: never; preview: { categoryId: string; accessToken: string } }
+  | { solutionSlug?: never; preview: { categorySlug: string; accessToken: string } }
 
 const categoryIds = (category: ViewerCategoryNode): Set<string> => {
   const values = new Set<string>([category.categoryId])
@@ -45,8 +45,8 @@ export default function ViewerPortalPage({ solutionSlug, preview }: ViewerPortal
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<unknown>()
-  const rootId = preview?.categoryId ?? solutionSlug!
-  const articleBasePath = preview ? `/viewer/preview/${preview.categoryId}` : `/${solutionSlug}`
+  const rootSlug = preview?.categorySlug ?? solutionSlug!
+  const articleBasePath = `/${rootSlug}`
 
   useEffect(() => {
     const controller = new AbortController()
@@ -61,9 +61,9 @@ export default function ViewerPortalPage({ solutionSlug, preview }: ViewerPortal
     })
     const requests = preview
       ? [
-          getViewerPreviewPortal(preview.categoryId, preview.accessToken, controller.signal),
-          getViewerPreviewCategories(preview.categoryId, preview.accessToken, controller.signal),
-          getViewerPreviewArticles(preview.categoryId, preview.accessToken, controller.signal)
+          getViewerPreviewPortal(preview.categorySlug, preview.accessToken, controller.signal),
+          getViewerPreviewCategories(preview.categorySlug, preview.accessToken, controller.signal),
+          getViewerPreviewArticles(preview.categorySlug, preview.accessToken, controller.signal)
         ] as const
       : [
           getViewerPortal(solutionSlug, controller.signal),
@@ -81,14 +81,14 @@ export default function ViewerPortalPage({ solutionSlug, preview }: ViewerPortal
       if (!controller.signal.aborted) setLoading(false)
     })
     return () => controller.abort()
-  }, [preview, rootId, solutionSlug])
+  }, [preview, rootSlug, solutionSlug])
 
   useEffect(() => {
     const trimmed = query.trim()
     if (!portal || !trimmed) {
       if (portal && query === '') {
         const request = preview
-          ? getViewerPreviewArticles(preview.categoryId, preview.accessToken)
+          ? getViewerPreviewArticles(preview.categorySlug, preview.accessToken)
           : getViewerArticles(solutionSlug)
         request.then(setArticles).catch(setError)
       }
@@ -97,7 +97,7 @@ export default function ViewerPortalPage({ solutionSlug, preview }: ViewerPortal
     const controller = new AbortController()
     const timer = window.setTimeout(() => {
       const request = preview
-        ? searchViewerPreviewArticles(preview.categoryId, trimmed, preview.accessToken, controller.signal)
+        ? searchViewerPreviewArticles(preview.categorySlug, trimmed, preview.accessToken, controller.signal)
         : searchViewerArticles(solutionSlug, trimmed, controller.signal)
       request.then(setArticles).catch(value => {
         if (!(value instanceof DOMException && value.name === 'AbortError')) setError(value)

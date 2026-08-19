@@ -22,12 +22,24 @@ internal sealed class InternalSearchDocumentSource(
                 item.ArticleId, item.Title, item.Slug, item.Status, item.CategoryIdFk, item.AuthorIdFk,
                 OwnerName = item.AuthorIdFkNavigation.FullName, item.LegacyAuthorName, item.LegacyAuthorEmail,
                 item.LegacyAuthorExternalId, item.UpdatedAt,
-                PlainTextPath = item.CurrentDraftIdFkNavigation == null ? null : item.CurrentDraftIdFkNavigation.PlainTextStoragePath,
-                JsonPath = item.CurrentDraftIdFkNavigation == null ? null : item.CurrentDraftIdFkNavigation.ContentJsonStoragePath,
-                VersionPlainTextPath = item.ArticleVersions.OrderByDescending(version => version.VersionNumber)
-                    .Select(version => version.PlainTextStoragePath).FirstOrDefault(),
-                VersionJsonPath = item.ArticleVersions.OrderByDescending(version => version.VersionNumber)
-                    .Select(version => version.ContentJsonStoragePath).FirstOrDefault()
+                PlainTextPath = item.Status == ArticleStatuses.Published && item.LastPublishedVersionIdFkNavigation != null
+                    ? item.LastPublishedVersionIdFkNavigation.PlainTextStoragePath
+                    : item.CurrentDraftIdFkNavigation == null
+                        ? null
+                        : item.CurrentDraftIdFkNavigation.PlainTextStoragePath,
+                JsonPath = item.Status == ArticleStatuses.Published && item.LastPublishedVersionIdFkNavigation != null
+                    ? item.LastPublishedVersionIdFkNavigation.ContentJsonStoragePath
+                    : item.CurrentDraftIdFkNavigation == null
+                        ? null
+                        : item.CurrentDraftIdFkNavigation.ContentJsonStoragePath,
+                VersionPlainTextPath = item.LastPublishedVersionIdFkNavigation != null
+                    ? item.LastPublishedVersionIdFkNavigation.PlainTextStoragePath
+                    : item.ArticleVersions.OrderByDescending(version => version.VersionNumber)
+                        .Select(version => version.PlainTextStoragePath).FirstOrDefault(),
+                VersionJsonPath = item.LastPublishedVersionIdFkNavigation != null
+                    ? item.LastPublishedVersionIdFkNavigation.ContentJsonStoragePath
+                    : item.ArticleVersions.OrderByDescending(version => version.VersionNumber)
+                        .Select(version => version.ContentJsonStoragePath).FirstOrDefault()
             }).SingleOrDefaultAsync(cancellationToken);
         if (article is null) return null;
 

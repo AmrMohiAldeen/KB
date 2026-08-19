@@ -87,7 +87,8 @@ public sealed class ArticleLifecycleService
         var canEditPermission = granted.Contains(PermissionCodes.ArticlesEditAnyDraft) ||
                                 isOwner && granted.Contains(PermissionCodes.ArticlesEditOwnDraft);
         var active = draft.ArticleStatus != ArticleStatuses.Archived;
-        var workflowActive = active && draft.ArticleStatus == draft.DraftStatus;
+        var workflowActive = active && ArticleWorkflow.HasConsistentDraftState(
+            draft.ArticleStatus, draft.DraftStatus);
         var unlocked = !draft.IsLocked;
         var editable = draft.DraftStatus is ArticleStatuses.Draft or ArticleStatuses.ChangesRequested;
         var reviewable = IsReviewable(draft.DraftStatus);
@@ -101,10 +102,18 @@ public sealed class ArticleLifecycleService
                         draft.DraftStatus == ArticleStatuses.SubmittedForReview;
         var canRequestChanges = workflowActive && unlocked && hasReviewPermission && reviewable;
         var canApprove = canRequestChanges && (!isOwner || isAdmin);
+        var publishedVersion = draft.ArticleStatus == ArticleStatuses.Published
+            ? await repository.GetPublishedVersionAsync(articleId, cancellationToken)
+            : null;
+        var currentDraftAlreadyPublished = publishedVersion?.SourceDraftId == draft.DraftId &&
+                                           (draft.ContentHash is null ||
+                                            publishedVersion.ContentHash == draft.ContentHash);
         var canPublish = active && unlocked && hasPublishPermission &&
+                         !currentDraftAlreadyPublished &&
                          ArticleWorkflow.CanPublish(draft.ArticleStatus, draft.DraftStatus);
         var canViewVersions = granted.Contains(PermissionCodes.VersionsView);
         var canStartPublishedRevision = draft.ArticleStatus == ArticleStatuses.Published &&
+                                        currentDraftAlreadyPublished &&
                                         (isAdmin || canEditPermission);
         var canRestore = active && unlocked && IsReplaceableByRestore(draft) &&
                          (granted.Contains(PermissionCodes.VersionsRestore) || canStartPublishedRevision);
@@ -215,7 +224,12 @@ public sealed class ArticleLifecycleService
             ?? throw new NotFoundException("The target article version was not found.");
         var baseContent = await DownloadContentAsync(baseVersion.ContentJsonPath, cancellationToken);
         var targetContent = await DownloadContentAsync(targetVersion.ContentJsonPath, cancellationToken);
-        return TiptapVersionDiff.Compare(baseVersion, baseContent, targetVersion, targetContent);
+        var baseIsOlder = baseVersion.VersionNumber < targetVersion.VersionNumber ||
+                          baseVersion.VersionNumber == targetVersion.VersionNumber &&
+                          baseVersion.CreatedAt <= targetVersion.CreatedAt;
+        return baseIsOlder
+            ? TiptapVersionDiff.Compare(baseVersion, baseContent, targetVersion, targetContent)
+            : TiptapVersionDiff.Compare(targetVersion, targetContent, baseVersion, baseContent);
     }
 
     public Task<LifecycleResultData> SubmitAsync(
@@ -279,7 +293,7 @@ public sealed class ArticleLifecycleService
         var draft = await LoadAndValidateAsync(articleId, command.RowVersion, cancellationToken);
         await RequirePermissionOrAdminAsync(PermissionCodes.ArticlesPublish, cancellationToken);
         if (!ArticleWorkflow.CanPublish(draft.ArticleStatus, draft.DraftStatus))
-            throw InvalidTransition(draft.ArticleStatus, ArticleStatuses.Published);
+            throw InvalidTransition(draft.DraftStatus, ArticleStatuses.Published);
         EnsureUnlocked(draft);
         if (string.IsNullOrWhiteSpace(draft.ContentJsonPath))
             throw new ConflictException("An empty draft cannot be published.");
@@ -288,16 +302,52 @@ public sealed class ArticleLifecycleService
                                    articleId, draft.DraftId, draft.ContentHash, cancellationToken)
             ?? throw new ConflictException(
                 "The approved draft does not have a matching submitted version. Submit it for review before publishing.");
+        if (draft.ArticleStatus == ArticleStatuses.Published)
+        {
+            var published = await repository.GetPublishedVersionAsync(articleId, cancellationToken);
+            if (published?.SourceDraftId == draft.DraftId &&
+                (draft.ContentHash is null || published.ContentHash == draft.ContentHash))
+                throw new ConflictException("The current draft has already been published.");
+        }
         var actorId = currentUser.UserId;
         var now = timeProvider.GetUtcNow().UtcDateTime;
-        var result = await repository.PublishAsync(articleId, draft.DraftId, command.RowVersion,
-            submittedVersion.VersionId, draft.ContentHash,
-            Review(actorId, ReviewActions.Publish, command.Comment, draft.ArticleStatus,
-                ArticleStatuses.Published, now),
-            Audit(actorId, ArticleAuditActions.Published, articleId, draft.DraftId,
-                draft.ArticleStatus, ArticleStatuses.Published, command.Comment,
-                new { versionId = submittedVersion.VersionId }, false, now),
-            cancellationToken);
+        var uploaded = new List<string>(3);
+        VersionSnapshotContentData publishedSnapshot;
+        try
+        {
+            publishedSnapshot = await StageSnapshotAsync(
+                articleId, draft, ArticleSnapshotReasons.Published, uploaded, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            await DeleteBestEffortAsync(uploaded);
+            throw;
+        }
+        catch (Exception exception)
+        {
+            await DeleteBestEffortAsync(uploaded);
+            throw new ExternalServiceException(
+                "Draft content could not be copied into the published version.", exception);
+        }
+
+        LifecycleResultData result;
+        try
+        {
+            result = await repository.PublishAsync(articleId, draft.DraftId, command.RowVersion,
+                submittedVersion.VersionId, draft.ContentHash, publishedSnapshot,
+                SnapshotAudit(actorId, articleId, draft, publishedSnapshot, now),
+                Review(actorId, ReviewActions.Publish, command.Comment, draft.DraftStatus,
+                    ArticleStatuses.Published, now),
+                Audit(actorId, ArticleAuditActions.Published, articleId, draft.DraftId,
+                    draft.DraftStatus, ArticleStatuses.Published, command.Comment,
+                    new { versionId = publishedSnapshot.VersionId }, false, now),
+                cancellationToken);
+        }
+        catch
+        {
+            await DeleteBestEffortAsync(uploaded);
+            throw;
+        }
         if (notificationService is not null)
             await notificationService.NotifyWorkflowAsync(articleId, NotificationTypes.ArticlePublished,
                 actorId, command.Comment, command.AdditionalRecipientIds, cancellationToken);
@@ -399,9 +449,9 @@ public sealed class ArticleLifecycleService
             var now = timeProvider.GetUtcNow().UtcDateTime;
             var result = await repository.RestoreAsync(articleId, current.DraftId, command.RowVersion,
                 versionId, staged,
-                Review(actorId, ReviewActions.Restore, null, current.ArticleStatus, ArticleStatuses.Draft, now),
+                Review(actorId, ReviewActions.Restore, null, current.DraftStatus, ArticleStatuses.Draft, now),
                 Audit(actorId, ArticleAuditActions.Restored, articleId, newDraftId,
-                    current.ArticleStatus, ArticleStatuses.Draft, null,
+                    current.DraftStatus, ArticleStatuses.Draft, null,
                     new { sourceVersionId = versionId, sourceVersionNumber = version.VersionNumber }, false, now),
                 cancellationToken);
             if (notificationService is not null)
@@ -869,8 +919,8 @@ public sealed class ArticleLifecycleService
 
     private static bool IsReplaceableByRestore(LifecycleDraftData draft) =>
         ArticleWorkflow.HasConsistentDraftState(draft.ArticleStatus, draft.DraftStatus) &&
-        draft.ArticleStatus is
-            ArticleStatuses.Published or ArticleStatuses.Draft or ArticleStatuses.ChangesRequested;
+        (draft.DraftStatus is ArticleStatuses.Draft or ArticleStatuses.ChangesRequested ||
+         draft.ArticleStatus == ArticleStatuses.Published && draft.DraftStatus == ArticleStatuses.Approved);
 
     private static bool IsReviewable(string status) =>
         status is ArticleStatuses.SubmittedForReview or ArticleStatuses.InReview;

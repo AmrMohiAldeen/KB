@@ -115,30 +115,30 @@ public sealed class ViewerRepository(KbDbContext db, TimeProvider timeProvider) 
         return await GetArticleForRootAsync(RequiredRootPath(solution), slug, articleId, solution.SolutionId, token);
     }
 
-    public async Task<ViewerPortalData> GetPreviewPortalAsync(Guid rootCategoryId, CancellationToken token)
+    public async Task<ViewerPortalData> GetPreviewPortalAsync(string rootCategorySlug, CancellationToken token)
     {
-        var root = await ResolvePreviewRootAsync(rootCategoryId, token);
+        var root = await ResolvePreviewRootAsync(rootCategorySlug, token);
         return new(root.CategoryId, root.Slug, root.Name, root.Description);
     }
 
-    public async Task<IReadOnlyList<ViewerCategoryData>> GetPreviewCategoriesAsync(Guid rootCategoryId,
+    public async Task<IReadOnlyList<ViewerCategoryData>> GetPreviewCategoriesAsync(string rootCategorySlug,
         CancellationToken token)
     {
-        var root = await ResolvePreviewRootAsync(rootCategoryId, token);
+        var root = await ResolvePreviewRootAsync(rootCategorySlug, token);
         return await GetCategoriesForRootAsync(root.Path!, token);
     }
 
-    public async Task<IReadOnlyList<ViewerArticleSummary>> GetPreviewArticlesAsync(Guid rootCategoryId,
+    public async Task<IReadOnlyList<ViewerArticleSummary>> GetPreviewArticlesAsync(string rootCategorySlug,
         string? search, Guid? categoryId, CancellationToken token)
     {
-        var root = await ResolvePreviewRootAsync(rootCategoryId, token);
+        var root = await ResolvePreviewRootAsync(rootCategorySlug, token);
         return await GetArticlesForRootAsync(root.Path!, search, categoryId, token);
     }
 
-    public async Task<ViewerArticleSource?> GetPreviewArticleAsync(Guid rootCategoryId, string slug,
+    public async Task<ViewerArticleSource?> GetPreviewArticleAsync(string rootCategorySlug, string slug,
         Guid? articleId, CancellationToken token)
     {
-        var root = await ResolvePreviewRootAsync(rootCategoryId, token);
+        var root = await ResolvePreviewRootAsync(rootCategorySlug, token);
         return await GetArticleForRootAsync(root.Path!, slug, articleId, null, token);
     }
 
@@ -180,12 +180,12 @@ public sealed class ViewerRepository(KbDbContext db, TimeProvider timeProvider) 
         return solution;
     }
 
-    private async Task<Category> ResolvePreviewRootAsync(Guid rootCategoryId, CancellationToken token)
+    private async Task<Category> ResolvePreviewRootAsync(string rootCategorySlug, CancellationToken token)
     {
         var root = await db.Categories.AsNoTracking().SingleOrDefaultAsync(category =>
-            category.CategoryId == rootCategoryId && category.Path != null, token)
+            category.Slug == rootCategorySlug && category.Path != null, token)
             ?? throw new NotFoundException("The preview category was not found.");
-        if (!await VisibleCategories(root.Path!).AnyAsync(category => category.CategoryId == rootCategoryId, token))
+        if (!await VisibleCategories(root.Path!).AnyAsync(category => category.CategoryId == root.CategoryId, token))
             throw new NotFoundException("The preview category is not Viewer-visible.");
         return root;
     }

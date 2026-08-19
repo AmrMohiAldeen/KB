@@ -21,13 +21,15 @@ export type KbKnownStatus =
   | 'Queued'
   | 'Failed'
   | 'Completed'
+  | 'Public'
+  | 'Internal'
   | string
 
 const statusColor: Record<string, ChipProps['color']> = {
   Draft: 'secondary',
   Submitted: 'info',
-  'In Review': 'warning',
-  'To Review': 'warning',
+  'In Review': 'info',
+  'To Review': 'info',
   'Changes Requested': 'warning',
   Approved: 'success',
   Published: 'success',
@@ -41,7 +43,15 @@ const statusColor: Record<string, ChipProps['color']> = {
   inactive: 'secondary',
   Queued: 'info',
   Failed: 'error',
-  Completed: 'success'
+  Completed: 'success',
+  Public: 'success',
+  public: 'success',
+  Internal: 'warning',
+  internal: 'warning',
+  Review: 'info',
+  review: 'info',
+  Error: 'error',
+  error: 'error'
 }
 
 type KbStatusChipProps = {
@@ -56,7 +66,7 @@ export const KbStatusChip = ({ label, color, size = 'small' }: KbStatusChipProps
     label={label}
     color={color ?? statusColor[String(label)] ?? 'default'}
     variant='tonal'
-    sx={{ fontWeight: 600, textTransform: 'capitalize' }}
+    sx={{ fontWeight: 600, letterSpacing: 0.1, textTransform: 'capitalize' }}
   />
 )
 

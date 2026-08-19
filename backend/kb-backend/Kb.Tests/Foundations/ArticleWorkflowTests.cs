@@ -16,7 +16,7 @@ public sealed class ArticleWorkflowTests
 
     [Theory]
     [InlineData(ArticleStatuses.Approved, ArticleStatuses.Approved, true)]
-    [InlineData(ArticleStatuses.Published, ArticleStatuses.Approved, false)]
+    [InlineData(ArticleStatuses.Published, ArticleStatuses.Approved, true)]
     [InlineData(ArticleStatuses.Approved, ArticleStatuses.Draft, false)]
     public void Publishing_requires_approved_article_and_draft_states(
         string articleStatus,

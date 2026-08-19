@@ -157,6 +157,8 @@ declare module '@mui/material/styles' {
       tableHeaderBg: string
       tooltipText: string
       trackBg: string
+      surfaceSubtle: string
+      selectedBg: string
     }
   }
 
@@ -169,6 +171,8 @@ declare module '@mui/material/styles' {
       tableHeaderBg?: string
       tooltipText?: string
       trackBg?: string
+      surfaceSubtle?: string
+      selectedBg?: string
     }
   }
 

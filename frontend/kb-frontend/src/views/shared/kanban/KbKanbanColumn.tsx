@@ -51,7 +51,7 @@ export const KbKanbanColumn = ({ title, count, icon, tone, children }: KbKanbanC
           minBlockSize: 520,
           flexDirection: 'column',
           border: `1px solid ${theme.palette.divider}`,
-          borderRadius: 2,
+          borderRadius: 'var(--mui-shape-customBorderRadius-lg)',
           bgcolor: alpha(palette.main, 0.045),
           overflow: 'hidden'
         }

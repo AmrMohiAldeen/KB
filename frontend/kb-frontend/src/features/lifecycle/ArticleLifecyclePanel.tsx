@@ -7,6 +7,7 @@ import AlertTitle from '@mui/material/AlertTitle'
 import Avatar from '@mui/material/Avatar'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
+import Chip from '@mui/material/Chip'
 import CircularProgress from '@mui/material/CircularProgress'
 import Divider from '@mui/material/Divider'
 import IconButton from '@mui/material/IconButton'
@@ -127,13 +128,17 @@ export default function ArticleLifecyclePanel({
   const busy = lifecycle.pendingAction !== null || secondaryBusy
   const visibleActions = useMemo(
     () => lifecycle.article && lifecycle.permissions
-      ? getVisibleLifecycleActions(lifecycle.article.status, lifecycle.permissions)
+      ? getVisibleLifecycleActions(
+          lifecycle.article.currentDraft?.status ?? lifecycle.article.status,
+          lifecycle.permissions
+        )
       : [],
     [lifecycle.article, lifecycle.permissions]
   )
   const directActions = visibleActions.filter(action => action !== 'override')
+  const workflowStatus = lifecycle.article?.currentDraft?.status ?? lifecycle.article?.status
   const overrideTargets = visibleActions.includes('override')
-    ? (lifecycle.permissions?.workflowOverrideTargets ?? []).filter(target => target !== lifecycle.article?.status)
+    ? (lifecycle.permissions?.workflowOverrideTargets ?? []).filter(target => target !== workflowStatus)
     : []
 
   const displayedOverrideTargets = overrideTargets.filter((target, index, targets) => {
@@ -237,14 +242,14 @@ export default function ArticleLifecyclePanel({
   const formattedSavedAt = savedAt
     ? new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(savedAt))
     : null
-  const statusColor = status === 'Published' || status === 'Approved'
+  const statusColor = workflowStatus === 'Published' || workflowStatus === 'Approved'
     ? 'success'
-    : status === 'SubmittedForReview'
+    : workflowStatus === 'SubmittedForReview'
       ? 'info'
-      : status === 'InReview' || status === 'ChangesRequested'
+      : workflowStatus === 'InReview' || workflowStatus === 'ChangesRequested'
         ? 'warning'
         : 'secondary'
-  const activeChangeRequest = getActiveChangeRequest(status, lifecycle.reviewHistory)
+  const activeChangeRequest = getActiveChangeRequest(workflowStatus, lifecycle.reviewHistory)
   const publishedVersionId = article?.currentPublishedVersion?.versionId
   const changeRequestedAt = activeChangeRequest
     ? new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' })
@@ -264,20 +269,29 @@ export default function ArticleLifecyclePanel({
         </Avatar>
       </Tooltip>
 
+      {status === 'Published' && workflowStatus !== 'Published' && (
+        <Chip size='small' color='success' variant='tonal' label='Published version live' />
+      )}
+
       <Button
         variant='tonal'
         color={status ? statusColor : 'inherit'}
         endIcon={lifecycle.loading ? <CircularProgress size={14} /> : <ChevronDown size={15} />}
-        disabled={!status || busy || actionsDisabled}
+        disabled={!workflowStatus || busy || actionsDisabled}
         onClick={event => setStatusAnchor(event.currentTarget)}
         sx={{ minInlineSize: 150, justifyContent: 'space-between', textTransform: 'none', fontWeight: 700 }}
       >
-        {status ? articleStatusLabel[status] : 'Loading status'}
+        {workflowStatus
+          ? `${status === 'Published' ? 'Draft: ' : ''}${articleStatusLabel[workflowStatus]}`
+          : 'Loading status'}
       </Button>
       <Menu anchorEl={statusAnchor} open={Boolean(statusAnchor)} onClose={() => setStatusAnchor(null)}>
         <MenuItem selected disabled sx={{ opacity: '1 !important', fontWeight: 700 }}>
           <ListItemIcon><Check size={17} /></ListItemIcon>
-          <ListItemText primary={status ? articleStatusLabel[status] : ''} secondary='Current status' />
+          <ListItemText
+            primary={workflowStatus ? articleStatusLabel[workflowStatus] : ''}
+            secondary={status === 'Published' ? 'Current draft status' : 'Current status'}
+          />
         </MenuItem>
         <Divider />
         {directActions.map(action => {
@@ -326,7 +340,8 @@ export default function ArticleLifecyclePanel({
         )}
       </Menu>
 
-      {status === 'Published' && lifecycle.permissions?.canRestoreVersion && publishedVersionId && (
+      {status === 'Published' && workflowStatus === 'Approved' &&
+        !lifecycle.permissions?.canPublish && lifecycle.permissions?.canRestoreVersion && publishedVersionId && (
         <Button
           variant='contained'
           startIcon={lifecycle.pendingAction === 'restore'

@@ -16,7 +16,7 @@ import { formatDate } from '../shared/utils/formatDate'
 
 type ViewerArticlePageProps =
   | { solutionSlug: string; articleSlug: string; preview?: never }
-  | { solutionSlug?: never; articleSlug: string; preview: { categoryId: string; accessToken: string } }
+  | { solutionSlug?: never; articleSlug: string; preview: { categorySlug: string; accessToken: string } }
 
 export default function ViewerArticlePage({ solutionSlug, articleSlug, preview }: ViewerArticlePageProps) {
   const [article, setArticle] = useState<ViewerArticle | null>(null)
@@ -25,7 +25,7 @@ export default function ViewerArticlePage({ solutionSlug, articleSlug, preview }
   useEffect(() => {
     const controller = new AbortController()
     const request = preview
-      ? getViewerPreviewArticle(preview.categoryId, articleSlug, preview.accessToken, controller.signal)
+      ? getViewerPreviewArticle(preview.categorySlug, articleSlug, preview.accessToken, controller.signal)
       : getViewerArticle(solutionSlug, articleSlug, controller.signal)
     request.then(setArticle).catch(value => {
       if (!(value instanceof DOMException && value.name === 'AbortError')) setError(value)
@@ -38,7 +38,7 @@ export default function ViewerArticlePage({ solutionSlug, articleSlug, preview }
 
   return <Stack spacing={5} sx={{ maxInlineSize: 1040, mx: 'auto' }}>
     {preview && <Alert severity='info'>Preview mode — Viewing as end user</Alert>}
-    <Breadcrumbs><Link href={preview ? `/viewer/preview/${preview.categoryId}` : `/${solutionSlug}`}>Knowledge Base</Link><Typography color='text.secondary'>{article.categoryName}</Typography></Breadcrumbs>
+    <Breadcrumbs><Link href={`/${preview?.categorySlug ?? solutionSlug}`}>Knowledge Base</Link><Typography color='text.secondary'>{article.categoryName}</Typography></Breadcrumbs>
     <Box><Typography variant='h3'>{article.title}</Typography><Typography color='text.secondary'>Updated {formatDate(article.updatedAt)}</Typography></Box>
     <Divider /><KnowledgeBaseViewer content={article.content} />
   </Stack>

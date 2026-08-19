@@ -120,7 +120,7 @@ export const KbDataTable = <T,>({
   return (
     <KbSectionCard contentSx={{ p: 0, '&:last-child': { pb: 0 } }}>
       {toolbar}
-      <TableContainer sx={{ overflowX: 'auto' }}>
+      <TableContainer sx={{ overflowX: 'auto', bgcolor: 'background.paper' }}>
         <Table size='small' aria-label={ariaLabel} sx={{ minInlineSize: 760 }}>
           <TableHead>
             <TableRow
@@ -133,7 +133,7 @@ export const KbDataTable = <T,>({
                   fontWeight: 700,
                   letterSpacing: 0.3,
                   textTransform: 'uppercase',
-                  blockSize: 48,
+                  blockSize: 50,
                   whiteSpace: 'nowrap'
                 }
               })}
@@ -190,7 +190,8 @@ export const KbDataTable = <T,>({
                     sx={theme => ({
                       '& td': {
                         borderBlockEnd: `1px solid ${theme.palette.divider}`,
-                        blockSize: 58,
+                        blockSize: 60,
+                        color: theme.palette.text.secondary,
                         verticalAlign: 'middle'
                       },
                       '&:last-child td': {

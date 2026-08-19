@@ -13,17 +13,27 @@ public static partial class HelpJuiceHtmlConverter
     {
         "p", "br", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "b", "em", "i", "u", "a",
         "ul", "ol", "li", "blockquote", "pre", "code", "table", "thead", "tbody", "tfoot", "colgroup", "col", "tr", "th", "td",
-        "img", "figure", "figcaption", "div", "span", "article", "section", "details", "summary", "hr", "iframe", "video", "source",
+        "img", "figure", "figcaption", "div", "span", "article", "section", "details", "summary", "hr", "iframe", "video", "audio", "source", "object", "embed",
         "button", "input",
         "s", "strike", "del", "sup", "sub", "font", "o:p", "o:lock", "v:stroke", "v:path", "v:f",
         "v:formulas", "v:imagedata", "v:shape", "v:shapetype", "w:wrap"
     };
     private static readonly HashSet<string> DropWithContent = new(StringComparer.OrdinalIgnoreCase)
-        { "script", "style", "object", "embed", "form", "noscript", "template", "svg", "math" };
+        { "script", "style", "form", "noscript", "template", "svg", "math" };
     private static readonly HashSet<string> VoidTags = new(StringComparer.OrdinalIgnoreCase)
-        { "br", "img", "hr", "source", "meta", "link", "input", "col", "o:lock", "v:stroke", "v:path", "v:f", "v:imagedata", "w:wrap" };
+        { "br", "img", "hr", "source", "embed", "meta", "link", "input", "col", "o:lock", "v:stroke", "v:path", "v:f", "v:imagedata", "w:wrap" };
     private static readonly HashSet<string> IgnoredMetadata = new(StringComparer.OrdinalIgnoreCase)
         { "meta", "link" };
+    private static readonly HashSet<string> RecognizedClasses = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "helpjuice-callout", "callout", "helpjuice-callout-body", "warning", "success", "danger", "error", "tip",
+        "callout-warning", "callout-success", "callout-danger", "callout-error", "callout-tip",
+        "helpjuice-accordion", "f-accordion-panel", "helpjuice-accordion-title", "helpjuice-accordion-body",
+        "panel-title", "panel-content", "helpjuice-tab", "f-tab-panel", "f-tabs-panel", "helpjuice-tab-title",
+        "f-tab-title", "helpjuice-tab-body", "f-tab-content", "helpjuice-callout-delete", "helpjuice-accordion-delete",
+        "helpjuice-accordion-toggle", "helpjuice-tab-delete", "helpjuice-tab-toggle", "MsoNormal", "MsoTableGrid",
+        "MsoListParagraph", "WordSection1", "image", "image_resized", "ck-table-resized", "video-wrapper", "video-player"
+    };
 
     public static HelpJuiceHtmlConversion Convert(string? sourceHtml,
         Func<string, (Guid MediaId, string Url)?>? resolveMedia = null,
@@ -48,7 +58,11 @@ public static partial class HelpJuiceHtmlConverter
                 continue;
             }
             var parsed = ParseTag(token.Value);
-            if (parsed is null) continue;
+            if (parsed is null)
+            {
+                Warn("MALFORMED_HTML_TOKEN_REMOVED", $"Malformed HTML token '{Limit(token.Value)}' was removed (action=removed; preserved=false).");
+                continue;
+            }
             var (name, closing, attrs, selfClosing) = parsed.Value;
             if (ignoredControlDepth > 0)
             {
@@ -63,7 +77,7 @@ public static partial class HelpJuiceHtmlConverter
             }
             if (DropWithContent.Contains(name))
             {
-                if (!closing) { droppedDepth++; Warn("UNSAFE_ELEMENT_REMOVED", $"The unsafe <{name}> element was removed."); }
+                if (!closing) { droppedDepth++; Warn("UNSAFE_ELEMENT_REMOVED", $"The unsafe <{name}> element was removed with its content (element={name}; action=unsafe; preserved=false)."); }
                 else if (droppedDepth > 0) droppedDepth--;
                 continue;
             }
@@ -72,7 +86,8 @@ public static partial class HelpJuiceHtmlConverter
             {
                 if (!Supported.Contains(name)) continue;
                 CloseMarks(name, marks);
-                if (name is "strong" or "b" or "em" or "i" or "u" or "a" or "code" or "s" or "strike" or "del" or "sup" or "sub" or "font")
+                if (name is "strong" or "b" or "em" or "i" or "u" or "a" or "code" or "s" or "strike" or "del" or "sup" or "sub" or "font" or
+                    "iframe" or "video" or "audio" or "source" or "object" or "embed")
                 {
                     continue;
                 }
@@ -86,16 +101,18 @@ public static partial class HelpJuiceHtmlConverter
             if (IgnoredMetadata.Contains(name)) continue;
             if (!Supported.Contains(name))
             {
-                Warn("UNSUPPORTED_ELEMENT", $"Unsupported <{name}> markup was flattened while preserving readable text.");
+                Warn("UNSUPPORTED_ELEMENT", $"Unsupported <{name}> markup was flattened while preserving readable text (element={name}; action=normalized; preserved=false).");
                 continue;
             }
+            AuditSourceFormatting(name, attrs, Warn);
             if (name == "font")
             {
+                foreach (var styleMark in TextStyleMarks(attrs, Warn)) marks.Push(new(name, styleMark));
                 marks.Push(new(name, LegacyFontMark(attrs, Warn)));
                 continue;
             }
-            if (!selfClosing && !VoidTags.Contains(name) && TextStyleMark(attrs, Warn) is { } styleMark)
-                marks.Push(new(name, styleMark));
+            if (!selfClosing && !VoidTags.Contains(name))
+                foreach (var styleMark in TextStyleMarks(attrs, Warn)) marks.Push(new(name, styleMark));
             if (name is "strong" or "b") { marks.Push(new(name, new("bold"))); continue; }
             if (name is "em" or "i") { marks.Push(new(name, new("italic"))); continue; }
             if (name == "u") { marks.Push(new(name, new("underline"))); continue; }
@@ -115,7 +132,7 @@ public static partial class HelpJuiceHtmlConverter
                 {
                     marks.Push(new(name, new("invalidLink")));
                     if (!string.IsNullOrWhiteSpace(href))
-                        Warn("DANGEROUS_URL_REMOVED", "A link with an unsafe URL was converted to text.");
+                        Warn("DANGEROUS_URL_REMOVED", $"Link URL '{Limit(href)}' was unsafe and converted to text (element=a; attribute=href; action=unsafe; preserved=false).");
                 }
                 continue;
             }
@@ -139,7 +156,7 @@ public static partial class HelpJuiceHtmlConverter
                 if (mapped is null && src.StartsWith("blob:", StringComparison.OrdinalIgnoreCase))
                 { AddImagePlaceholder(stack.Peek(), attrs, "Temporary image unavailable after migration."); Warn("UNRESOLVED_TEMPORARY_MEDIA", "A temporary browser image URL cannot be recovered and was replaced with a text placeholder."); continue; }
                 if (mapped is null && !TrySafeUrl(src, allowRelative: true, out _))
-                { Warn("DANGEROUS_URL_REMOVED", "An image with an unsafe URL was omitted."); continue; }
+                { Warn("DANGEROUS_URL_REMOVED", $"Image URL '{Limit(src)}' was unsafe and omitted (element=img; attribute=src; action=unsafe; preserved=false)."); continue; }
                 var image = new Node("image") { Attributes = new()
                 {
                     ["src"] = mapped?.Url ?? src,
@@ -151,16 +168,25 @@ public static partial class HelpJuiceHtmlConverter
                 if (mapped is null) Warn("UNRESOLVED_MEDIA", $"Media source '{Limit(src)}' was retained for review.");
                 continue;
             }
-            if (name is "iframe" or "video" or "source")
+            if (name is "iframe" or "video" or "audio" or "source" or "object" or "embed")
             {
                 var src = attrs.GetValueOrDefault("src") ?? attrs.GetValueOrDefault("data-src") ??
                     attrs.GetValueOrDefault("data-lazy-src") ?? attrs.GetValueOrDefault("data-original") ??
-                    attrs.GetValueOrDefault("data-url") ?? attrs.GetValueOrDefault("href");
+                    attrs.GetValueOrDefault("data-url") ?? attrs.GetValueOrDefault("href") ?? attrs.GetValueOrDefault("data");
                 if (src?.StartsWith("//", StringComparison.Ordinal) == true) src = "https:" + src;
                 if (name is "video" or "source" && !string.IsNullOrWhiteSpace(src)) mediaSources.Add(src);
                 if (name is "video" or "source" && !string.IsNullOrWhiteSpace(src) && resolveMedia?.Invoke(src) is { } videoMedia)
                 {
                     stack.Peek().Children.Add(new("video") { Attributes = new() { ["src"] = videoMedia.Url, ["mediaId"] = videoMedia.MediaId.ToString(), ["title"] = attrs.GetValueOrDefault("title") } });
+                }
+                else if (name == "audio" && !string.IsNullOrWhiteSpace(src) && resolveMedia?.Invoke(src) is { } audioMedia)
+                {
+                    stack.Peek().Children.Add(new("attachment") { Attributes = new()
+                    {
+                        ["src"] = audioMedia.Url, ["mediaId"] = audioMedia.MediaId.ToString(),
+                        ["fileName"] = Path.GetFileName(Uri.TryCreate(src, UriKind.Absolute, out var audioUri) ? audioUri.LocalPath : src),
+                        ["mimeType"] = "audio/*"
+                    }});
                 }
                 else if (TryYoutubeUrl(src, out var youtube))
                 {
@@ -171,9 +197,11 @@ public static partial class HelpJuiceHtmlConverter
                     var paragraph = new Node("paragraph");
                     paragraph.Children.Add(new("text") { Text = safe, Marks = [new("link", new() { ["href"] = safe })] });
                     stack.Peek().Children.Add(paragraph);
-                    Warn("EMBED_CONVERTED_TO_LINK", "A supported video/embed URL was converted to a safe link.");
+                    if (name == "audio")
+                        Warn("UNSUPPORTED_MEDIA_TYPE", $"Audio source '{Limit(safe)}' cannot be represented by the current Media Hub/editor schema (element=audio; action=normalized-to-link; preserved=false).");
+                    Warn("EMBED_CONVERTED_TO_LINK", $"The <{name}> URL '{Limit(safe)}' has no lossless editor node and was converted to a safe link (action=normalized; preserved=false).");
                 }
-                else Warn("UNSAFE_EMBED_REMOVED", "An unsafe or unsupported embed was removed.");
+                else Warn("UNSAFE_EMBED_REMOVED", $"The <{name}> source '{Limit(src ?? string.Empty)}' was unsafe or unsupported (element={name}; action=unsafe; preserved=false).");
                 continue;
             }
 
@@ -255,21 +283,26 @@ public static partial class HelpJuiceHtmlConverter
         var face = attrs.GetValueOrDefault("face")?.Trim();
         if (!string.IsNullOrWhiteSpace(face) && face.Length <= 160 && face.All(ch => !char.IsControl(ch) && ch is not ';' and not '<' and not '>'))
             values["fontFamily"] = face;
+        else if (!string.IsNullOrWhiteSpace(face))
+            warning("UNSUPPORTED_STYLE_REMOVED", $"Legacy font face '{Limit(face)}' was removed (element=font; attribute=face; action=removed; preserved=false).");
         var color = ParseStyle(attrs.GetValueOrDefault("style")).GetValueOrDefault("color") ??
                     FirstAttribute(attrs, "color", "data-color", "data-text-color", "data-font-color");
         if (!string.IsNullOrWhiteSpace(color))
         {
             if (TryNormalizeCssColor(color, out var safeColor)) values["color"] = safeColor;
-            else warning("UNSUPPORTED_TEXT_COLOR", $"Unsupported Helpjuice text color '{Limit(color)}' was omitted.");
+            else warning("UNSUPPORTED_TEXT_COLOR", $"Unsupported Helpjuice text color '{Limit(color)}' was omitted (style=color; original={Limit(color)}; action=removed; preserved=false).");
         }
         if (int.TryParse(attrs.GetValueOrDefault("size"), out var size) && size is >= 1 and <= 7)
             values["fontSize"] = new[] { "10px", "13px", "16px", "18px", "24px", "32px", "48px" }[size - 1];
+        else if (!string.IsNullOrWhiteSpace(attrs.GetValueOrDefault("size")))
+            warning("UNSUPPORTED_STYLE_REMOVED", $"Legacy font size '{Limit(attrs["size"])}' was removed (element=font; attribute=size; action=removed; preserved=false).");
         return values.Count == 0 ? new("passthrough") : new("textStyle", values);
     }
 
-    private static Mark? TextStyleMark(IReadOnlyDictionary<string, string> attrs,
+    private static IReadOnlyList<Mark> TextStyleMarks(IReadOnlyDictionary<string, string> attrs,
         Action<string, string> warning)
     {
+        var result = new List<Mark>();
         var values = new Dictionary<string, object?>();
         var styles = ParseStyle(attrs.GetValueOrDefault("style"));
         var color = styles.GetValueOrDefault("color") ??
@@ -277,9 +310,60 @@ public static partial class HelpJuiceHtmlConverter
         if (!string.IsNullOrWhiteSpace(color))
         {
             if (TryNormalizeCssColor(color, out var safeColor)) values["color"] = safeColor;
-            else warning("UNSUPPORTED_TEXT_COLOR", $"Unsupported Helpjuice text color '{Limit(color)}' was omitted.");
+            else warning("UNSUPPORTED_TEXT_COLOR", $"Unsupported Helpjuice text color '{Limit(color)}' was omitted (style=color; original={Limit(color)}; action=removed; preserved=false).");
         }
-        return values.Count == 0 ? null : new("textStyle", values);
+        var family = styles.GetValueOrDefault("font-family")?.Trim();
+        if (!string.IsNullOrWhiteSpace(family) && family.Length <= 160 && family.All(ch => !char.IsControl(ch) && ch is not ';' and not '<' and not '>'))
+            values["fontFamily"] = family;
+        else if (!string.IsNullOrWhiteSpace(family))
+            warning("UNSUPPORTED_STYLE_REMOVED", $"Style font-family='{Limit(family)}' was removed (action=removed; preserved=false).");
+        var fontSize = styles.GetValueOrDefault("font-size")?.Trim();
+        if (!string.IsNullOrWhiteSpace(fontSize))
+        {
+            if (TryCssLength(fontSize, out var size, out var sizeUnit) && sizeUnit is "px" or "pt" or "em" or "rem" or "%" && size is >= 1 and <= 500)
+                values["fontSize"] = NormalizeCssLength(size, sizeUnit, convertAbsolute: false);
+            else warning("UNSUPPORTED_STYLE_REMOVED", $"Style font-size='{Limit(fontSize)}' on the source element was removed (action=removed; preserved=false).");
+        }
+        var lineHeight = styles.GetValueOrDefault("line-height")?.Trim();
+        if (!string.IsNullOrWhiteSpace(lineHeight))
+        {
+            if (TryCssLength(lineHeight, out var height, out var heightUnit) && heightUnit is "px" or "pt" or "em" or "rem" or "%" && height is > 0 and <= 500)
+                values["lineHeight"] = NormalizeCssLength(height, heightUnit, convertAbsolute: false);
+            else if (double.TryParse(lineHeight, System.Globalization.NumberStyles.AllowDecimalPoint,
+                         System.Globalization.CultureInfo.InvariantCulture, out var unitless) && unitless is > 0 and <= 10)
+                values["lineHeight"] = unitless.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+            else warning("UNSUPPORTED_STYLE_REMOVED", $"Style line-height='{Limit(lineHeight)}' on the source element was removed (action=removed; preserved=false).");
+        }
+        if (values.Count > 0) result.Add(new("textStyle", values));
+        var background = styles.GetValueOrDefault("background-color")?.Trim();
+        if (!string.IsNullOrWhiteSpace(background))
+        {
+            if (TryNormalizeCssColor(background, out var safeBackground)) result.Add(new("highlight", new() { ["color"] = safeBackground }));
+            else warning("UNSUPPORTED_BACKGROUND_COLOR", $"Background color '{Limit(background)}' was removed (action=removed; preserved=false).");
+        }
+        if (styles.GetValueOrDefault("font-weight") is { } weight)
+        {
+            if (weight.Equals("bold", StringComparison.OrdinalIgnoreCase) || int.TryParse(weight, out var numericWeight) && numericWeight >= 600)
+                result.Add(new("bold"));
+            else if (!weight.Equals("normal", StringComparison.OrdinalIgnoreCase) && weight != "400")
+                warning("UNSUPPORTED_STYLE_REMOVED", $"Style font-weight='{Limit(weight)}' was removed (action=removed; preserved=false).");
+        }
+        if (styles.GetValueOrDefault("font-style") is { } fontStyle)
+        {
+            if (fontStyle.Equals("italic", StringComparison.OrdinalIgnoreCase)) result.Add(new("italic"));
+            else if (!fontStyle.Equals("normal", StringComparison.OrdinalIgnoreCase))
+                warning("UNSUPPORTED_STYLE_REMOVED", $"Style font-style='{Limit(fontStyle)}' was removed (action=removed; preserved=false).");
+        }
+        if (styles.GetValueOrDefault("text-decoration") is { } decoration)
+        {
+            if (decoration.Contains("underline", StringComparison.OrdinalIgnoreCase)) result.Add(new("underline"));
+            if (decoration.Contains("line-through", StringComparison.OrdinalIgnoreCase)) result.Add(new("strike"));
+            if (!decoration.Equals("none", StringComparison.OrdinalIgnoreCase) &&
+                !decoration.Contains("underline", StringComparison.OrdinalIgnoreCase) &&
+                !decoration.Contains("line-through", StringComparison.OrdinalIgnoreCase))
+                warning("UNSUPPORTED_STYLE_REMOVED", $"Style text-decoration='{Limit(decoration)}' was removed (action=removed; preserved=false).");
+        }
+        return result;
     }
 
     private static Dictionary<string, object?> TableAttrs(Dictionary<string, string> attrs,
@@ -291,11 +375,15 @@ public static partial class HelpJuiceHtmlConverter
         if (string.IsNullOrWhiteSpace(rawWidth)) return result;
         if (TryCssLength(rawWidth, out var value, out var unit))
         {
-            if (unit == "%" && value is >= 10 and <= 100) result["tableWidthPct"] = value;
-            else if (unit == "px" && value is >= 25 and <= 4000) result["tableWidthPx"] = (int)Math.Round(value);
-            else warning("UNSUPPORTED_TABLE_WIDTH", $"Table width '{Limit(rawWidth)}' is outside supported migration limits.");
+            if (unit == "%" && value is >= 1 and <= 100) result["tableWidthPct"] = value;
+            else if (ToPixels(value, unit) is >= 25 and <= 4000 and var pixels)
+            {
+                result["tableWidthPx"] = (int)Math.Round(pixels);
+                if (unit != "px") warning("TABLE_WIDTH_NORMALIZED", $"Table width '{Limit(rawWidth)}' was normalized to {(int)Math.Round(pixels)}px (action=normalized; preserved=true).");
+            }
+            else warning("UNSUPPORTED_TABLE_WIDTH", $"Table width '{Limit(rawWidth)}' is outside supported migration limits (element=table; style=width; action=removed; preserved=false).");
         }
-        else warning("UNSUPPORTED_TABLE_WIDTH", $"Unsupported table width '{Limit(rawWidth)}' was omitted.");
+        else warning("UNSUPPORTED_TABLE_WIDTH", $"Unsupported table width '{Limit(rawWidth)}' was omitted (element=table; style=width; action=removed; preserved=false).");
         return result;
     }
 
@@ -311,16 +399,40 @@ public static partial class HelpJuiceHtmlConverter
                        attrs.GetValueOrDefault("width");
         if (!string.IsNullOrWhiteSpace(rawWidth))
         {
-            if (TryCssLength(rawWidth, out _, out _)) result["_sourceWidth"] = rawWidth.Trim();
+            if (TryCssLength(rawWidth, out var amount, out var unit))
+            {
+                result["_sourceWidth"] = rawWidth.Trim();
+                result["cellWidth"] = NormalizeCssLength(amount, unit, convertAbsolute: unit != "%");
+            }
             else warning("UNSUPPORTED_TABLE_COLUMN_WIDTH",
-                $"Unsupported table cell width '{Limit(rawWidth)}' was omitted.");
+                $"Unsupported table cell width '{Limit(rawWidth)}' was omitted (element=table-cell; style=width; action=removed; preserved=false).");
         }
+        var styles = ParseStyle(attrs.GetValueOrDefault("style"));
+        var background = styles.GetValueOrDefault("background-color") ?? attrs.GetValueOrDefault("bgcolor");
+        if (!string.IsNullOrWhiteSpace(background))
+        {
+            if (TryNormalizeCssColor(background, out var normalized)) result["backgroundColor"] = normalized;
+            else warning("UNSUPPORTED_BACKGROUND_COLOR", $"Table-cell background color '{Limit(background)}' was removed (action=removed; preserved=false).");
+        }
+        var verticalAlign = (styles.GetValueOrDefault("vertical-align") ?? attrs.GetValueOrDefault("valign"))?.ToLowerInvariant();
+        if (verticalAlign is "top" or "middle" or "bottom" or "baseline") result["verticalAlign"] = verticalAlign;
+        var border = styles.GetValueOrDefault("border");
+        if (!string.IsNullOrWhiteSpace(border) && border.Length <= 160 && !border.Contains("url(", StringComparison.OrdinalIgnoreCase))
+            result["border"] = border;
         return result;
     }
     private static Node WithDirection(Node node, IReadOnlyDictionary<string, string> attrs)
     {
-        var direction = attrs.GetValueOrDefault("dir")?.ToLowerInvariant();
+        var styles = ParseStyle(attrs.GetValueOrDefault("style"));
+        var direction = (attrs.GetValueOrDefault("dir") ?? styles.GetValueOrDefault("direction"))?.ToLowerInvariant();
         if (direction is "rtl" or "ltr") (node.Attributes ??= [])["dir"] = direction;
+        var align = (attrs.GetValueOrDefault("align") ?? styles.GetValueOrDefault("text-align"))?.ToLowerInvariant();
+        if (node.Type is "paragraph" or "heading" && align is "left" or "center" or "right" or "justify")
+            (node.Attributes ??= [])["textAlign"] = align;
+        if (node.Type == "heading" && attrs.GetValueOrDefault("id") is { Length: > 0 } id && id.Length <= 200)
+            (node.Attributes ??= [])["id"] = id;
+        if (node.Type is "bulletList" or "orderedList" && styles.GetValueOrDefault("list-style-type") is { Length: > 0 } listStyle)
+            (node.Attributes ??= [])["listStyle"] = listStyle.ToLowerInvariant();
         return node;
     }
     private static int ParsePositive(string? value, int fallback) => int.TryParse(value, out var number) && number > 0 ? Math.Min(number, 100) : fallback;
@@ -416,6 +528,14 @@ public static partial class HelpJuiceHtmlConverter
             });
         }
 
+        ForEachCell(rows, (cell, column, colspan) =>
+        {
+            if (cell.Attributes?.ContainsKey("cellWidth") == true || colspan != 1 ||
+                column >= table.TransientColumnWidths.Count) return;
+            if (TryCssLength(table.TransientColumnWidths[column], out var amount, out var unit))
+                (cell.Attributes ??= [])["cellWidth"] = NormalizeCssLength(amount, unit, convertAbsolute: unit != "%");
+        });
+
         foreach (var cell in rows.SelectMany(row => row.Children).Where(IsTableCell))
             cell.Attributes?.Remove("_sourceWidth");
         table.TransientColumnWidths.Clear();
@@ -457,14 +577,17 @@ public static partial class HelpJuiceHtmlConverter
         Action<string, string> warning)
     {
         if (!TryCssLength(value, out var amount, out var unit)) return null;
-        var pixels = unit == "%" ? percentageBase * amount / 100d : amount;
-        if (pixels is < 25 or > 2000)
+        var pixels = unit == "%" ? percentageBase * amount / 100d : ToPixels(amount, unit);
+        if (pixels is null) return null;
+        if (pixels is < 1 or > 2000)
         {
             warning("UNSUPPORTED_TABLE_COLUMN_WIDTH",
                 $"Table column width '{Limit(value)}' is outside supported migration limits.");
             return null;
         }
-        return (int)Math.Round(pixels);
+        if (unit is not ("px" or "%"))
+            warning("TABLE_COLUMN_WIDTH_NORMALIZED", $"Table column width '{Limit(value)}' was normalized to {(int)Math.Round(pixels.Value)}px (action=normalized; preserved=true).");
+        return (int)Math.Round(pixels.Value);
     }
 
     private static IReadOnlyList<Mark> EffectiveMarks(IEnumerable<ActiveMark> activeMarks)
@@ -514,6 +637,74 @@ public static partial class HelpJuiceHtmlConverter
         return result;
     }
 
+    private static void AuditSourceFormatting(string tag, IReadOnlyDictionary<string, string> attrs,
+        Action<string, string> warning)
+    {
+        foreach (var rawDeclaration in (attrs.GetValueOrDefault("style") ?? string.Empty)
+                     .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            if (rawDeclaration.IndexOf(':') <= 0)
+                warning("MALFORMED_STYLE_REMOVED",
+                    $"Malformed style declaration '{Limit(rawDeclaration)}' on <{tag}> was removed (element={tag}; action=removed; preserved=false).");
+        var styles = ParseStyle(attrs.GetValueOrDefault("style"));
+        foreach (var declaration in styles)
+        {
+            var property = declaration.Key.ToLowerInvariant();
+            var handled = property is "color" or "font-family" or "font-size" or "line-height" or
+                              "background-color" or "font-weight" or "font-style" or "text-decoration" ||
+                          property == "direction" && tag is "p" or "h1" or "h2" or "h3" or "h4" or "h5" or "h6" or
+                              "ul" or "ol" or "li" or "blockquote" or "table" or "td" or "th" ||
+                          property == "text-align" && tag is "p" or "h1" or "h2" or "h3" or "h4" or "h5" or "h6" ||
+                          property == "list-style-type" && tag is "ul" or "ol" ||
+                          property == "width" && tag is "table" or "col" or "td" or "th" ||
+                          property is "vertical-align" or "border" && tag is "td" or "th";
+            if (!handled)
+                warning("UNSUPPORTED_STYLE_REMOVED",
+                    $"Style {property}='{Limit(declaration.Value)}' on <{tag}> is not represented by the editor schema (element={tag}; style={property}; original={Limit(declaration.Value)}; action=removed; preserved=false).");
+            else if (property == "background-color" && tag is not ("span" or "font" or "td" or "th"))
+                warning("STYLE_NORMALIZED",
+                    $"Background color '{Limit(declaration.Value)}' on <{tag}> was normalized to an inline text highlight (element={tag}; style=background-color; action=normalized; preserved=true).");
+        }
+
+        foreach (var attribute in attrs)
+        {
+            var name = attribute.Key.ToLowerInvariant();
+            if (name.StartsWith("on", StringComparison.OrdinalIgnoreCase) || name == "srcdoc")
+            {
+                warning("UNSAFE_ATTRIBUTE_REMOVED",
+                    $"Unsafe attribute {name} on <{tag}> was removed (element={tag}; attribute={name}; original={Limit(attribute.Value)}; action=unsafe; preserved=false).");
+                continue;
+            }
+            if (name == "class")
+            {
+                foreach (var className in Classes(attrs).Where(className => !RecognizedClasses.Contains(className) &&
+                             !Regex.IsMatch(className, @"^(?:Mso|SCXW|ps\d|ts\d|___|f\d|r\d|kb-)", RegexOptions.IgnoreCase)))
+                    warning("MEANINGFUL_CLASS_NOT_PRESERVED",
+                        $"Custom class '{Limit(className)}' on <{tag}> has no migration mapping (element={tag}; attribute=class; original={Limit(className)}; action=removed; preserved=false).");
+                continue;
+            }
+            if (name is "style" or "role" or "contenteditable" or "spellcheck" ||
+                name.StartsWith("aria-", StringComparison.OrdinalIgnoreCase) || name.StartsWith("data-mce-", StringComparison.OrdinalIgnoreCase) ||
+                name.StartsWith("data-ccp-", StringComparison.OrdinalIgnoreCase)) continue;
+            var handled = name == "id" && tag.StartsWith('h') ||
+                          name == "dir" && tag is "p" or "h1" or "h2" or "h3" or "h4" or "h5" or "h6" or "ul" or "ol" or "li" or "blockquote" or "table" or "td" or "th" ||
+                          name == "align" && tag is "p" or "h1" or "h2" or "h3" or "h4" or "h5" or "h6" ||
+                          name is "href" or "target" or "rel" && tag == "a" ||
+                          name is "src" or "data-src" or "data-lazy-src" or "data-original" or "data-url" && tag is "img" or "iframe" or "video" or "audio" or "source" or "embed" ||
+                          name == "data" && tag == "object" ||
+                          name is "alt" or "width" or "height" && tag == "img" ||
+                          name is "width" or "border" or "cellpadding" or "cellspacing" && tag == "table" ||
+                          name is "width" or "span" && tag == "col" ||
+                          name is "width" or "colspan" or "rowspan" or "valign" or "bgcolor" && tag is "td" or "th" ||
+                          name is "start" or "type" && tag == "ol" || name == "type" && tag == "ul" ||
+                          name == "open" && tag == "details" || name is "color" or "face" or "size" && tag == "font" ||
+                          name is "data-color" or "data-text-color" or "data-font-color" ||
+                          name is "controls" or "preload" or "autoplay" or "loop" or "muted" or "poster" && tag is "video" or "audio";
+            if (!handled)
+                warning("UNSUPPORTED_ATTRIBUTE_REMOVED",
+                    $"Attribute {name}='{Limit(attribute.Value)}' on <{tag}> has no migration mapping (element={tag}; attribute={name}; original={Limit(attribute.Value)}; action=removed; preserved=false).");
+        }
+    }
+
     private static string? FirstAttribute(IReadOnlyDictionary<string, string> attrs,
         params string[] names) => names.Select(name => attrs.GetValueOrDefault(name))
         .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim();
@@ -532,6 +723,25 @@ public static partial class HelpJuiceHtmlConverter
         return amount > 0;
     }
 
+    private static double? ToPixels(double amount, string unit) => unit switch
+    {
+        "px" => amount,
+        "in" => amount * 96d,
+        "cm" => amount * 96d / 2.54d,
+        "mm" => amount * 96d / 25.4d,
+        "pt" => amount * 96d / 72d,
+        "pc" => amount * 16d,
+        "em" or "rem" => amount * 16d,
+        _ => null
+    };
+
+    private static string NormalizeCssLength(double amount, string unit, bool convertAbsolute)
+    {
+        var normalizedAmount = convertAbsolute ? ToPixels(amount, unit) ?? amount : amount;
+        var normalizedUnit = convertAbsolute ? "px" : unit;
+        return normalizedAmount.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) + normalizedUnit;
+    }
+
     private static bool TryNormalizeCssColor(string value, out string safe)
     {
         safe = Regex.Replace(value.Trim(), @"\s*!important\s*$", string.Empty,
@@ -543,7 +753,20 @@ public static partial class HelpJuiceHtmlConverter
             return true;
         }
         var match = RgbColorRegex().Match(safe);
-        if (!match.Success) return false;
+        if (!match.Success)
+        {
+            var hsl = HslColorRegex().Match(safe);
+            if (!hsl.Success) return false;
+            var body = hsl.Groups[2].Value;
+            var hslParts = body.Contains(',')
+                ? body.Replace('/', ',').Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                : Regex.Split(body.Trim(), @"\s*/\s*|\s+").Where(part => part.Length > 0).ToArray();
+            var expectsAlpha = hsl.Groups[1].Success || hslParts.Length == 4;
+            if (hslParts.Length != (expectsAlpha ? 4 : 3) || !TryHue(hslParts[0]) || !TryPercentage(hslParts[1]) || !TryPercentage(hslParts[2]) ||
+                expectsAlpha && !TryAlpha(hslParts[3])) return false;
+            safe = safe.ToLowerInvariant();
+            return true;
+        }
         var parts = match.Groups[3].Value.Split(',', StringSplitOptions.TrimEntries);
         var alpha = match.Groups[2].Success;
         if (parts.Length != (alpha ? 4 : 3)) return false;
@@ -567,6 +790,23 @@ public static partial class HelpJuiceHtmlConverter
         }
         safe = safe.ToLowerInvariant();
         return true;
+
+        static bool TryHue(string value)
+        {
+            var normalized = Regex.Replace(value.Trim(), "(?:deg|grad|rad|turn)$", string.Empty, RegexOptions.IgnoreCase);
+            return double.TryParse(normalized, System.Globalization.NumberStyles.AllowLeadingSign | System.Globalization.NumberStyles.AllowDecimalPoint,
+                System.Globalization.CultureInfo.InvariantCulture, out var number) && double.IsFinite(number);
+        }
+        static bool TryPercentage(string value) => value.EndsWith('%') &&
+            double.TryParse(value[..^1], System.Globalization.NumberStyles.AllowDecimalPoint,
+                System.Globalization.CultureInfo.InvariantCulture, out var number) && number is >= 0 and <= 100;
+        static bool TryAlpha(string value)
+        {
+            var percentage = value.EndsWith('%');
+            var text = percentage ? value[..^1] : value;
+            return double.TryParse(text, System.Globalization.NumberStyles.AllowDecimalPoint,
+                System.Globalization.CultureInfo.InvariantCulture, out var number) && number >= 0 && number <= (percentage ? 100 : 1);
+        }
     }
 
     private static readonly HashSet<string> CssNamedColors = new(
@@ -726,6 +966,7 @@ public static partial class HelpJuiceHtmlConverter
             "image" => ($"<img src=\"{WebUtility.HtmlEncode(node.Attributes?["src"]?.ToString())}\" alt=\"{WebUtility.HtmlEncode(node.Attributes?["alt"]?.ToString())}\"{(node.Attributes?["mediaId"] is string id ? $" data-media-id=\"{id}\"" : "")}>", ""),
             "youtube" => ($"<div data-youtube-video><iframe src=\"{WebUtility.HtmlEncode(node.Attributes?["src"]?.ToString())}\" allowfullscreen></iframe></div>", ""),
             "video" => ($"<video src=\"{WebUtility.HtmlEncode(node.Attributes?["src"]?.ToString())}\" data-media-id=\"{WebUtility.HtmlEncode(node.Attributes?["mediaId"]?.ToString())}\" controls preload=\"metadata\"></video>", ""),
+            "attachment" => ($"<a href=\"{WebUtility.HtmlEncode(node.Attributes?["src"]?.ToString())}\" data-kb-attachment=\"true\" data-media-id=\"{WebUtility.HtmlEncode(node.Attributes?["mediaId"]?.ToString())}\" download=\"{WebUtility.HtmlEncode(node.Attributes?["fileName"]?.ToString())}\">{WebUtility.HtmlEncode(node.Attributes?["fileName"]?.ToString() ?? "Download attachment")}</a>", ""),
             "callout" => ($"<aside data-kb-callout data-kb-callout-variant=\"{WebUtility.HtmlEncode(node.Attributes?["variant"]?.ToString())}\"><div data-kb-callout-content>", "</div></aside>"),
             "tabs" => ("<div data-kb-tabs>", "</div>"),
             "tabItem" => ($"<section data-kb-tab-item data-kb-tab-id=\"{WebUtility.HtmlEncode(node.Attributes?["itemId"]?.ToString())}\" data-kb-tab-label=\"{WebUtility.HtmlEncode(node.Attributes?["label"]?.ToString())}\"><div data-kb-tab-panel>", "</div></section>"),
@@ -768,11 +1009,14 @@ public static partial class HelpJuiceHtmlConverter
         var widths = AttributeWidths(node);
         if (colspan > 1) result.Append(" colspan=\"").Append(colspan).Append('"');
         if (rowspan > 1) result.Append(" rowspan=\"").Append(rowspan).Append('"');
-        if (widths.Length > 0)
-        {
-            result.Append(" colwidth=\"").Append(string.Join(',', widths)).Append("\" style=\"width:")
-                .Append(widths.Sum()).Append("px;\"");
-        }
+        if (widths.Length > 0) result.Append(" colwidth=\"").Append(string.Join(',', widths)).Append('"');
+        var styles = new List<string>();
+        if (node.Attributes?.GetValueOrDefault("cellWidth") is { } cellWidth) styles.Add($"width:{cellWidth};");
+        else if (widths.Length > 0) styles.Add($"width:{widths.Sum()}px;");
+        if (node.Attributes?.GetValueOrDefault("backgroundColor") is { } background) styles.Add($"background-color:{background};");
+        if (node.Attributes?.GetValueOrDefault("verticalAlign") is { } vertical) styles.Add($"vertical-align:{vertical};");
+        if (node.Attributes?.GetValueOrDefault("border") is { } border) styles.Add($"border:{border};");
+        if (styles.Count > 0) result.Append(" style=\"").Append(WebUtility.HtmlEncode(string.Join(' ', styles))).Append('"');
         return result.Append('>').ToString();
     }
 
@@ -785,7 +1029,7 @@ public static partial class HelpJuiceHtmlConverter
 
     private static string EInvariant(object value) => System.Convert.ToString(value,
         System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
-    private static string PlainText(Node root) { var b = new StringBuilder(); Visit(root); return b.ToString().Trim(); void Visit(Node n) { if (n.Type == "tabItem" && n.Attributes?["label"] is { } label) b.AppendLine(label.ToString()); if (n.Type == "accordionItem" && n.Attributes?["title"] is { } title) b.AppendLine(title.ToString()); if (n.Text is not null) b.Append(n.Text); foreach (var c in n.Children) Visit(c); if (n.Type is "paragraph" or "heading" or "listItem" or "blockquote" or "codeBlock" or "tableRow") b.AppendLine(); } }
+    private static string PlainText(Node root) { var b = new StringBuilder(); Visit(root); return b.ToString().Trim(); void Visit(Node n) { if (n.Type == "tabItem" && n.Attributes?["label"] is { } label) b.AppendLine(label.ToString()); if (n.Type == "accordionItem" && n.Attributes?["title"] is { } title) b.AppendLine(title.ToString()); if (n.Type == "attachment" && n.Attributes?["fileName"] is { } fileName) b.AppendLine(fileName.ToString()); if (n.Text is not null) b.Append(n.Text); foreach (var c in n.Children) Visit(c); if (n.Type is "paragraph" or "heading" or "listItem" or "blockquote" or "codeBlock" or "tableRow") b.AppendLine(); } }
 
     private static bool TrySafeUrl(string? value, bool allowRelative, out string safe)
     {
@@ -806,7 +1050,6 @@ public static partial class HelpJuiceHtmlConverter
         foreach (Match attr in AttributeRegex().Matches(match.Groups[3].Value))
         {
             var key = attr.Groups[1].Value;
-            if (key.StartsWith("on", StringComparison.OrdinalIgnoreCase) || key is "srcdoc") continue;
             attrs[key] = WebUtility.HtmlDecode(attr.Groups[2].Success ? attr.Groups[2].Value : attr.Groups[3].Success ? attr.Groups[3].Value : attr.Groups[4].Value);
         }
         return (match.Groups[2].Value.ToLowerInvariant(), match.Groups[1].Success, attrs, token.EndsWith("/>", StringComparison.Ordinal));
@@ -824,13 +1067,14 @@ public static partial class HelpJuiceHtmlConverter
     private sealed record Mark(string Type, Dictionary<string, object?>? Attrs = null)
     {
         public JsonObject ToJson() { var o = new JsonObject { ["type"] = Type }; if (Attrs?.Count > 0) o["attrs"] = JsonSerializer.SerializeToNode(Attrs); return o; }
-        public string OpenHtml() => Type switch { "bold" => "<strong>", "italic" => "<em>", "underline" => "<u>", "strike" => "<s>", "superscript" => "<sup>", "subscript" => "<sub>", "code" => "<code>", "link" => $"<a href=\"{WebUtility.HtmlEncode(Attrs?["href"]?.ToString())}\" rel=\"noopener noreferrer nofollow\">", "textStyle" => $"<span style=\"{TextStyleCss()}\">", _ => "" };
-        public string CloseHtml() => Type switch { "bold" => "</strong>", "italic" => "</em>", "underline" => "</u>", "strike" => "</s>", "superscript" => "</sup>", "subscript" => "</sub>", "code" => "</code>", "link" => "</a>", "textStyle" => "</span>", _ => "" };
+        public string OpenHtml() => Type switch { "bold" => "<strong>", "italic" => "<em>", "underline" => "<u>", "strike" => "<s>", "superscript" => "<sup>", "subscript" => "<sub>", "code" => "<code>", "link" => $"<a href=\"{WebUtility.HtmlEncode(Attrs?["href"]?.ToString())}\" rel=\"noopener noreferrer nofollow\">", "textStyle" => $"<span style=\"{TextStyleCss()}\">", "highlight" => $"<mark style=\"background-color:{WebUtility.HtmlEncode(Attrs?["color"]?.ToString())};\">", _ => "" };
+        public string CloseHtml() => Type switch { "bold" => "</strong>", "italic" => "</em>", "underline" => "</u>", "strike" => "</s>", "superscript" => "</sup>", "subscript" => "</sub>", "code" => "</code>", "link" => "</a>", "textStyle" => "</span>", "highlight" => "</mark>", _ => "" };
         private string TextStyleCss() => string.Join(' ', new[]
         {
             Attrs?.GetValueOrDefault("fontFamily") is { } family ? $"font-family:{family};" : null,
             Attrs?.GetValueOrDefault("fontSize") is { } size ? $"font-size:{size};" : null,
-            Attrs?.GetValueOrDefault("color") is { } color ? $"color:{color};" : null
+            Attrs?.GetValueOrDefault("color") is { } color ? $"color:{color};" : null,
+            Attrs?.GetValueOrDefault("lineHeight") is { } lineHeight ? $"line-height:{lineHeight};" : null
         }.Where(value => value is not null).Select(WebUtility.HtmlEncode));
     }
 
@@ -838,7 +1082,8 @@ public static partial class HelpJuiceHtmlConverter
     [GeneratedRegex(@"^<\s*(/)?\s*([a-zA-Z0-9:-]+)([\s\S]*?)/?\s*>$", RegexOptions.Compiled)] private static partial Regex TagRegex();
     [GeneratedRegex("""([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))""", RegexOptions.Compiled)] private static partial Regex AttributeRegex();
     [GeneratedRegex(@"\s+", RegexOptions.Compiled)] private static partial Regex WhitespaceRegex();
-    [GeneratedRegex(@"^(\d+(?:\.\d+)?)(%|px)?$", RegexOptions.Compiled | RegexOptions.IgnoreCase)] private static partial Regex CssLengthRegex();
+    [GeneratedRegex(@"^(\d+(?:\.\d+)?)(%|px|in|cm|mm|pt|pc|em|rem)?$", RegexOptions.Compiled | RegexOptions.IgnoreCase)] private static partial Regex CssLengthRegex();
     [GeneratedRegex(@"^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$", RegexOptions.Compiled | RegexOptions.IgnoreCase)] private static partial Regex HexColorRegex();
     [GeneratedRegex(@"^(rgb)(a)?\(([^)]*)\)$", RegexOptions.Compiled | RegexOptions.IgnoreCase)] private static partial Regex RgbColorRegex();
+    [GeneratedRegex(@"^hsl(a)?\(([^)]*)\)$", RegexOptions.Compiled | RegexOptions.IgnoreCase)] private static partial Regex HslColorRegex();
 }

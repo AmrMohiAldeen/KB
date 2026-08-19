@@ -18,15 +18,13 @@ namespace Kb.Tests.Viewer;
 public sealed class ViewerAccessTests
 {
     [Fact]
-    public async Task Viewer_is_solution_scoped_and_external_identity_never_becomes_a_user()
+    public async Task External_viewer_can_access_an_authorized_root_and_never_becomes_an_internal_user()
     {
         await using var fixture = await Fixture.CreateAsync();
         var session = await fixture.CreateSessionAsync(["swiftassess"]);
 
         var portal = await fixture.Repository.GetPortalAsync(session.SessionId, "swiftassess", default);
         Assert.Equal(fixture.SwiftSolutionId, portal.SolutionId);
-        await Assert.ThrowsAsync<ForbiddenException>(() =>
-            fixture.Repository.GetPortalAsync(session.SessionId, "synopsis", default));
         Assert.Null(await fixture.Repository.GetArticleAsync(session.SessionId, "swiftassess", string.Empty,
             fixture.SynopsisArticleId, default));
         Assert.Equal(1, await fixture.Context.Users.CountAsync());
@@ -35,6 +33,16 @@ public sealed class ViewerAccessTests
         Assert.Equal("external-42", audit.ExternalActorId);
         Assert.Equal("viewer@example.test", audit.ExternalActorEmail);
         Assert.Equal(session.SessionId, audit.ViewerSessionId);
+    }
+
+    [Fact]
+    public async Task External_viewer_changing_the_url_to_an_unauthorized_root_receives_forbidden()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var session = await fixture.CreateSessionAsync(["swiftassess"]);
+
+        await Assert.ThrowsAsync<ForbiddenException>(() =>
+            fixture.Repository.GetPortalAsync(session.SessionId, "synopsis", default));
     }
 
     [Fact]

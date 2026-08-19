@@ -117,6 +117,39 @@ describe('table extensions integration', () => {
     restoredEditor.destroy();
   });
 
+  it('round-trips migrated percentage and normalized absolute cell widths', () => {
+    const element = document.createElement('div');
+    document.body.append(element);
+    editor = new Editor({
+      element,
+      extensions: getEditorExtensions(),
+      content: {
+        type: 'doc',
+        content: [{
+          type: 'table',
+          attrs: { tableWidthPx: 640 },
+          content: [{
+            type: 'tableRow',
+            content: [
+              { type: 'tableCell', attrs: { colspan: 1, rowspan: 1, colwidth: [160], cellWidth: '25%' }, content: [{ type: 'paragraph' }] },
+              { type: 'tableCell', attrs: { colspan: 1, rowspan: 1, colwidth: [96], cellWidth: '96px' }, content: [{ type: 'paragraph' }] },
+            ],
+          }],
+        }],
+      },
+    });
+
+    const html = editor.getHTML();
+    expect(html).toContain('data-cell-width="25%"');
+    expect(html).toContain('data-cell-width="96px"');
+
+    const restoredElement = document.createElement('div');
+    const restored = new Editor({ element: restoredElement, extensions: getEditorExtensions(), content: html });
+    const cells = restored.getJSON().content?.[0]?.content?.[0]?.content ?? [];
+    expect(cells.map(cell => cell.attrs?.cellWidth)).toEqual(['25%', '96px']);
+    restored.destroy();
+  });
+
   it('loads existing tables without border attributes with all borders enabled', () => {
     const element = document.createElement('div');
     document.body.append(element);

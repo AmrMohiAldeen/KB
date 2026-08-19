@@ -76,50 +76,49 @@ public sealed class ViewerService(IViewerRepository repository, IViewerSearchCli
         return article;
     }
 
-    public Task<ViewerPortalData> GetPreviewPortalAsync(Guid rootCategoryId, CancellationToken token)
+    public Task<ViewerPortalData> GetPreviewPortalAsync(string rootCategorySlug, CancellationToken token)
     {
         RequireInternalUser();
-        return repository.GetPreviewPortalAsync(RequiredId(rootCategoryId), token);
+        return repository.GetPreviewPortalAsync(NormalizeSlug(rootCategorySlug), token);
     }
 
-    public async Task<IReadOnlyList<ViewerCategoryNode>> GetPreviewTreeAsync(Guid rootCategoryId,
+    public async Task<IReadOnlyList<ViewerCategoryNode>> GetPreviewTreeAsync(string rootCategorySlug,
         CancellationToken token)
     {
         RequireInternalUser();
-        return BuildTree(await repository.GetPreviewCategoriesAsync(RequiredId(rootCategoryId), token));
+        return BuildTree(await repository.GetPreviewCategoriesAsync(NormalizeSlug(rootCategorySlug), token));
     }
 
-    public Task<IReadOnlyList<ViewerArticleSummary>> GetPreviewArticlesAsync(Guid rootCategoryId, string? search,
+    public Task<IReadOnlyList<ViewerArticleSummary>> GetPreviewArticlesAsync(string rootCategorySlug, string? search,
         Guid? categoryId, CancellationToken token)
     {
         RequireInternalUser();
-        return repository.GetPreviewArticlesAsync(RequiredId(rootCategoryId),
+        return repository.GetPreviewArticlesAsync(NormalizeSlug(rootCategorySlug),
             string.IsNullOrWhiteSpace(search) ? null : search.Trim(), categoryId, token);
     }
 
-    public async Task<IReadOnlyList<ViewerArticleSummary>> SearchPreviewAsync(Guid rootCategoryId, string query,
+    public async Task<IReadOnlyList<ViewerArticleSummary>> SearchPreviewAsync(string rootCategorySlug, string query,
         CancellationToken token)
     {
         RequireInternalUser();
         ValidateSearch(query);
-        var rootId = RequiredId(rootCategoryId);
-        _ = await repository.GetPreviewPortalAsync(rootId, token);
-        return await searchClient.SearchPreviewAsync(rootId, query.Trim(), 50, token);
+        var portal = await repository.GetPreviewPortalAsync(NormalizeSlug(rootCategorySlug), token);
+        return await searchClient.SearchPreviewAsync(portal.RootId, query.Trim(), 50, token);
     }
 
-    public Task<ViewerArticle> GetPreviewArticleBySlugAsync(Guid rootCategoryId, string articleSlug,
-        CancellationToken token) => GetPreviewArticleAsync(rootCategoryId, articleSlug, null, token);
+    public Task<ViewerArticle> GetPreviewArticleBySlugAsync(string rootCategorySlug, string articleSlug,
+        CancellationToken token) => GetPreviewArticleAsync(rootCategorySlug, articleSlug, null, token);
 
-    public Task<ViewerArticle> GetPreviewArticleByIdAsync(Guid rootCategoryId, Guid articleId,
-        CancellationToken token) => GetPreviewArticleAsync(rootCategoryId, null, articleId, token);
+    public Task<ViewerArticle> GetPreviewArticleByIdAsync(string rootCategorySlug, Guid articleId,
+        CancellationToken token) => GetPreviewArticleAsync(rootCategorySlug, null, articleId, token);
 
-    private async Task<ViewerArticle> GetPreviewArticleAsync(Guid rootCategoryId, string? articleSlug,
+    private async Task<ViewerArticle> GetPreviewArticleAsync(string rootCategorySlug, string? articleSlug,
         Guid? articleId, CancellationToken token)
     {
         RequireInternalUser();
         if (articleId == Guid.Empty || articleSlug is not null && string.IsNullOrWhiteSpace(articleSlug))
             throw new NotFoundException("The article was not found.");
-        var source = await repository.GetPreviewArticleAsync(RequiredId(rootCategoryId),
+        var source = await repository.GetPreviewArticleAsync(NormalizeSlug(rootCategorySlug),
             articleSlug?.Trim() ?? string.Empty, articleId, token) ??
             throw new NotFoundException("The article was not found.");
         return await LoadArticleAsync(source, token);
@@ -160,8 +159,6 @@ public sealed class ViewerService(IViewerRepository repository, IViewerSearchCli
         if (string.IsNullOrWhiteSpace(query) || query.Trim().Length > 200)
             throw new BusinessRuleException("A Viewer search query between 1 and 200 characters is required.");
     }
-
-    private static Guid RequiredId(Guid id) => id == Guid.Empty ? throw new NotFoundException() : id;
 
     private void RequireInternalUser()
     {

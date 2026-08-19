@@ -21,7 +21,8 @@ public static class ArticleWorkflow
         Transitions.Contains((fromStatus, toStatus));
 
     public static bool CanPublish(string articleStatus, string draftStatus) =>
-        articleStatus == ArticleStatuses.Approved && draftStatus == ArticleStatuses.Approved;
+        draftStatus == ArticleStatuses.Approved &&
+        articleStatus is ArticleStatuses.Approved or ArticleStatuses.Published;
 
     public static bool HasConsistentDraftState(string articleStatus, string draftStatus) =>
         articleStatus == draftStatus && draftStatus is
@@ -30,5 +31,10 @@ public static class ArticleWorkflow
             ArticleStatuses.InReview or
             ArticleStatuses.ChangesRequested or
             ArticleStatuses.Approved ||
-        articleStatus == ArticleStatuses.Published && draftStatus == ArticleStatuses.Approved;
+        articleStatus == ArticleStatuses.Published && draftStatus is
+            ArticleStatuses.Draft or
+            ArticleStatuses.SubmittedForReview or
+            ArticleStatuses.InReview or
+            ArticleStatuses.ChangesRequested or
+            ArticleStatuses.Approved;
 }

@@ -47,7 +47,7 @@ export type ArticleDraftMetadataResponse = {
   contentHash: string | null
   contentSizeBytes: number
   rowVersion: string
-  status: string
+  status: ArticleStatus
   isLocked: boolean
   lockedBy: UserSummaryResponse | null
   lockedAt: string | null

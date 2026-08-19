@@ -60,7 +60,7 @@ public sealed class ArticleLifecycleSliceTests
             new(approved.RowVersion, "Ship it"), default);
 
         Assert.Equal(ArticleStatuses.Published, published.Status);
-        Assert.Equal(2, published.PublishedVersionNumber);
+        Assert.Equal(3, published.PublishedVersionNumber);
         Assert.NotNull(published.PublishedVersionId);
         f.Context.ChangeTracker.Clear();
         var article = await f.Context.Articles.AsNoTracking().SingleAsync();
@@ -74,7 +74,8 @@ public sealed class ArticleLifecycleSliceTests
         Assert.Equal(
             [
                 ArticleSnapshotReasons.SubmittedForReview,
-                ArticleSnapshotReasons.SubmittedForReview
+                ArticleSnapshotReasons.SubmittedForReview,
+                ArticleSnapshotReasons.Published
             ],
             versions.Select(version => version.SnapshotReason));
         var version = versions[^1];
@@ -93,15 +94,15 @@ public sealed class ArticleLifecycleSliceTests
         Assert.Equal("Add an example", changeRequest.Comment);
         Assert.Equal(f.ReviewerId, changeRequest.ActorIdFk);
         Assert.NotEqual(default, changeRequest.CreatedAt);
-        Assert.Equal(9, await f.Context.ArticleAuditLogs.CountAsync());
-        Assert.Equal(2, await f.Context.ArticleAuditLogs.CountAsync(
+        Assert.Equal(10, await f.Context.ArticleAuditLogs.CountAsync());
+        Assert.Equal(3, await f.Context.ArticleAuditLogs.CountAsync(
             log => log.ActionType == ArticleAuditActions.VersionCreated));
         var versionAudit = await f.Context.ArticleAuditLogs.AsNoTracking().SingleAsync(
             log => log.EntityId == version.VersionId &&
                    log.ActionType == ArticleAuditActions.VersionCreated);
         using var versionMetadata = JsonDocument.Parse(versionAudit.MetaDataJson!);
-        Assert.Equal(2, versionMetadata.RootElement.GetProperty("versionNumber").GetInt32());
-        Assert.Equal(ArticleSnapshotReasons.SubmittedForReview,
+        Assert.Equal(3, versionMetadata.RootElement.GetProperty("versionNumber").GetInt32());
+        Assert.Equal(ArticleSnapshotReasons.Published,
             versionMetadata.RootElement.GetProperty("snapshotReason").GetString());
         var publishAudit = await f.Context.ArticleAuditLogs.SingleAsync(
             log => log.ActionType == ArticleAuditActions.Published);
@@ -146,33 +147,48 @@ public sealed class ArticleLifecycleSliceTests
         f.Current.UserId = f.PublisherId;
         var published = await f.Service.PublishAsync(f.ArticleId, new(approved.RowVersion), default);
 
-        var version = await f.Context.ArticleVersions.AsNoTracking().SingleAsync();
+        var version = await f.Context.ArticleVersions.AsNoTracking()
+            .SingleAsync(item => item.VersionId == published.PublishedVersionId);
         Assert.Equal(version.VersionId, published.PublishedVersionId);
-        Assert.Equal(1, published.PublishedVersionNumber);
+        Assert.Equal(2, published.PublishedVersionNumber);
         Assert.Equal(f.PublisherId, version.PublishedByFk);
         Assert.NotNull(version.PublishedAt);
     }
 
     [Fact]
-    public async Task Unchanged_post_publish_revision_reuses_the_existing_published_version()
+    public async Task Unchanged_post_publish_revision_still_creates_a_new_immutable_published_version()
     {
         await using var f = await Fixture.CreatePublishedAsync();
-        var original = await f.Context.ArticleVersions.AsNoTracking().SingleAsync();
+        var originalId = (await f.Context.Articles.AsNoTracking().SingleAsync()).LastPublishedVersionIdFk;
+        var original = await f.Context.ArticleVersions.AsNoTracking()
+            .SingleAsync(item => item.VersionId == originalId);
         f.Grant(f.AuthorId, PermissionCodes.ArticlesEditOwnDraft, PermissionCodes.ArticlesSubmitForReview);
         f.Grant(f.ReviewerId, PermissionCodes.ArticlesReview);
         f.Current.UserId = f.AuthorId;
 
         var revision = await f.Service.RestoreAsync(
             f.ArticleId, original.VersionId, new(f.RowVersion), default);
+        Assert.Equal(ArticleStatuses.Published, revision.Status);
+        var duringEditing = await f.Context.Articles.AsNoTracking().SingleAsync();
+        Assert.Equal(ArticleStatuses.Published, duringEditing.Status);
+        Assert.Equal(original.VersionId, duringEditing.LastPublishedVersionIdFk);
         var submitted = await f.Service.SubmitAsync(f.ArticleId, new(revision.RowVersion), default);
-        Assert.Single(await f.Context.ArticleVersions.AsNoTracking().ToListAsync());
+        Assert.Equal(ArticleStatuses.Published, submitted.Status);
+        Assert.Equal(ArticleStatuses.SubmittedForReview,
+            (await f.Context.ArticleDrafts.AsNoTracking()
+                .SingleAsync(draft => draft.DraftId == revision.DraftId)).Status);
+        Assert.Equal(3, await f.Context.ArticleVersions.AsNoTracking().CountAsync());
         f.Current.UserId = f.ReviewerId;
         var approved = await f.Service.ApproveAsync(f.ArticleId, new(submitted.RowVersion), default);
+        Assert.Equal(original.VersionId,
+            (await f.Context.Articles.AsNoTracking().SingleAsync()).LastPublishedVersionIdFk);
         f.Current.UserId = f.PublisherId;
         var republished = await f.Service.PublishAsync(f.ArticleId, new(approved.RowVersion), default);
 
-        Assert.Equal(original.VersionId, republished.PublishedVersionId);
-        Assert.Single(await f.Context.ArticleVersions.AsNoTracking().ToListAsync());
+        Assert.NotEqual(original.VersionId, republished.PublishedVersionId);
+        Assert.Equal(4, await f.Context.ArticleVersions.AsNoTracking().CountAsync());
+        Assert.Contains(await f.Context.ArticleVersions.AsNoTracking().ToArrayAsync(),
+            version => version.VersionId == original.VersionId);
     }
 
     [Fact]
@@ -227,7 +243,8 @@ public sealed class ArticleLifecycleSliceTests
         f.Context.ChangeTracker.Clear();
         var article = await f.Context.Articles.AsNoTracking().SingleAsync();
         var draft = await f.Context.ArticleDrafts.AsNoTracking().SingleAsync();
-        var version = await f.Context.ArticleVersions.AsNoTracking().SingleAsync();
+        var version = await f.Context.ArticleVersions.AsNoTracking()
+            .SingleAsync(item => item.VersionId == published.PublishedVersionId);
         Assert.Equal(ArticleStatuses.Published, published.Status);
         Assert.Equal(ArticleStatuses.Published, article.Status);
         Assert.Equal(ArticleStatuses.Approved, draft.Status);
@@ -237,7 +254,7 @@ public sealed class ArticleLifecycleSliceTests
         Assert.False((await f.Service.GetPermissionsAsync(f.ArticleId, default)).CanPublish);
         await Assert.ThrowsAsync<ConflictException>(() => f.Service.PublishAsync(
             f.ArticleId, new(published.RowVersion, "Duplicate publish"), default));
-        Assert.Single(await f.Context.ArticleVersions.AsNoTracking().ToListAsync());
+        Assert.Equal(2, await f.Context.ArticleVersions.AsNoTracking().CountAsync());
         Assert.Single(await f.Context.SearchIndexJobs.AsNoTracking().ToListAsync());
         Assert.True(await f.Context.ArticleComments.AsNoTracking()
             .AnyAsync(comment => comment.CommentId == commentId));
@@ -414,24 +431,23 @@ public sealed class ArticleLifecycleSliceTests
     }
 
     [Fact]
-    public async Task Publish_promotes_the_submitted_version_without_copying_storage_or_creating_a_version()
+    public async Task Publish_snapshot_storage_failure_does_not_change_the_live_version()
     {
         await using var f = await Fixture.CreateApprovedAsync();
         f.Grant(f.PublisherId, PermissionCodes.ArticlesPublish);
         f.Current.UserId = f.PublisherId;
-        var submitted = await f.Context.ArticleVersions.AsNoTracking().SingleAsync();
         var uploadsBefore = f.Storage.UploadedPaths.Count;
-        f.Storage.FailDownloadPath = submitted.ContentJsonStoragePath;
         f.Storage.FailUploadNumber = 1;
 
-        var result = await f.Service.PublishAsync(f.ArticleId, new(f.RowVersion), default);
+        await Assert.ThrowsAsync<ExternalServiceException>(() =>
+            f.Service.PublishAsync(f.ArticleId, new(f.RowVersion), default));
 
         f.Context.ChangeTracker.Clear();
-        Assert.Equal(ArticleStatuses.Published,
+        Assert.Equal(ArticleStatuses.Approved,
             (await f.Context.Articles.AsNoTracking().SingleAsync()).Status);
-        Assert.Equal(submitted.VersionId, result.PublishedVersionId);
         Assert.Single(await f.Context.ArticleVersions.AsNoTracking().ToListAsync());
-        Assert.Equal(uploadsBefore, f.Storage.UploadedPaths.Count);
+        Assert.Null((await f.Context.Articles.AsNoTracking().SingleAsync()).LastPublishedVersionIdFk);
+        Assert.True(f.Storage.UploadedPaths.Count >= uploadsBefore);
     }
 
     [Fact]
@@ -441,13 +457,13 @@ public sealed class ArticleLifecycleSliceTests
         f.Grant(f.PublisherId, PermissionCodes.VersionsRestore);
         f.Current.UserId = f.PublisherId;
         var publishedArticle = await f.Context.Articles.AsNoTracking().SingleAsync();
-        var publishedVersion = await f.Context.ArticleVersions.AsNoTracking().SingleAsync();
+        var publishedVersion = await f.PublishedVersionAsync();
         var publishedPath = publishedVersion.ContentJsonStoragePath;
 
         var restored = await f.Service.RestoreAsync(f.ArticleId, publishedVersion.VersionId,
             new(f.RowVersion), default);
 
-        Assert.Equal(ArticleStatuses.Draft, restored.Status);
+        Assert.Equal(ArticleStatuses.Published, restored.Status);
         Assert.NotEqual(f.DraftId, restored.DraftId);
         f.Context.ChangeTracker.Clear();
         var article = await f.Context.Articles.AsNoTracking().SingleAsync();
@@ -471,6 +487,11 @@ public sealed class ArticleLifecycleSliceTests
             new(changedDocument.RootElement.Clone(), "<p>newer draft</p>", "newer draft",
                 locked.Draft.RowVersion), default);
 
+        f.Context.ChangeTracker.Clear();
+        var afterDraftSave = await f.Context.Articles.AsNoTracking().SingleAsync();
+        Assert.Equal(ArticleStatuses.Published, afterDraftSave.Status);
+        Assert.Equal(publishedVersion.VersionId, afterDraftSave.LastPublishedVersionIdFk);
+        Assert.Single(await f.Context.SearchIndexJobs.AsNoTracking().ToArrayAsync());
         Assert.Equal(immutablePublishedBytes, f.Storage.Get(publishedPath));
         Assert.Contains(publishedPath, f.Storage.StoredPaths);
         Assert.DoesNotContain(publishedPath, f.Storage.DeletedPaths);
@@ -497,7 +518,7 @@ public sealed class ArticleLifecycleSliceTests
         await using var f = await Fixture.CreatePublishedAsync();
         f.Grant(f.PublisherId, PermissionCodes.VersionsRestore);
         f.Current.UserId = f.PublisherId;
-        var version = await f.Context.ArticleVersions.AsNoTracking().SingleAsync();
+        var version = await f.PublishedVersionAsync();
         f.Storage.FailDownloadPath = version.ContentJsonStoragePath;
 
         await Assert.ThrowsAsync<ExternalServiceException>(() => f.Service.RestoreAsync(
@@ -516,7 +537,7 @@ public sealed class ArticleLifecycleSliceTests
         await using var f = await Fixture.CreatePublishedAsync();
         f.Grant(f.PublisherId, PermissionCodes.VersionsRestore);
         f.Current.UserId = f.PublisherId;
-        var version = await f.Context.ArticleVersions.AsNoTracking().SingleAsync();
+        var version = await f.PublishedVersionAsync();
         var firstRestore = await f.Service.RestoreAsync(
             f.ArticleId, version.VersionId, new(f.RowVersion), default);
 
@@ -530,7 +551,7 @@ public sealed class ArticleLifecycleSliceTests
         var drafts = await f.Context.ArticleDrafts.AsNoTracking()
             .OrderBy(draft => draft.DraftNumber).ToArrayAsync();
         Assert.Equal([1, 2, 3], drafts.Select(draft => draft.DraftNumber).ToArray());
-        Assert.Equal(ArticleStatuses.Draft, article.Status);
+        Assert.Equal(ArticleStatuses.Published, article.Status);
     }
 
     [Fact]
@@ -604,7 +625,7 @@ public sealed class ArticleLifecycleSliceTests
         Assert.False(permissions.CanPublish);
         Assert.False(permissions.CanDelete);
         Assert.False(permissions.CanOverrideWorkflow);
-        Assert.Single((await f.Service.GetVersionsAsync(f.ArticleId, 1, 20, default)).Items);
+        Assert.Equal(2, (await f.Service.GetVersionsAsync(f.ArticleId, 1, 20, default)).Items.Count);
         Assert.Equal(before.LastPublishedVersionIdFk,
             (await f.Service.GetPublishedVersionAsync(f.ArticleId, default)).Version.VersionId);
         Assert.Contains(await f.Service.GetReviewHistoryAsync(f.ArticleId, default),
@@ -630,7 +651,7 @@ public sealed class ArticleLifecycleSliceTests
         var article = await f.Context.Articles.AsNoTracking().SingleAsync();
         Assert.Equal(currentDraftId, article.CurrentDraftIdFk);
         Assert.Equal(published.PublishedVersionId, article.LastPublishedVersionIdFk);
-        Assert.Single(await f.Context.ArticleVersions.AsNoTracking().ToListAsync());
+        Assert.Equal(2, await f.Context.ArticleVersions.AsNoTracking().CountAsync());
     }
 
     [Fact]
@@ -720,7 +741,8 @@ public sealed class ArticleLifecycleSliceTests
     public async Task Version_rows_are_append_only()
     {
         await using var f = await Fixture.CreatePublishedAsync();
-        var version = await f.Context.ArticleVersions.SingleAsync();
+        var publishedVersionId = (await f.Context.Articles.AsNoTracking().SingleAsync()).LastPublishedVersionIdFk;
+        var version = await f.Context.ArticleVersions.SingleAsync(item => item.VersionId == publishedVersionId);
         version.SnapshotReason = ArticleSnapshotReasons.Approved;
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(
@@ -728,8 +750,9 @@ public sealed class ArticleLifecycleSliceTests
 
         Assert.Contains("immutable", exception.Message, StringComparison.OrdinalIgnoreCase);
         f.Context.ChangeTracker.Clear();
-        var unchanged = await f.Context.ArticleVersions.AsNoTracking().SingleAsync();
-        Assert.Equal(ArticleSnapshotReasons.SubmittedForReview, unchanged.SnapshotReason);
+        var unchanged = await f.Context.ArticleVersions.AsNoTracking()
+            .SingleAsync(item => item.VersionId == version.VersionId);
+        Assert.Equal(ArticleSnapshotReasons.Published, unchanged.SnapshotReason);
     }
 
     [Fact]
@@ -815,7 +838,8 @@ public sealed class ArticleLifecycleSliceTests
         Assert.Equal(1, comparison.AddedCount);
         Assert.Equal(0, comparison.RemovedCount);
         Assert.Equal(1, comparison.UnchangedCount);
-        var changed = comparison.Changes[0];
+        var changed = comparison.Changes.Single(change =>
+            change.ChangeType == "Changed" && change.BeforeText == "Install the old package");
         Assert.Equal("Changed", changed.ChangeType);
         Assert.Equal("Install the old package", changed.BeforeText);
         Assert.Equal("Install the new package", changed.AfterText);
@@ -823,6 +847,48 @@ public sealed class ArticleLifecycleSliceTests
             segment.ChangeType == "Removed" && segment.Text.Contains("old"));
         Assert.Contains(changed.Segments, segment =>
             segment.ChangeType == "Added" && segment.Text.Contains("new"));
+        Assert.Contains(comparison.Changes, change =>
+            change.ChangeType == "Unchanged" && change.BlockLabel == "Heading 2");
+
+        var reverseSelection = await f.Service.CompareVersionsAsync(
+            f.ArticleId, after.VersionId, before.VersionId, default);
+        Assert.Equal(before.VersionId, reverseSelection.BaseVersion.VersionId);
+        Assert.Equal(after.VersionId, reverseSelection.TargetVersion.VersionId);
+    }
+
+    [Fact]
+    public async Task Comparison_preserves_labels_for_structured_tiptap_blocks()
+    {
+        await using var f = await Fixture.CreateAsync();
+        var before = await f.AddVersionDocumentAsync(1, ArticleSnapshotReasons.SubmittedForReview,
+            """
+            {"type":"doc","content":[
+              {"type":"tabs","content":[{"type":"tabItem","attrs":{"label":"Overview"},"content":[{"type":"paragraph","content":[{"type":"text","text":"Old tab text"}]}]}]},
+              {"type":"accordion","content":[{"type":"accordionItem","attrs":{"title":"FAQ"},"content":[{"type":"paragraph","content":[{"type":"text","text":"Old answer"}]}]}]},
+              {"type":"table","content":[{"type":"tableRow","content":[{"type":"tableCell","content":[{"type":"paragraph","content":[{"type":"text","text":"Name"}]}]},{"type":"tableCell","content":[{"type":"paragraph","content":[{"type":"text","text":"Old value"}]}]}]}]},
+              {"type":"callout","attrs":{"variant":"warning"},"content":[{"type":"paragraph","content":[{"type":"text","text":"Keep this warning"}]}]}
+            ]}
+            """);
+        var after = await f.AddVersionDocumentAsync(2, ArticleSnapshotReasons.Published,
+            """
+            {"type":"doc","content":[
+              {"type":"tabs","content":[{"type":"tabItem","attrs":{"label":"Overview"},"content":[{"type":"paragraph","content":[{"type":"text","text":"New tab text"}]}]}]},
+              {"type":"accordion","content":[{"type":"accordionItem","attrs":{"title":"FAQ"},"content":[{"type":"paragraph","content":[{"type":"text","text":"New answer"}]}]}]},
+              {"type":"table","content":[{"type":"tableRow","content":[{"type":"tableCell","content":[{"type":"paragraph","content":[{"type":"text","text":"Name"}]}]},{"type":"tableCell","content":[{"type":"paragraph","content":[{"type":"text","text":"New value"}]}]}]}]},
+              {"type":"callout","attrs":{"variant":"warning"},"content":[{"type":"paragraph","content":[{"type":"text","text":"Keep this warning"}]}]}
+            ]}
+            """);
+        f.Grant(f.AuthorId, PermissionCodes.VersionsView);
+
+        var comparison = await f.Service.CompareVersionsAsync(
+            f.ArticleId, before.VersionId, after.VersionId, default);
+
+        Assert.Contains(comparison.Changes, change => change.BlockLabel == "Tab: Overview");
+        Assert.Contains(comparison.Changes, change => change.BlockLabel == "Accordion: FAQ");
+        Assert.Contains(comparison.Changes, change => change.BlockLabel == "Table row" &&
+            change.AfterText == "Name | New value");
+        Assert.Contains(comparison.Changes, change => change.BlockLabel == "Warning callout" &&
+            change.ChangeType == "Unchanged");
     }
 
     [Fact]
@@ -869,7 +935,7 @@ public sealed class ArticleLifecycleSliceTests
     public async Task Restore_requires_restore_permission_and_current_row_version()
     {
         await using var f = await Fixture.CreatePublishedAsync();
-        var version = await f.Context.ArticleVersions.AsNoTracking().SingleAsync();
+        var version = await f.PublishedVersionAsync();
         await Assert.ThrowsAsync<ForbiddenException>(() => f.Service.RestoreAsync(
             f.ArticleId, version.VersionId, new(f.RowVersion), default));
 
@@ -1033,6 +1099,13 @@ public sealed class ArticleLifecycleSliceTests
 
         public void Grant(Guid userId, params string[] permissionCodes) =>
             permissions.Grant(userId, permissionCodes);
+
+        public async Task<ArticleVersion> PublishedVersionAsync()
+        {
+            var versionId = (await Context.Articles.AsNoTracking().SingleAsync()).LastPublishedVersionIdFk;
+            return await Context.ArticleVersions.AsNoTracking()
+                .SingleAsync(version => version.VersionId == versionId);
+        }
 
         public async Task UpdateDraftContentAsync(string text)
         {

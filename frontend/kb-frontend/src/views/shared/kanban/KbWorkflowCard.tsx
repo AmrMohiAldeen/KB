@@ -18,7 +18,7 @@ type KbWorkflowCardProps = {
 }
 
 export const KbWorkflowCard = ({ title, ownerName, status, updatedAt }: KbWorkflowCardProps) => (
-  <Card variant='outlined' sx={{ boxShadow: 'none', borderRadius: 2 }}>
+  <Card variant='outlined' sx={{ boxShadow: 'none', borderRadius: 'var(--mui-shape-customBorderRadius-lg)' }}>
     <CardContent sx={{ p: 4, '&:last-child': { pb: 4 } }}>
       <Stack spacing={3}>
         <Stack direction='row' spacing={2} sx={{ alignItems: 'flex-start' }}>

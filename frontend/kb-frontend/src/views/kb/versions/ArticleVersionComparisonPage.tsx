@@ -9,15 +9,25 @@ import Card from '@mui/material/Card'
 import CardContent from '@mui/material/CardContent'
 import Chip from '@mui/material/Chip'
 import CircularProgress from '@mui/material/CircularProgress'
-import Divider from '@mui/material/Divider'
+import FormControl from '@mui/material/FormControl'
+import InputLabel from '@mui/material/InputLabel'
+import MenuItem from '@mui/material/MenuItem'
+import Select from '@mui/material/Select'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import { ArrowLeft, CheckCircle2 } from 'lucide-react'
 import { getLocalizedUrl } from '@/utils/i18n'
 import { KbEmptyState, KbPageHeader, KbPageShell } from '@/views/shared'
-import type { ArticleVersionComparisonResponse } from '@/types/apps/articleLifecycleTypes'
-import { compareArticleVersions, describeLifecycleError } from '@/lib/api/articleLifecycleApi'
-import { snapshotReasonLabel, versionLabel } from './versionUi'
+import type {
+  ArticleVersionComparisonResponse,
+  ArticleVersionSummaryResponse
+} from '@/types/apps/articleLifecycleTypes'
+import {
+  compareArticleVersions,
+  describeLifecycleError,
+  getArticleVersions
+} from '@/lib/api/articleLifecycleApi'
+import { formatVersionDate, snapshotReasonLabel, versionLabel } from './versionUi'
 
 type ArticleVersionComparisonPageProps = {
   lang: string
@@ -26,13 +36,15 @@ type ArticleVersionComparisonPageProps = {
   targetVersionId: string
   accessToken: string
   compare?: typeof compareArticleVersions
+  getVersions?: typeof getArticleVersions
   onNavigate?: (url: string) => void
 }
 
 const changeColor = {
   Added: 'success',
   Removed: 'error',
-  Changed: 'warning'
+  Changed: 'warning',
+  Unchanged: 'default'
 } as const
 
 export default function ArticleVersionComparisonPage({
@@ -42,11 +54,15 @@ export default function ArticleVersionComparisonPage({
   targetVersionId,
   accessToken,
   compare = compareArticleVersions,
+  getVersions = getArticleVersions,
   onNavigate
 }: ArticleVersionComparisonPageProps) {
   const router = useRouter()
   const navigate = onNavigate ?? router.push
   const [comparison, setComparison] = useState<ArticleVersionComparisonResponse | null>(null)
+  const [versions, setVersions] = useState<ArticleVersionSummaryResponse[]>([])
+  const [olderVersionId, setOlderVersionId] = useState(baseVersionId)
+  const [newerVersionId, setNewerVersionId] = useState(targetVersionId)
   const [loading, setLoading] = useState(true)
   const [messages, setMessages] = useState<string[]>([])
   const historyUrl = getLocalizedUrl(
@@ -55,7 +71,7 @@ export default function ArticleVersionComparisonPage({
   )
 
   const load = useCallback(async (signal?: AbortSignal) => {
-    if (!articleId || !baseVersionId || !targetVersionId) {
+    if (!articleId || !olderVersionId || !newerVersionId) {
       setMessages(['Select two valid versions before opening comparison.'])
       setLoading(false)
       return
@@ -65,12 +81,16 @@ export default function ArticleVersionComparisonPage({
     try {
       const result = await compare(
         articleId,
-        baseVersionId,
-        targetVersionId,
+        olderVersionId,
+        newerVersionId,
         accessToken,
         signal
       )
-      if (!signal?.aborted) setComparison(result)
+      if (!signal?.aborted) {
+        setComparison(result)
+        setOlderVersionId(result.baseVersion.versionId)
+        setNewerVersionId(result.targetVersion.versionId)
+      }
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return
       setMessages(describeLifecycleError(error))
@@ -78,7 +98,7 @@ export default function ArticleVersionComparisonPage({
     } finally {
       if (!signal?.aborted) setLoading(false)
     }
-  }, [accessToken, articleId, baseVersionId, compare, targetVersionId])
+  }, [accessToken, articleId, compare, newerVersionId, olderVersionId])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -88,6 +108,41 @@ export default function ArticleVersionComparisonPage({
       controller.abort()
     }
   }, [load])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    const loadAll = async () => {
+      try {
+        const loaded: ArticleVersionSummaryResponse[] = []
+        let page = 1
+        let totalCount = 0
+        do {
+          const response = await getVersions(articleId, { page, pageSize: 100 }, accessToken, controller.signal)
+          loaded.push(...response.items)
+          totalCount = response.totalCount
+          page += 1
+        } while (loaded.length < totalCount && !controller.signal.aborted)
+        if (!controller.signal.aborted)
+          setVersions(loaded.sort((left, right) => left.versionNumber - right.versionNumber))
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === 'AbortError'))
+          setMessages(current => [...current, ...describeLifecycleError(error)])
+      }
+    }
+    if (articleId && accessToken) void loadAll()
+    return () => controller.abort()
+  }, [accessToken, articleId, getVersions])
+
+  const selectVersion = (side: 'older' | 'newer', versionId: string) => {
+    const otherId = side === 'older' ? newerVersionId : olderVersionId
+    if (!versionId || versionId === otherId) return
+    const selected = versions.find(version => version.versionId === versionId)
+    const other = versions.find(version => version.versionId === otherId)
+    if (!selected || !other) return
+    const [older, newer] = [selected, other].sort((left, right) => left.versionNumber - right.versionNumber)
+    setOlderVersionId(older.versionId)
+    setNewerVersionId(newer.versionId)
+  }
 
   return (
     <KbPageShell maxWidth={1200}>
@@ -114,6 +169,45 @@ export default function ArticleVersionComparisonPage({
         </Alert>
       )}
 
+      {versions.length > 1 && (
+        <Card variant='outlined'>
+          <CardContent>
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+              <FormControl fullWidth>
+                <InputLabel id='older-version-label'>Older version</InputLabel>
+                <Select
+                  labelId='older-version-label'
+                  label='Older version'
+                  value={olderVersionId}
+                  onChange={event => selectVersion('older', event.target.value)}
+                >
+                  {versions.map(version => (
+                    <MenuItem key={version.versionId} value={version.versionId} disabled={version.versionId === newerVersionId}>
+                      {versionLabel(version)} · {snapshotReasonLabel[version.snapshotReason]}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              <FormControl fullWidth>
+                <InputLabel id='newer-version-label'>Newer version</InputLabel>
+                <Select
+                  labelId='newer-version-label'
+                  label='Newer version'
+                  value={newerVersionId}
+                  onChange={event => selectVersion('newer', event.target.value)}
+                >
+                  {versions.map(version => (
+                    <MenuItem key={version.versionId} value={version.versionId} disabled={version.versionId === olderVersionId}>
+                      {versionLabel(version)} · {snapshotReasonLabel[version.snapshotReason]}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Stack>
+          </CardContent>
+        </Card>
+      )}
+
       {loading && (
         <Card variant='outlined'>
           <CardContent>
@@ -127,6 +221,33 @@ export default function ArticleVersionComparisonPage({
 
       {comparison && (
         <>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
+            {([
+              ['Older version', comparison.baseVersion],
+              ['Newer version', comparison.targetVersion]
+            ] as const).map(([title, version]) => (
+              <Card key={title} variant='outlined'>
+                <CardContent>
+                  <Stack spacing={0.75}>
+                    <Typography variant='overline' color='text.secondary'>{title}</Typography>
+                    <Typography variant='h6'>{versionLabel(version)}</Typography>
+                    <Typography variant='body2'>Author: {version.createdBy.fullName}</Typography>
+                    <Typography variant='body2'>Created: {formatVersionDate(version.createdAt, lang)}</Typography>
+                    {version.publishedAt && (
+                      <Typography variant='body2'>
+                        Published: {formatVersionDate(version.publishedAt, lang)}
+                        {version.publishedBy ? ` by ${version.publishedBy.fullName}` : ''}
+                      </Typography>
+                    )}
+                    <Typography variant='caption' color='text.secondary'>
+                      {snapshotReasonLabel[version.snapshotReason]}
+                    </Typography>
+                  </Stack>
+                </CardContent>
+              </Card>
+            ))}
+          </Box>
+
           <Card variant='outlined'>
             <CardContent>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} useFlexGap sx={{ flexWrap: 'wrap' }}>
@@ -151,7 +272,16 @@ export default function ArticleVersionComparisonPage({
                   key={`${change.changeType}-${change.beforePosition ?? 'new'}-${change.afterPosition ?? 'removed'}-${index}`}
                   variant='outlined'
                   sx={theme => ({
-                    borderInlineStart: `4px solid ${theme.palette[changeColor[change.changeType]].main}`
+                    borderInlineStart: change.changeType === 'Unchanged'
+                      ? `4px solid ${theme.palette.divider}`
+                      : `4px solid ${theme.palette[changeColor[change.changeType]].main}`,
+                    bgcolor: change.changeType === 'Added'
+                      ? 'success.lighterOpacity'
+                      : change.changeType === 'Removed'
+                        ? 'error.lighterOpacity'
+                        : change.changeType === 'Changed'
+                          ? 'warning.lighterOpacity'
+                          : 'background.paper'
                   })}
                 >
                   <CardContent>
@@ -160,7 +290,8 @@ export default function ArticleVersionComparisonPage({
                         <Chip
                           size='small'
                           color={changeColor[change.changeType]}
-                          label={change.changeType}
+                          variant={change.changeType === 'Unchanged' ? 'outlined' : 'tonal'}
+                          label={change.changeType === 'Changed' ? 'Modified' : change.changeType}
                         />
                         <Typography variant='subtitle2'>{change.blockLabel}</Typography>
                       </Stack>
@@ -168,29 +299,37 @@ export default function ArticleVersionComparisonPage({
                       {change.changeType === 'Changed' ? (
                         <>
                           <Box>
-                            <Typography variant='caption' color='text.secondary'>Before</Typography>
-                            <Typography
-                              component='p'
-                              sx={{ mt: 0.5, whiteSpace: 'pre-wrap', bgcolor: 'error.lighterOpacity', p: 2 }}
-                            >
-                              {change.beforeText}
+                            <Typography variant='caption' color='text.secondary'>Older version</Typography>
+                            <Typography component='p' sx={{ mt: 0.5, whiteSpace: 'pre-wrap', p: 2 }}>
+                              {change.segments.filter(segment => segment.changeType !== 'Added')
+                                .map((segment, segmentIndex) => (
+                                  <Box
+                                    component='span'
+                                    key={`${segment.changeType}-${segmentIndex}`}
+                                    sx={{
+                                      bgcolor: segment.changeType === 'Removed' ? 'error.lighterOpacity' : undefined,
+                                      color: segment.changeType === 'Removed' ? 'error.main' : 'text.primary',
+                                      textDecoration: segment.changeType === 'Removed' ? 'line-through' : undefined
+                                    }}
+                                  >
+                                    {segment.text}
+                                  </Box>
+                                ))}
                             </Typography>
                           </Box>
                           <Box>
-                            <Typography variant='caption' color='text.secondary'>After</Typography>
+                            <Typography variant='caption' color='text.secondary'>Newer version</Typography>
                             <Typography component='p' sx={{ mt: 0.5, whiteSpace: 'pre-wrap', p: 2 }}>
-                              {change.segments.map((segment, segmentIndex) => (
+                              {change.segments.filter(segment => segment.changeType !== 'Removed')
+                                .map((segment, segmentIndex) => (
                                 <Box
                                   component='span'
                                   key={`${segment.changeType}-${segmentIndex}`}
                                   sx={{
-                                    bgcolor: segment.changeType === 'Added'
-                                      ? 'success.lighterOpacity'
-                                      : segment.changeType === 'Removed'
-                                        ? 'error.lighterOpacity'
-                                        : undefined,
-                                    color: segment.changeType === 'Removed' ? 'error.main' : 'text.primary',
-                                    textDecoration: segment.changeType === 'Removed' ? 'line-through' : undefined
+                                    bgcolor: segment.changeType === 'Unchanged'
+                                      ? undefined
+                                      : 'success.lighterOpacity',
+                                    color: segment.changeType === 'Unchanged' ? 'text.primary' : 'success.dark'
                                   }}
                                 >
                                   {segment.text}
@@ -201,12 +340,19 @@ export default function ArticleVersionComparisonPage({
                         </>
                       ) : (
                         <Box>
-                          <Typography component='p' sx={{ whiteSpace: 'pre-wrap', m: 0 }}>
+                          <Typography
+                            component='p'
+                            sx={{
+                              whiteSpace: 'pre-wrap',
+                              m: 0,
+                              color: change.changeType === 'Removed' ? 'error.main' : 'text.primary',
+                              textDecoration: change.changeType === 'Removed' ? 'line-through' : undefined
+                            }}
+                          >
                             {change.afterText ?? change.beforeText}
                           </Typography>
                         </Box>
                       )}
-                      {index < comparison.changes.length - 1 && <Divider sx={{ display: 'none' }} />}
                     </Stack>
                   </CardContent>
                 </Card>

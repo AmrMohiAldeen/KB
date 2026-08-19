@@ -14,10 +14,30 @@ import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
+import { styled } from '@mui/material/styles'
 import { Columns3, Search } from 'lucide-react'
 
 // Component Imports
-import CustomTextField from '@core/components/mui/TextField'
+import kbDesignTokens from '@core/theme/designTokens'
+import KbTableFilter from './KbTableFilter'
+
+export const KbTableControls = styled(Box)(({ theme }) => ({
+  display: 'flex',
+  alignItems: 'center',
+  flexWrap: 'wrap',
+  gap: theme.spacing(3),
+  '& .MuiButton-root, & .MuiIconButton-root, & .MuiButtonGroup-root': {
+    blockSize: kbDesignTokens.controlHeight
+  },
+  '& .MuiButton-root': {
+    borderRadius: kbDesignTokens.radius.md,
+    fontSize: theme.typography.body2.fontSize
+  },
+  '& .MuiButtonGroup-root .MuiButtonBase-root': {
+    blockSize: kbDesignTokens.controlHeight,
+    minInlineSize: kbDesignTokens.controlHeight
+  }
+}))
 
 export type KbToolbarColumn = {
   id: string
@@ -66,28 +86,26 @@ export const KbTableToolbar = ({
   }
 
   return (
-    <Box
+    <KbTableControls
       sx={theme => ({
-        display: 'flex',
         flexDirection: { xs: 'column', md: 'row' },
         alignItems: { md: 'center' },
         justifyContent: 'space-between',
-        gap: 1.5,
         borderBlockEnd: `1px solid ${theme.palette.divider}`,
         px: { xs: 2, md: 2.5 },
-        py: 1.5,
+        py: 2,
         bgcolor: 'background.paper'
       })}
     >
       <Stack
         direction='row'
-        spacing={1}
+        spacing={2.5}
         useFlexGap
         sx={{ flex: 1, minInlineSize: 0, alignItems: 'center', flexWrap: 'wrap' }}
       >
         {searchSlot ??
           (typeof searchValue !== 'undefined' && onSearchChange ? (
-            <CustomTextField
+            <KbTableFilter
               value={searchValue}
               onChange={event => onSearchChange(event.target.value)}
               placeholder={searchPlaceholder}
@@ -106,7 +124,7 @@ export const KbTableToolbar = ({
         {filters}
       </Stack>
 
-      <Stack direction='row' spacing={1} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
+      <Stack direction='row' spacing={2.5} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
         {selectedCount > 0 && (
           <Typography variant='body2' color='text.secondary'>
             {selectedCount} selected
@@ -138,7 +156,7 @@ export const KbTableToolbar = ({
         )}
         {actions}
       </Stack>
-    </Box>
+    </KbTableControls>
   )
 }
 

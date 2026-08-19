@@ -7,7 +7,7 @@ const chip: Theme['components'] = {
       {
         props: { variant: 'tonal', color: 'primary' },
         style: {
-          backgroundColor: 'var(--mui-palette-primary-lightOpacity)',
+          backgroundColor: 'var(--mui-palette-primary-lighterOpacity)',
           color: 'var(--mui-palette-primary-main)',
           '&.Mui-focusVisible': {
             backgroundColor: 'var(--mui-palette-primary-mainOpacity)'
@@ -23,7 +23,7 @@ const chip: Theme['components'] = {
       {
         props: { variant: 'tonal', color: 'secondary' },
         style: {
-          backgroundColor: 'var(--mui-palette-secondary-lightOpacity)',
+          backgroundColor: 'var(--mui-palette-secondary-lighterOpacity)',
           color: 'var(--mui-palette-secondary-main)',
           '&.Mui-focusVisible': {
             backgroundColor: 'var(--mui-palette-secondary-mainOpacity)'
@@ -39,7 +39,7 @@ const chip: Theme['components'] = {
       {
         props: { variant: 'tonal', color: 'error' },
         style: {
-          backgroundColor: 'var(--mui-palette-error-lightOpacity)',
+          backgroundColor: 'var(--mui-palette-error-lighterOpacity)',
           color: 'var(--mui-palette-error-main)',
           '&.Mui-focusVisible': {
             backgroundColor: 'var(--mui-palette-error-mainOpacity)'
@@ -55,7 +55,7 @@ const chip: Theme['components'] = {
       {
         props: { variant: 'tonal', color: 'warning' },
         style: {
-          backgroundColor: 'var(--mui-palette-warning-lightOpacity)',
+          backgroundColor: 'var(--mui-palette-warning-lighterOpacity)',
           color: 'var(--mui-palette-warning-main)',
           '&.Mui-focusVisible': {
             backgroundColor: 'var(--mui-palette-warning-mainOpacity)'
@@ -71,7 +71,7 @@ const chip: Theme['components'] = {
       {
         props: { variant: 'tonal', color: 'info' },
         style: {
-          backgroundColor: 'var(--mui-palette-info-lightOpacity)',
+          backgroundColor: 'var(--mui-palette-info-lighterOpacity)',
           color: 'var(--mui-palette-info-main)',
           '&.Mui-focusVisible': {
             backgroundColor: 'var(--mui-palette-info-mainOpacity)'
@@ -87,7 +87,7 @@ const chip: Theme['components'] = {
       {
         props: { variant: 'tonal', color: 'success' },
         style: {
-          backgroundColor: 'var(--mui-palette-success-lightOpacity)',
+          backgroundColor: 'var(--mui-palette-success-lighterOpacity)',
           color: 'var(--mui-palette-success-main)',
           '&.Mui-focusVisible': {
             backgroundColor: 'var(--mui-palette-success-mainOpacity)'
@@ -110,7 +110,8 @@ const chip: Theme['components'] = {
         
         ...(ownerState.size === 'small'
           ? {
-              borderRadius: 'var(--mui-shape-customBorderRadius-sm)'
+              borderRadius: 'var(--mui-shape-customBorderRadius-sm)',
+              minBlockSize: 24
             }
           : {
               borderRadius: 'var(--mui-shape-borderRadius)'

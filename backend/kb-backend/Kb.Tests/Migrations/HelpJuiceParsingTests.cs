@@ -80,7 +80,7 @@ public sealed class HelpJuiceParsingTests
         using var package=Package("id,codename,name,is_published\nq1,one,One,TRUE",
             "id,question_id,body\na1,q1,\"<p>Body</p><img src='images/missing.png'>\"");
         var source=await HelpJuiceSourceParser.ParseAndValidateAsync(package,new(),TimeProvider.System);
-        Assert.Equal(1,source.Summary.MissingMedia);Assert.Contains(source.Issues,x=>x.ErrorCode=="EXTERNAL_MEDIA_LEFT_EXTERNAL");
+        Assert.Equal(1,source.Summary.MissingMedia);Assert.Contains(source.Issues,x=>x.ErrorCode=="UNSUPPORTED_MEDIA_URL");
     }
 
     [Fact]
@@ -97,7 +97,7 @@ public sealed class HelpJuiceParsingTests
         Assert.True(preview.IsLimited);Assert.Equal(2,preview.SourceArticleCount);
         Assert.Equal("One",article.Title);Assert.Equal("Guides / Setup",article.CategoryLocation);
         Assert.Contains("First body",article.ContentHtml);Assert.Equal("u1",article.SourceMetadata["question.user_id"]);
-        Assert.Contains(article.Issues,issue=>issue.ErrorCode=="EXTERNAL_MEDIA_LEFT_EXTERNAL"&&issue.ExternalId=="a1");
+        Assert.Contains(article.Issues,issue=>issue.ErrorCode=="UNSUPPORTED_MEDIA_URL"&&issue.ExternalId=="a1");
         Assert.DoesNotContain(article.Issues,issue=>issue.ExternalId is "q2" or "a2");
     }
 
@@ -376,6 +376,58 @@ public sealed class HelpJuiceParsingTests
     }
 
     [Fact]
+    public void Hsl_and_hsla_text_colors_survive_as_Tiptap_supported_color_values()
+    {
+        var result=HelpJuiceHtmlConverter.Convert("<p><span style='color:hsl(6,59%,50%)'>one</span><font color='hsla(210, 50%, 40%, .25)'>two</font></p>");
+
+        Assert.Contains("hsl(6,59%,50%)",result.TiptapJson);
+        Assert.Contains("hsla(210, 50%, 40%, .25)",result.TiptapJson);
+        Assert.DoesNotContain(result.Warnings,warning=>warning.Code=="UNSUPPORTED_TEXT_COLOR");
+    }
+
+    [Fact]
+    public void Absolute_CSS_table_units_are_normalized_and_source_cell_percentages_survive()
+    {
+        var result=HelpJuiceHtmlConverter.Convert("<table style='width:1in'><colgroup><col width='25%'><col width='2.54cm'></colgroup><tr><td>A</td><td>B</td></tr></table>");
+
+        Assert.Contains("\"tableWidthPx\":96",result.TiptapJson);
+        Assert.Contains("\"cellWidth\":\"25%\"",result.TiptapJson);
+        Assert.Contains("\"cellWidth\":\"96px\"",result.TiptapJson);
+        Assert.Contains(result.Warnings,warning=>warning.Code=="TABLE_WIDTH_NORMALIZED");
+        Assert.DoesNotContain(result.Warnings,warning=>warning.Code is "UNSUPPORTED_TABLE_WIDTH" or "UNSUPPORTED_TABLE_COLUMN_WIDTH");
+    }
+
+    [Fact]
+    public void Unsupported_styles_attributes_and_meaningful_classes_are_never_silently_dropped()
+    {
+        var result=HelpJuiceHtmlConverter.Convert("<p class='customer-widget' data-behavior='rotate' style='filter:blur(2px); margin-left:20px'>Text</p>");
+
+        Assert.Contains(result.Warnings,warning=>warning.Code=="MEANINGFUL_CLASS_NOT_PRESERVED"&&warning.Message.Contains("customer-widget"));
+        Assert.Contains(result.Warnings,warning=>warning.Code=="UNSUPPORTED_ATTRIBUTE_REMOVED"&&warning.Message.Contains("data-behavior"));
+        Assert.Equal(2,result.Warnings.Count(warning=>warning.Code=="UNSUPPORTED_STYLE_REMOVED"));
+    }
+
+    [Fact]
+    public async Task Nonempty_source_that_converts_to_no_editor_content_is_a_blocking_error()
+    {
+        using var package=Package("id,name\nq1,Lost", "id,question_id,body\na1,q1,\"<script>only unsafe content</script>\"");
+        var source=await HelpJuiceSourceParser.ParseAndValidateAsync(package,new(),TimeProvider.System);
+
+        Assert.Contains(source.Issues,issue=>issue.Severity=="Error"&&issue.ErrorCode=="NONEMPTY_SOURCE_BODY_BECAME_EMPTY");
+    }
+
+    [Fact]
+    public async Task External_https_media_is_planned_in_preview_without_being_reported_as_left_external()
+    {
+        using var package=Package("id,name\nq1,Media", "id,question_id,body\na1,q1,\"<img src='https://cdn.example.test/image.gif'>\"");
+        var source=await HelpJuiceSourceParser.ParseAndValidateAsync(package,new(),TimeProvider.System);
+
+        Assert.Contains(source.Issues,issue=>issue.ErrorCode=="EXTERNAL_MEDIA_IMPORT_PLANNED");
+        Assert.DoesNotContain(source.Issues,issue=>issue.ErrorCode=="EXTERNAL_MEDIA_LEFT_EXTERNAL");
+        Assert.Equal(0,source.Summary.MissingMedia);
+    }
+
+    [Fact]
     public void HelpJuice_percentage_table_and_colgroup_widths_map_to_Tiptap_attributes()
     {
         var result=HelpJuiceHtmlConverter.Convert("""
@@ -456,6 +508,20 @@ public sealed class HelpJuiceParsingTests
     }
 
     [Fact]
+    public async Task Destination_slug_collisions_are_allocated_deterministically_during_shared_preview_parsing()
+    {
+        using var package=Package("id,name,codename\nq1,One,existing", "id,question_id,body\na1,q1,Body");
+        var occupied=new HashSet<string>(["existing"],StringComparer.OrdinalIgnoreCase);
+
+        var preview=await HelpJuiceSourceParser.ParseAndValidateAsync(package,new(),TimeProvider.System,occupied);
+        var finalDecision=await HelpJuiceSourceParser.ParseAndValidateAsync(package,new(),TimeProvider.System,occupied);
+
+        Assert.Equal("existing-q1",Assert.Single(preview.Questions).Slug);
+        Assert.Equal(Assert.Single(preview.Questions).Slug,Assert.Single(finalDecision.Questions).Slug);
+        Assert.Contains(preview.Issues,issue=>issue.ErrorCode=="DESTINATION_SLUG_CONFLICT"&&issue.Message.Contains("existing-q1"));
+    }
+
+    [Fact]
     public void Lazy_and_protocol_relative_embed_urls_are_recovered_safely()
     {
         var result=HelpJuiceHtmlConverter.Convert("<iframe data-src='//www.youtube.com/embed/dQw4w9WgXcQ'></iframe>");
@@ -497,6 +563,16 @@ public sealed class HelpJuiceParsingTests
         var resolver=HelpJuiceSourceParser.CreateLinkResolver([question],question);
 
         Assert.Equal("/kb/manage-subjects",resolver("https://docs.helpjuice.com/kb/manage-subjects.html")?.Url);
+    }
+
+    [Fact]
+    public void Relative_internal_links_preserve_fragments_when_rewritten()
+    {
+        var question=new HelpJuiceQuestion(2,"q1","manage-subjects","Manage subjects",null,true,null,null,null,
+            new Dictionary<string,string>{{"codename","manage-subjects"}});
+        var resolver=HelpJuiceSourceParser.CreateLinkResolver([question],question);
+
+        Assert.Equal("/kb/manage-subjects#permissions",resolver("../kb/manage-subjects.html?source=legacy#permissions")?.Url);
     }
 
     [Fact]

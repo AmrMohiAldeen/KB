@@ -122,6 +122,23 @@ public sealed class HelpJuiceImportWriterTests
         Assert.Equal("resolved@example.test",article.LegacyAuthorEmail);
     }
 
+    [Fact]
+    public async Task Media_with_the_same_sha256_hash_reuses_one_MediaFile_and_records_each_source_mapping()
+    {
+        await using var f=await Fixture.CreateAsync();
+        const string hash="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        ImportedMediaData Media(string externalId,Guid id,string name)=>new(externalId,id,name,$"{id:N}.png","image/png",".png",12,
+            $"migration-imports/helpjuice/media/{hash}.png",hash,f.UserId,DateTime.UtcNow);
+
+        var first=await f.Writer.WriteMediaAsync(f.OperationId,Media("url:one",Guid.NewGuid(),"one.png"),default);
+        var duplicate=await f.Writer.WriteMediaAsync(f.OperationId,Media("url:two",Guid.NewGuid(),"two.png"),default);
+
+        Assert.Equal(first.InternalId,duplicate.InternalId);
+        Assert.Equal(MigrationWriteDisposition.Skipped,duplicate.Disposition);
+        Assert.Equal(1,await f.Context.MediaFiles.CountAsync());
+        Assert.Equal(2,await f.Context.MigrationExternalMappings.CountAsync(mapping=>mapping.ExternalEntityType=="Media"));
+    }
+
     private static ImportedArticleData Article(string id,bool published,Guid user)=>new(id,id,id,null,null,user,published?ArticleStatuses.Published:ArticleStatuses.Draft,published,DateTime.UtcNow.AddDays(-1),DateTime.UtcNow,null,new($"draft/{id}.json",$"draft/{id}.html",$"draft/{id}.txt","a".PadLeft(64,'0'),20,[],published?$"version/{id}.json":null,published?$"version/{id}.html":null,published?$"version/{id}.txt":null));
 
     private sealed class Fixture : IAsyncDisposable

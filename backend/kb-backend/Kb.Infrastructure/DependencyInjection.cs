@@ -82,6 +82,11 @@ public static class DependencyInjection
         {
             client.Timeout = TimeSpan.FromSeconds(45);
             client.DefaultRequestHeaders.UserAgent.ParseAdd("GamaLearn-KB-HelpJuice-Migration/1.0");
+        }).ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+        {
+            AllowAutoRedirect = false,
+            AutomaticDecompression = System.Net.DecompressionMethods.GZip | System.Net.DecompressionMethods.Deflate,
+            ConnectTimeout = TimeSpan.FromSeconds(15)
         });
         services.AddScoped<INotificationRepository, NotificationRepository>();
         services.AddScoped<IExportJobRepository, ExportJobRepository>();

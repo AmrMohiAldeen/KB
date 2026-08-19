@@ -17,9 +17,19 @@ public static class HelpJuicePackageReader
         ".docx", ".xlsx", ".pptx", ".odt", ".ods", ".odp", ".doc", ".xls", ".ppt",
         ".rtf", ".txt", ".md", ".json", ".xml"
     };
+    private static readonly HashSet<string> KnownIgnoredFiles = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "readme.md", "readme.txt", "manifest.json", "metadata.json", ".ds_store",
+        "tags.csv", "taggings.csv", "activities.csv", "article_activities.csv", "redirects.csv",
+        "comments.csv", "revisions.csv", "searches.csv", "views.csv"
+    };
 
     public static bool IsSupportedManualFile(string fileName) =>
-        KnownCsv.Contains(Path.GetFileName(fileName)) || MediaExtensions.Contains(Path.GetExtension(fileName));
+        KnownCsv.Contains(Path.GetFileName(fileName)) || KnownIgnoredFiles.Contains(Path.GetFileName(fileName)) ||
+        MediaExtensions.Contains(Path.GetExtension(fileName));
+
+    public static bool IsKnownIgnoredFile(string fileName) =>
+        KnownIgnoredFiles.Contains(Path.GetFileName(fileName));
 
     public static async Task<PackageContents> ExtractAsync(Stream package, HelpJuiceMigrationLimits limits,
         CancellationToken cancellationToken = default)
@@ -66,6 +76,7 @@ public static class HelpJuicePackageReader
                     var baseName = Path.GetFileName(normalized);
                     var isKnown = KnownCsv.Contains(baseName);
                     var isMedia = MediaExtensions.Contains(Path.GetExtension(baseName));
+                    if (KnownIgnoredFiles.Contains(baseName)) continue;
                     if (!isKnown && !isMedia) { unsupported.Add(normalized); continue; }
                     if (isKnown && known.ContainsKey(baseName))
                         throw new InvalidDataException($"The ZIP contains more than one {baseName} file.");

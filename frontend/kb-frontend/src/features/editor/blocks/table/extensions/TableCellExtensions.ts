@@ -61,6 +61,20 @@ const borderAttribute: Attribute = {
   },
 };
 
+const cellWidthAttribute: Attribute = {
+  default: null,
+  parseHTML: (element) => {
+    const value = (element.getAttribute('data-cell-width') ?? element.style.width).trim().toLowerCase();
+    return /^\d+(?:\.\d+)?(?:px|%)$/.test(value) ? value : null;
+  },
+  renderHTML: (attributes) => {
+    const value = typeof attributes.cellWidth === 'string' ? attributes.cellWidth.trim().toLowerCase() : '';
+    return /^\d+(?:\.\d+)?(?:px|%)$/.test(value)
+      ? { 'data-cell-width': value, style: `width: ${value};` }
+      : {};
+  },
+};
+
 // Added the following attributes to cells:
 // rowHeight: in old browsers formatting row height on <tr> can lead to unexpected behavior 
 // backgroundColor
@@ -70,6 +84,7 @@ const cellAttributes = () => ({
   backgroundColor: backgroundColorAttribute,
   verticalAlign: verticalAlignAttribute,
   border: borderAttribute,
+  cellWidth: cellWidthAttribute,
   defaultMarks: cellDefaultMarksAttribute,
 });
 

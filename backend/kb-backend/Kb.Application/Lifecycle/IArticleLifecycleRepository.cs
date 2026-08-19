@@ -53,6 +53,8 @@ public interface IArticleLifecycleRepository
         byte[] expectedRowVersion,
         Guid submittedVersionId,
         string? expectedContentHash,
+        VersionSnapshotContentData publishedSnapshot,
+        LifecycleAuditData snapshotAudit,
         LifecycleReviewData review,
         LifecycleAuditData audit,
         CancellationToken cancellationToken);

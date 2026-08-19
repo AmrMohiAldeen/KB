@@ -67,20 +67,20 @@ const DashboardCategoryNode = ({
           dense
           selected={selectedCategoryId === node.id}
           onClick={() => onSelect(node.id)}
-          sx={theme => ({
+          sx={{
             minInlineSize: 0,
             minBlockSize: 34,
             gap: 1.25,
-            borderRadius: 1.25,
+            borderRadius: 'var(--mui-shape-customBorderRadius-md)',
             px: 1.5,
             color: 'text.secondary',
             '&:hover': { bgcolor: 'action.hover', color: 'text.primary' },
             '&.Mui-selected': {
-              bgcolor: `rgba(${theme.vars.palette.primary.mainChannel} / 0.1)`,
+              bgcolor: 'customColors.selectedBg',
               color: 'primary.main',
-              '&:hover': { bgcolor: `rgba(${theme.vars.palette.primary.mainChannel} / 0.14)` }
+              '&:hover': { bgcolor: 'primary.lighterOpacity' }
             }
-          })}
+          }}
         >
           {expanded ? <FolderOpen size={17} aria-hidden='true' /> : <Folder size={17} aria-hidden='true' />}
           <ListItemText

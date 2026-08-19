@@ -114,6 +114,20 @@ public sealed class HelpJuiceImportWriter(KbDbContext db, TimeProvider timeProvi
             : await db.MediaFiles.SingleOrDefaultAsync(x => x.MediaId == mapping.InternalId, ct);
         if(mapping is not null&&existing is null)throw new ConflictException($"Mapped HelpJuice media '{media.ExternalId}' no longer exists.");
         if (existing is not null) return new(existing.MediaId, MigrationWriteDisposition.Skipped);
+        if (mapping is null && !string.IsNullOrWhiteSpace(media.Hash))
+        {
+            var hashMapping = await db.MigrationExternalMappings.AsNoTracking()
+                .Where(x => x.SourceSystem == "HelpJuice" && x.ExternalEntityType == "Media" && x.ContentHash == media.Hash)
+                .OrderBy(x => x.CreatedAt).FirstOrDefaultAsync(ct);
+            if (hashMapping is not null && await db.MediaFiles.AnyAsync(x => x.MediaId == hashMapping.InternalId, ct))
+            {
+                AddMapping("Media", media.ExternalId, hashMapping.InternalId, media.Hash,
+                    new { media.OriginalFileName, media.MimeType, DeduplicatedBy = "sha256" });
+                AddAudit(media.UserId,"MigrationMediaReused","Media",hashMapping.InternalId,null,operationId);
+                await SaveAsync(ct);
+                return new(hashMapping.InternalId, MigrationWriteDisposition.Skipped);
+            }
+        }
         db.MediaFiles.Add(new MediaFile{MediaId=media.Id,OriginalFileName=Normalize(media.OriginalFileName,260),StoredFileName=media.StoredFileName,MimeType=media.MimeType,FileExtension=media.Extension,FileSizeBytes=media.Size,StoragePath=media.StoragePath,Status=MediaStatuses.Active,UploadedByFk=media.UserId,UploadedAt=media.UploadedAt});
         AddMapping("Media",media.ExternalId,media.Id,media.Hash,new { media.OriginalFileName, media.MimeType });
         AddAudit(media.UserId,"MigrationMediaImported","Media",media.Id,null,operationId); await SaveAsync(ct); return new(media.Id,MigrationWriteDisposition.Imported);

@@ -28,7 +28,7 @@ export const articleStatusColor: Record<ArticleStatus, ChipProps['color']> = {
   Published: 'success',
   Draft: 'secondary',
   SubmittedForReview: 'info',
-  InReview: 'warning',
+  InReview: 'info',
   ChangesRequested: 'warning',
   Approved: 'success',
   Archived: 'secondary'

@@ -65,11 +65,11 @@ const statusOptions: Array<{ value: MediaStatus; label: string }> = [
   { value: 'Deleted', label: 'Deleted' }
 ]
 
-const statusColor: Record<MediaStatus, 'default' | 'info' | 'success' | 'warning'> = {
+const statusColor: Record<MediaStatus, 'error' | 'info' | 'secondary' | 'success'> = {
   Active: 'success',
-  Archived: 'warning',
+  Archived: 'secondary',
   Temporary: 'info',
-  Deleted: 'default'
+  Deleted: 'error'
 }
 
 const mediaKindLabel: Record<MediaKind, string> = {

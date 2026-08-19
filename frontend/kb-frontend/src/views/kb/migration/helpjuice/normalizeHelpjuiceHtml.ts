@@ -259,6 +259,10 @@ function normalizeStyle(element: HTMLElement): void {
       if (!element.hasAttribute('dir')) element.setAttribute('dir', value)
     }
 
+    if (normalizedProperty === 'width' && ['table', 'col', 'td', 'th'].includes(element.tagName.toLowerCase())) {
+      value = normalizeCssDimension(value) ?? value
+    }
+
     declarations.push(`${normalizedProperty}: ${value}`)
   }
 
@@ -266,8 +270,20 @@ function normalizeStyle(element: HTMLElement): void {
   else element.removeAttribute('style')
 }
 
+function normalizeCssDimension(value: string): string | null {
+  const match = value.trim().replace(/\s*!important\s*$/i, '').match(/^(\d+(?:\.\d+)?)(%|px|in|cm|mm|pt|pc|em|rem)?$/i)
+  if (!match) return null
+  const amount = Number(match[1])
+  const unit = (match[2] ?? 'px').toLowerCase()
+  if (!Number.isFinite(amount) || amount <= 0) return null
+  if (unit === '%') return `${amount}%`
+  const factors: Record<string, number> = { px: 1, in: 96, cm: 96 / 2.54, mm: 96 / 25.4, pt: 96 / 72, pc: 16, em: 16, rem: 16 }
+  const pixels = amount * factors[unit]
+  return Number.isFinite(pixels) ? `${Number(pixels.toFixed(3))}px` : null
+}
+
 function validDimension(value: string, kind: 'table' | 'column'): boolean {
-  const match = value.trim().match(/^(\d+(?:\.\d+)?)(%|px)?$/i)
+  const match = normalizeCssDimension(value)?.match(/^(\d+(?:\.\d+)?)(%|px)$/i)
   if (!match) return false
   const amount = Number(match[1])
   if (!Number.isFinite(amount)) return false

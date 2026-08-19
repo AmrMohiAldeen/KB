@@ -19,6 +19,8 @@ internal static partial class TiptapVersionDiff
             ["codeBlock"] = "Code block",
             ["tableRow"] = "Table row",
             ["callout"] = "Callout",
+            ["tabItem"] = "Tab",
+            ["accordionItem"] = "Accordion section",
             ["details"] = "Details",
             ["image"] = "Image",
             ["inlineImage"] = "Image",
@@ -47,6 +49,19 @@ internal static partial class TiptapVersionDiff
                 before.Skip(beforeStart).Take(match.Item1 - beforeStart).ToArray(),
                 after.Skip(afterStart).Take(match.Item2 - afterStart).ToArray(),
                 changes);
+            if (match.Item1 < before.Length && match.Item2 < after.Length)
+            {
+                var unchangedBlock = before[match.Item1];
+                changes.Add(new(
+                    "Unchanged",
+                    unchangedBlock.Type,
+                    unchangedBlock.Label,
+                    unchangedBlock.Position,
+                    after[match.Item2].Position,
+                    unchangedBlock.Text,
+                    after[match.Item2].Text,
+                    [new("Unchanged", unchangedBlock.Text)]));
+            }
             beforeStart = match.Item1 + 1;
             afterStart = match.Item2 + 1;
         }
@@ -200,7 +215,7 @@ internal static partial class TiptapVersionDiff
             {
                 var text = NormalizeWhitespace(ReadBlockText(node, type));
                 if (text.Length > 0)
-                    blocks.Add(new(type, HeadingLabel(node, type, label), text, blocks.Count + 1));
+                    blocks.Add(new(type, BlockLabel(node, type, label), text, blocks.Count + 1));
                 return;
             }
 
@@ -213,6 +228,12 @@ internal static partial class TiptapVersionDiff
 
     private static string ReadBlockText(JsonElement node, string type)
     {
+        if (type == "tableRow" && node.TryGetProperty("content", out var cells) &&
+            cells.ValueKind == JsonValueKind.Array)
+            return string.Join(" | ", cells.EnumerateArray()
+                .Select(cell => NormalizeWhitespace(ReadBlockText(cell, "tableCell")))
+                .Where(value => value.Length > 0));
+
         var text = new StringBuilder();
         AppendText(node, text);
         if (text.Length > 0)
@@ -255,12 +276,25 @@ internal static partial class TiptapVersionDiff
         }
     }
 
-    private static string HeadingLabel(JsonElement node, string type, string fallback)
+    private static string BlockLabel(JsonElement node, string type, string fallback)
     {
-        if (type != "heading" || !node.TryGetProperty("attrs", out var attrs) ||
-            !attrs.TryGetProperty("level", out var level) || !level.TryGetInt32(out var value))
+        if (!node.TryGetProperty("attrs", out var attrs) || attrs.ValueKind != JsonValueKind.Object)
             return fallback;
-        return $"Heading {value}";
+        if (type == "heading" && attrs.TryGetProperty("level", out var level) && level.TryGetInt32(out var value))
+            return $"Heading {value}";
+        if (type == "tabItem" && attrs.TryGetProperty("label", out var tabLabel) &&
+            tabLabel.ValueKind == JsonValueKind.String &&
+            !string.IsNullOrWhiteSpace(tabLabel.GetString()))
+            return $"Tab: {tabLabel.GetString()}";
+        if (type == "accordionItem" && attrs.TryGetProperty("title", out var title) &&
+            title.ValueKind == JsonValueKind.String &&
+            !string.IsNullOrWhiteSpace(title.GetString()))
+            return $"Accordion: {title.GetString()}";
+        if (type == "callout" && attrs.TryGetProperty("variant", out var variant) &&
+            variant.ValueKind == JsonValueKind.String &&
+            !string.IsNullOrWhiteSpace(variant.GetString()))
+            return $"{variant.GetString()![..1].ToUpperInvariant()}{variant.GetString()![1..]} callout";
+        return fallback;
     }
 
     private static bool Equivalent(ContentBlock left, ContentBlock right) =>

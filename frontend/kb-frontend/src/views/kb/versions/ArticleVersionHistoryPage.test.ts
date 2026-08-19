@@ -29,7 +29,7 @@ const article: ArticleDetailsResponse = {
     contentHash: 'hash',
     contentSizeBytes: 42,
     rowVersion: 'current-row-version',
-    status: 'Published',
+    status: 'Approved',
     isLocked: false,
     lockedBy: null,
     lockedAt: null,
@@ -38,7 +38,16 @@ const article: ArticleDetailsResponse = {
     createdAt: '2026-07-28T08:00:00Z',
     updatedAt: '2026-07-28T08:00:00Z'
   },
-  currentPublishedVersion: null,
+  currentPublishedVersion: {
+    versionId: 'version-2',
+    versionNumber: 2,
+    contentHash: 'hash-2',
+    contentSizeBytes: 42,
+    createdBy: { userId: 'author-1', fullName: 'Article Author' },
+    createdAt: '2026-07-22T08:00:00Z',
+    publishedBy: { userId: 'publisher-1', fullName: 'Publisher' },
+    publishedAt: '2026-07-22T08:00:00Z'
+  },
   createdAt: '2026-07-28T08:00:00Z',
   updatedAt: '2026-07-28T08:00:00Z',
   submittedAt: null,
@@ -96,7 +105,7 @@ const createApi = (overrides: Partial<ArticleVersionHistoryApi> = {}): ArticleVe
   restore: vi.fn().mockResolvedValue({
     articleId: 'article-1',
     draftId: 'restored-draft',
-    status: 'Draft',
+    status: 'Published',
     rowVersion: 'restored-version',
     publishedVersionId: null,
     publishedVersionNumber: null,
@@ -171,7 +180,7 @@ describe('ArticleVersionHistoryPage', () => {
     expect(document.body.textContent).toContain('Version 2')
     expect(document.body.textContent).toContain('Approved')
     expect(document.body.textContent).toContain('Article Author')
-    expect(document.body.textContent).toContain('Published snapshot')
+    expect(document.body.textContent).toContain('Current published')
     expect(document.querySelector('table[aria-label="Article versions"]')).not.toBeNull()
   })
 
@@ -292,6 +301,12 @@ describe('ArticleVersionComparisonPage', () => {
       ]
     }
     const compare = vi.fn().mockResolvedValue(result)
+    const getVersions = vi.fn().mockResolvedValue({
+      items: [version(2), version(1)],
+      page: 1,
+      pageSize: 100,
+      totalCount: 2
+    })
 
     await act(async () => {
       root.render(createElement(ArticleVersionComparisonPage, {
@@ -301,6 +316,7 @@ describe('ArticleVersionComparisonPage', () => {
         targetVersionId: 'version-2',
         accessToken: 'token',
         compare,
+        getVersions,
         onNavigate: vi.fn()
       }))
     })
@@ -315,6 +331,15 @@ describe('ArticleVersionComparisonPage', () => {
     expect(document.body.textContent).toContain('1 changed')
     expect(document.body.textContent).toContain('old wording')
     expect(document.body.textContent).toContain('added guidance')
+    expect(document.body.textContent).toContain('Older version')
+    expect(document.body.textContent).toContain('Newer version')
+    expect(document.body.textContent).toContain('Author: Article Author')
+    expect(getVersions).toHaveBeenCalledWith(
+      'article-1',
+      { page: 1, pageSize: 100 },
+      'token',
+      expect.any(AbortSignal)
+    )
     expect(document.body.textContent).not.toContain('"type":"doc"')
   })
 })

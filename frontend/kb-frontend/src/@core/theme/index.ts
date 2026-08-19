@@ -13,6 +13,7 @@ import shadows from './shadows'
 import customShadows from './customShadows'
 import typography from './typography'
 import { MUI_COLOR_SCHEME_SELECTOR } from './colorScheme'
+import kbDesignTokens from './designTokens'
 
 const theme = (settings: Settings, mode: SystemMode, direction: Theme['direction']): ThemeOptions => {
   return {
@@ -24,23 +25,23 @@ const theme = (settings: Settings, mode: SystemMode, direction: Theme['direction
     colorSchemes: colorSchemes(settings.skin as Skin),
     ...spacing,
     shape: {
-      borderRadius: 6,
+      borderRadius: kbDesignTokens.radius.md,
       customBorderRadius: {
-        xs: 2,
-        sm: 4,
-        md: 6,
-        lg: 8,
-        xl: 10
+        xs: kbDesignTokens.radius.xs,
+        sm: kbDesignTokens.radius.sm,
+        md: kbDesignTokens.radius.md,
+        lg: kbDesignTokens.radius.lg,
+        xl: kbDesignTokens.radius.xl
       }
     },
     shadows: shadows(mode),
     typography: typography(''),
     customShadows: customShadows(mode),
     mainColorChannels: {
-      light: '47 43 61',
-      dark: '225 222 245',
-      lightShadow: '47 43 61',
-      darkShadow: '19 17 32'
+      light: '23 32 51',
+      dark: '241 245 249',
+      lightShadow: '23 32 51',
+      darkShadow: '15 23 42'
     }
   }
 }

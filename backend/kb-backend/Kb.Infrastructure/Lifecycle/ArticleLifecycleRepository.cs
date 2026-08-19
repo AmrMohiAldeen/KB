@@ -132,10 +132,9 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
         string? contentHash,
         CancellationToken cancellationToken) =>
         ExistingVersions(articleId)
-            .Where(version => contentHash != null
-                ? version.ContentHash == contentHash
-                : version.SourceDraftIdFk == draftId &&
-                  version.SnapshotReason == ArticleSnapshotReasons.SubmittedForReview)
+            .Where(version => version.SourceDraftIdFk == draftId &&
+                version.SnapshotReason == ArticleSnapshotReasons.SubmittedForReview &&
+                (contentHash == null || version.ContentHash == contentHash))
             .OrderByDescending(version => version.VersionNumber)
             .ThenByDescending(version => version.CreatedAt)
             .Select(VersionSummaryProjection)
@@ -179,15 +178,19 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
             var (article, draft) = await LoadForMutationAsync(
                 articleId, draftId, expectedRowVersion, token);
             EnsureUnlocked(draft);
-            if (draft.Status != expectedStatus || article.Status != expectedStatus)
+            if (draft.Status != expectedStatus ||
+                !ArticleWorkflow.HasConsistentDraftState(article.Status, draft.Status))
                 throw new ConflictException(
                     $"The article cannot transition from {draft.Status} to {newStatus}.");
             if (!isOverride && !ArticleWorkflow.CanTransition(draft.Status, newStatus))
                 throw new ConflictException(
                     $"The article cannot transition from {draft.Status} to {newStatus}.");
 
-            article.Status = newStatus;
-            article.UpdatedAt = audit.CreatedAt;
+            if (article.Status != ArticleStatuses.Published)
+            {
+                article.Status = newStatus;
+                article.UpdatedAt = audit.CreatedAt;
+            }
             draft.Status = newStatus;
             draft.UpdatedByFk = audit.ActorId;
             draft.UpdatedAt = audit.CreatedAt;
@@ -199,7 +202,7 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
                 var version = await AddSnapshot(article, draft, snapshot, snapshotAudit, null, null, token);
                 AddVersionAudit(version, snapshotAudit);
             }
-            await SaveChangesAsync(token);
+            await SaveChangesAsync(token, enqueueSearch: article.Status != ArticleStatuses.Published);
             return await ReadResultAsync(articleId, null, null, audit.CreatedAt, token);
         }, cancellationToken);
 
@@ -209,6 +212,8 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
         byte[] expectedRowVersion,
         Guid submittedVersionId,
         string? expectedContentHash,
+        VersionSnapshotContentData publishedSnapshot,
+        LifecycleAuditData snapshotAudit,
         LifecycleReviewData review,
         LifecycleAuditData audit,
         CancellationToken cancellationToken) =>
@@ -221,25 +226,22 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
                 throw new ConflictException(
                     $"The article cannot transition from {article.Status} to {ArticleStatuses.Published}.");
 
-            var version = await dbContext.ArticleVersions.SingleOrDefaultAsync(item =>
+            _ = await dbContext.ArticleVersions.AsNoTracking().SingleOrDefaultAsync(item =>
                     item.VersionId == submittedVersionId && item.ArticleIdFk == articleId &&
-                    (expectedContentHash != null
-                        ? item.ContentHash == expectedContentHash
-                        : item.SourceDraftIdFk == draftId &&
-                          item.SnapshotReason == ArticleSnapshotReasons.SubmittedForReview), token)
+                    item.SourceDraftIdFk == draftId &&
+                    item.SnapshotReason == ArticleSnapshotReasons.SubmittedForReview &&
+                    (expectedContentHash == null || item.ContentHash == expectedContentHash), token)
                 ?? throw new ConflictException(
                     "The approved draft no longer matches its submitted version.");
 
+            var version = await AddSnapshot(article, draft, publishedSnapshot, snapshotAudit,
+                audit.ActorId, audit.CreatedAt, token);
+            AddVersionAudit(version, snapshotAudit);
             article.Status = ArticleStatuses.Published;
             article.LastPublishedVersionIdFk = version.VersionId;
             article.UpdatedAt = audit.CreatedAt;
             draft.UpdatedByFk = audit.ActorId;
             draft.UpdatedAt = audit.CreatedAt;
-            if (version.PublishedAt is null)
-            {
-                version.PublishedByFk = audit.ActorId;
-                version.PublishedAt = audit.CreatedAt;
-            }
             AdvanceSqliteRowVersion(draft);
             AddReview(articleId, draftId, review);
             AddAudit(articleId, draftId, audit);
@@ -262,8 +264,9 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
                 articleId, currentDraftId, expectedRowVersion, token);
             EnsureUnlocked(currentDraft);
             if (!ArticleWorkflow.HasConsistentDraftState(article.Status, currentDraft.Status) ||
-                article.Status is not (
-                    ArticleStatuses.Published or ArticleStatuses.Draft or ArticleStatuses.ChangesRequested))
+                currentDraft.Status is not (ArticleStatuses.Draft or ArticleStatuses.ChangesRequested) &&
+                !(article.Status == ArticleStatuses.Published &&
+                  currentDraft.Status == ArticleStatuses.Approved))
                 throw new ConflictException(
                     "A version can only replace a published, draft, or changes-requested current draft.");
             if (!await dbContext.ArticleVersions.AnyAsync(version =>
@@ -312,11 +315,14 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
                     """, token);
             }
             article.CurrentDraftIdFk = content.DraftId;
-            article.Status = ArticleStatuses.Draft;
-            article.UpdatedAt = audit.CreatedAt;
+            if (article.Status != ArticleStatuses.Published)
+            {
+                article.Status = ArticleStatuses.Draft;
+                article.UpdatedAt = audit.CreatedAt;
+            }
             AddReview(articleId, content.DraftId, review);
             AddAudit(articleId, content.DraftId, audit);
-            await SaveChangesAsync(token);
+            await SaveChangesAsync(token, enqueueSearch: article.Status != ArticleStatuses.Published);
             return await ReadResultAsync(articleId, null, null, audit.CreatedAt, token);
         }, cancellationToken);
 
@@ -443,15 +449,20 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
         }
     }
 
-    private async Task SaveChangesAsync(CancellationToken cancellationToken)
+    private async Task SaveChangesAsync(
+        CancellationToken cancellationToken,
+        bool enqueueSearch = true)
     {
-        var changedArticles = dbContext.ChangeTracker.Entries<Article>()
-            .Where(entry => entry.State is EntityState.Added or EntityState.Modified)
-            .Select(entry => entry.Entity).Where(article => article.ArticleId != Guid.Empty)
-            .GroupBy(article => article.ArticleId).Select(group => group.First()).ToArray();
-        foreach (var article in changedArticles)
-            await SearchIndexJobQueue.EnqueueArticleAsync(dbContext, article.ArticleId, SearchIndexJobTypes.Upsert,
-                article.UpdatedAt, cancellationToken);
+        if (enqueueSearch)
+        {
+            var changedArticles = dbContext.ChangeTracker.Entries<Article>()
+                .Where(entry => entry.State is EntityState.Added or EntityState.Modified)
+                .Select(entry => entry.Entity).Where(article => article.ArticleId != Guid.Empty)
+                .GroupBy(article => article.ArticleId).Select(group => group.First()).ToArray();
+            foreach (var article in changedArticles)
+                await SearchIndexJobQueue.EnqueueArticleAsync(dbContext, article.ArticleId, SearchIndexJobTypes.Upsert,
+                    article.UpdatedAt, cancellationToken);
+        }
         try
         {
             await dbContext.SaveChangesAsync(cancellationToken);

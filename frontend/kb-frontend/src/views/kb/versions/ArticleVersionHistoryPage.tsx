@@ -64,6 +64,7 @@ export default function ArticleVersionHistoryPage({
   const [permissions, setPermissions] = useState<ArticlePermissionsResponse | null>(null)
   const [versions, setVersions] = useState<ArticleVersionSummaryResponse[]>([])
   const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [selectedVersions, setSelectedVersions] = useState<Record<string, ArticleVersionSummaryResponse>>({})
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(10)
   const [totalCount, setTotalCount] = useState(0)
@@ -99,7 +100,6 @@ export default function ArticleVersionHistoryPage({
       setPermissions(nextPermissions)
       setVersions(response.items)
       setTotalCount(response.totalCount)
-      setSelectedIds(current => current.filter(id => response.items.some(version => version.versionId === id)))
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return
       setMessages(describeLifecycleError(error))
@@ -120,17 +120,18 @@ export default function ArticleVersionHistoryPage({
   }, [load])
 
   const selectVersions = (ids: string[]) => {
-    if (ids.length <= 2) {
-      setSelectedIds(ids)
-      return
-    }
-    setSelectedIds(ids.slice(-2))
+    const nextIds = ids.length <= 2 ? ids : ids.slice(-2)
+    setSelectedIds(nextIds)
+    setSelectedVersions(current => Object.fromEntries(nextIds.flatMap(id => {
+      const selected = versions.find(version => version.versionId === id) ?? current[id]
+      return selected ? [[id, selected]] : []
+    })))
   }
 
   const compareSelected = () => {
     if (selectedIds.length !== 2) return
     const selected = selectedIds
-      .map(id => versions.find(version => version.versionId === id))
+      .map(id => selectedVersions[id])
       .filter((version): version is ArticleVersionSummaryResponse => Boolean(version))
       .sort((left, right) => left.versionNumber - right.versionNumber)
     if (selected.length !== 2) return
@@ -200,14 +201,20 @@ export default function ArticleVersionHistoryPage({
     {
       id: 'status',
       label: 'Publishing status',
-      render: version => (
-        <Chip
-          size='small'
-          variant='tonal'
-          color={version.isPublished ? 'success' : 'default'}
-          label={version.isPublished ? 'Published snapshot' : 'Workflow snapshot'}
-        />
-      )
+      render: version => {
+        const isCurrentPublished = version.versionId === article?.currentPublishedVersion?.versionId
+
+        return (
+          <Chip
+            size='small'
+            variant='tonal'
+            color={isCurrentPublished || version.isPublished ? 'success' : 'default'}
+            label={isCurrentPublished
+              ? 'Current published'
+              : version.isPublished ? 'Published snapshot' : 'Workflow snapshot'}
+          />
+        )
+      }
     },
     {
       id: 'actions',
@@ -238,7 +245,7 @@ export default function ArticleVersionHistoryPage({
         </Stack>
       )
     }
-  ], [articleId, lang, navigate, permissions?.canRestoreVersion, restoring])
+  ], [article?.currentPublishedVersion?.versionId, articleId, lang, navigate, permissions?.canRestoreVersion, restoring])
 
   return (
     <KbPageShell>

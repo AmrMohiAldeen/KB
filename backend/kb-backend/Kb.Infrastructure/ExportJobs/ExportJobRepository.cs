@@ -83,7 +83,7 @@ public sealed class ExportJobRepository(KbDbContext db) : IExportJobRepository
             .Select(item => new
             {
                 item.ArticleId, item.Title, item.Slug, item.CategoryIdFk, item.Position,
-                item.CurrentDraftIdFk
+                item.Status, item.CurrentDraftIdFk, item.LastPublishedVersionIdFk
             }).ToListAsync(token);
 
         var articleIds = articles.Select(item => item.ArticleId).ToArray();
@@ -110,6 +110,13 @@ public sealed class ExportJobRepository(KbDbContext db) : IExportJobRepository
 
         var selected = articles.Select(article =>
         {
+            var publishedVersion = article.Status == ArticleStatuses.Published &&
+                                   article.LastPublishedVersionIdFk is { } publishedVersionId
+                ? versions.Where(item => item.ArticleIdFk == article.ArticleId &&
+                                         item.Source.Id == publishedVersionId)
+                    .Select(item => item.Source)
+                    .SingleOrDefault()
+                : null;
             var draft = drafts.Where(item => item.ArticleIdFk == article.ArticleId)
                 .OrderByDescending(item => item.Source.Id == article.CurrentDraftIdFk)
                 .ThenByDescending(item => item.DraftNumber)
@@ -121,8 +128,15 @@ public sealed class ExportJobRepository(KbDbContext db) : IExportJobRepository
                 .ThenByDescending(item => item.CreatedAt)
                 .Select(item => item.Source)
                 .FirstOrDefault(item => !string.IsNullOrWhiteSpace(item.ContentJsonPath));
-            return new { Article = article, SourceType = draft is null ? ExportSourceTypes.Version : ExportSourceTypes.Draft,
-                Source = draft ?? version };
+            var source = publishedVersion ?? draft ?? version;
+            return new
+            {
+                Article = article,
+                SourceType = publishedVersion is not null || draft is null
+                    ? ExportSourceTypes.Version
+                    : ExportSourceTypes.Draft,
+                Source = source
+            };
         }).ToArray();
         var unavailable = selected.Where(item => item.Source is null).Select(item => item.Article.Title)
             .Order().Take(5).ToArray();

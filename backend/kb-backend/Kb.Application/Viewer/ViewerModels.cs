@@ -56,12 +56,12 @@ public interface IViewerRepository
         Guid? categoryId, CancellationToken cancellationToken);
     Task<ViewerArticleSource?> GetArticleAsync(Guid sessionId, string solutionSlug, string slug,
         Guid? articleId, CancellationToken cancellationToken);
-    Task<ViewerPortalData> GetPreviewPortalAsync(Guid rootCategoryId, CancellationToken cancellationToken);
-    Task<IReadOnlyList<ViewerCategoryData>> GetPreviewCategoriesAsync(Guid rootCategoryId,
+    Task<ViewerPortalData> GetPreviewPortalAsync(string rootCategorySlug, CancellationToken cancellationToken);
+    Task<IReadOnlyList<ViewerCategoryData>> GetPreviewCategoriesAsync(string rootCategorySlug,
         CancellationToken cancellationToken);
-    Task<IReadOnlyList<ViewerArticleSummary>> GetPreviewArticlesAsync(Guid rootCategoryId, string? search,
+    Task<IReadOnlyList<ViewerArticleSummary>> GetPreviewArticlesAsync(string rootCategorySlug, string? search,
         Guid? categoryId, CancellationToken cancellationToken);
-    Task<ViewerArticleSource?> GetPreviewArticleAsync(Guid rootCategoryId, string slug, Guid? articleId,
+    Task<ViewerArticleSource?> GetPreviewArticleAsync(string rootCategorySlug, string slug, Guid? articleId,
         CancellationToken cancellationToken);
     Task RecordArticleViewAsync(ICurrentViewer viewer, ViewerArticleSource article, string? ipAddress,
         string? userAgent, CancellationToken cancellationToken);

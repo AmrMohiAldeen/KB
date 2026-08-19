@@ -11,6 +11,27 @@ namespace Kb.Tests.Migrations;
 public sealed class HelpJuiceDiagnosticTests
 {
     [Fact]
+    public async Task Preview_plans_external_media_without_downloading_uploading_or_persisting()
+    {
+        await using var questionStream = Stream("id,name\nq1,Media\n");
+        await using var answerStream = Stream("id,question_id,body\na1,q1,\"<img src='https://cdn.example.test/image.png'>\"\n");
+        var writer = new ReadOnlyWriter();
+        var clientFactory = new CountingClientFactory();
+        var service = new HelpJuiceMigrationService(writer, new UnusedStorage(), clientFactory,
+            new User(), TimeProvider.System, Options.Create(new HelpJuiceMigrationLimits()),
+            Options.Create(new MediaOptions()), Options.Create(new DraftContentOptions()));
+
+        var preview = await service.PreviewAsync([
+            new("questions.csv", "text/csv", questionStream.Length, questionStream),
+            new("answers.csv", "text/csv", answerStream.Length, answerStream)
+        ], 100, default);
+
+        Assert.Contains(Assert.Single(preview.Articles).Issues, issue => issue.ErrorCode == "EXTERNAL_MEDIA_IMPORT_PLANNED");
+        Assert.Equal(0, clientFactory.CreateCalls);
+        Assert.Equal(2, writer.ReadCalls);
+    }
+
+    [Fact]
     public async Task Full_diagnostic_scans_beyond_preview_limit_and_never_invokes_import_writes()
     {
         var questions = new StringBuilder("id,codename,name,is_published\n");
@@ -82,6 +103,12 @@ public sealed class HelpJuiceDiagnosticTests
     private sealed class ClientFactory : IHttpClientFactory
     {
         public HttpClient CreateClient(string name) => new();
+    }
+
+    private sealed class CountingClientFactory : IHttpClientFactory
+    {
+        public int CreateCalls { get; private set; }
+        public HttpClient CreateClient(string name) { CreateCalls++; return new(); }
     }
 
     private sealed class UnusedStorage : IObjectStorage

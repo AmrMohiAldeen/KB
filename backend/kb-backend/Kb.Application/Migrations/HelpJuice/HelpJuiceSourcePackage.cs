@@ -56,6 +56,10 @@ public static class HelpJuiceSourceParser
         foreach (var file in missing) issues.Add(Issue("Error", "REQUIRED_FILE_MISSING", $"Required file {file} is missing.", file));
         foreach (var file in package.UnsupportedFiles)
             issues.Add(Issue("Warning", "UNSUPPORTED_FILE", $"Unsupported file '{file}' will not be imported.", file));
+        foreach (var file in package.AvailableFiles.Where(HelpJuicePackageReader.IsKnownIgnoredFile))
+            issues.Add(Issue("Info", "KNOWN_FILE_INTENTIONALLY_IGNORED",
+                $"Known HelpJuice package file '{file}' is intentionally outside this migration model and was classified separately from unknown files.",
+                file, summary: "action=intentionally-ignored;preserved=false;knownFile=true"));
         if (missing.Length > 0) return EmptySummary(package, issues, missing);
 
         ParsedCsv questionsCsv;
@@ -167,10 +171,36 @@ public static class HelpJuiceSourceParser
                     "questions.csv", question.RowNumber, "Question", question.Id, "automaticallyRepaired=true;field=codename"));
             }
         }
-        if (destinationArticleSlugs is not null)
-            foreach (var question in questions.Where(q => destinationArticleSlugs.Contains(q.Slug)))
-                issues.Add(Issue("Warning", "DESTINATION_SLUG_CONFLICT", $"Destination slug '{question.Slug}' exists. Import will use its external mapping or append the HelpJuice ID.",
-                    "questions.csv", question.RowNumber, "Question", question.Id, "automaticallyRepaired=true;field=slug"));
+        var occupiedSlugs = (destinationArticleSlugs ?? new HashSet<string>())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        for (var index = 0; index < questions.Count; index++)
+        {
+            var question = questions[index];
+            if (mappedArticleSlugs?.GetValueOrDefault(question.Id) is { Length: > 0 } mappedSlug)
+            {
+                questions[index] = question with { Slug = NormalizeSlug(mappedSlug) };
+                continue;
+            }
+            if (!occupiedSlugs.Contains(question.Slug))
+            {
+                occupiedSlugs.Add(question.Slug);
+                continue;
+            }
+            var original = question.Slug;
+            var collisionStem = AppendExternalId(original, question.Id, 350);
+            var repaired = collisionStem;
+            for (var suffix = 2; occupiedSlugs.Contains(repaired); suffix++)
+            {
+                var ending = $"-{suffix}";
+                repaired = collisionStem[..Math.Min(collisionStem.Length, 350 - ending.Length)].TrimEnd('-') + ending;
+            }
+            occupiedSlugs.Add(repaired);
+            questions[index] = question with { Slug = repaired };
+            issues.Add(Issue("Warning", "DESTINATION_SLUG_CONFLICT",
+                $"Destination slug '{original}' exists; deterministic migration slug '{repaired}' was allocated for preview and final import.",
+                "questions.csv", question.RowNumber, "Question", question.Id,
+                $"automaticallyRepaired=true;field=slug;selected={repaired}"));
+        }
 
         var questionIds = questions.Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var answer in answers.Where(a => a.Id.Length == 0 || a.QuestionId.Length == 0))
@@ -184,6 +214,14 @@ public static class HelpJuiceSourceParser
         var categorizations = await ParseCategorizationsAsync(package, limits, issues, Issue, cancellationToken);
         var categoryIds = categories.Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var permissionVisibility = await ParsePermissionVisibilityAsync(package, limits, questionIds, categoryIds, cancellationToken);
+        if (package.KnownCsvFiles.TryGetValue("groups.csv", out var groupsPath))
+        {
+            var groupsCsv = await HelpJuiceCsvReader.ReadAsync(groupsPath, limits.MaxCsvRows, cancellationToken);
+            if (groupsCsv.Rows.Count > 0)
+                issues.Add(Issue("Info", "LEGACY_PERMISSION_GROUPS_NOT_IMPORTED",
+                    $"{groupsCsv.Rows.Count} HelpJuice permission group row(s) were intentionally not created as KB groups; article/category visibility inferred from passes.csv is preserved separately.",
+                    "groups.csv", summary: "action=intentionally-ignored;preserved=visibility-only"));
+        }
         if (permissionVisibility.UnresolvedRows.Count > 0)
             issues.Add(Issue("Warning", "LEGACY_PERMISSIONS_NOT_IMPORTED",
                 $"{permissionVisibility.UnresolvedRows.Count} row(s) in passes.csv could not be associated with an exported question or category. No KB users or groups were created.",
@@ -278,8 +316,10 @@ public static class HelpJuiceSourceParser
                 issues.Add(Issue("Warning", "UNCATEGORIZED_ARTICLE", "No valid row in categorizations.csv exists; the article will remain uncategorized.",
                     "questions.csv", question.RowNumber, "Question", question.Id, $"automaticallyRepaired=false;language_id={question.LanguageId?.ToString() ?? ""}"));
             if (valid.Length > 1)
-                issues.Add(Issue("Warning", "MULTIPLE_CATEGORIES", $"The target schema supports one category; the first of {valid.Length} ordered HelpJuice relationships will be used.",
-                    "categorizations.csv", null, "Question", question.Id, "automaticallyRepaired=true;field=category_id"));
+                issues.Add(Issue("Warning", "MULTIPLE_CATEGORIES",
+                    $"The target schema supports one category; primary '{valid[0]}' was selected by HelpJuice position/row order and discarded relationships are [{string.Join(", ", valid.Skip(1))}].",
+                    "categorizations.csv", null, "Question", question.Id,
+                    $"automaticallyRepaired=true;field=category_id;selected={valid[0]};discarded={string.Join(',', valid.Skip(1))}"));
             var sourceMetadata = new Dictionary<string, string>(question.Source, StringComparer.OrdinalIgnoreCase);
             if (related.Length > 0) sourceMetadata["categorizations.category_ids"] = string.Join(',', related);
             if (metadataRecovered.Length > 0) sourceMetadata["migration.category_reconstruction"] = "export_metadata";
@@ -296,7 +336,8 @@ public static class HelpJuiceSourceParser
             .ToDictionary(x => x.Key, x => x.First(), StringComparer.OrdinalIgnoreCase);
         foreach (var question in questions)
             foreach (var related in question.RelatedQuestionIds ?? [])
-                if (!questionIds.Contains(related))
+                if (!questionIds.Contains(related) && mappedArticleSlugs?.ContainsKey(related) != true &&
+                    !questions.Any(candidate => QuestionLinkAliases(candidate).Contains(NormalizeSlug(related), StringComparer.OrdinalIgnoreCase)))
                     issues.Add(Issue("Warning", "STALE_RELATED_QUESTION", $"Related question '{related}' is not present in this export and will be ignored.",
                         "questions.csv", question.RowNumber, "Question", question.Id, $"automaticallyRepaired=false;affectedRelatedQuestion={related}"));
 
@@ -337,6 +378,10 @@ public static class HelpJuiceSourceParser
             if (Encoding.UTF8.GetByteCount(conversion.TiptapJson) > limits.MaxArticleContentSizeBytes)
                 issues.Add(Issue("Error", "NORMALIZED_CONTENT_TOO_LARGE", "Normalized editable content exceeds the configured storage limit without embedded media.",
                     "answers.csv", answer.RowNumber, "Answer", answer.Id));
+            if (!string.IsNullOrWhiteSpace(answer.Body) && !HasMeaningfulConvertedContent(conversion.TiptapJson))
+                issues.Add(Issue("Error", "NONEMPTY_SOURCE_BODY_BECAME_EMPTY",
+                    "The source body was non-empty but conversion produced no recoverable editor content; migration is blocked rather than silently losing the body.",
+                    "answers.csv", answer.RowNumber, "Answer", answer.Id, "automaticallyRepaired=false;field=body;action=unrecoverable"));
             foreach (var source in conversion.MediaSources.Where(s => !s.StartsWith("data:", StringComparison.OrdinalIgnoreCase)))
             {
                 if (source.StartsWith("blob:", StringComparison.OrdinalIgnoreCase))
@@ -345,16 +390,32 @@ public static class HelpJuiceSourceParser
                     issues.Add(Issue("Warning", "UNRESOLVED_TEMPORARY_MEDIA", $"Temporary browser media '{Limit(source)}' cannot be recovered; source metadata was preserved.", "answers.csv", answer.RowNumber, "Answer", answer.Id));
                     continue;
                 }
+                var absolute = Uri.TryCreate(source.StartsWith("//", StringComparison.Ordinal) ? "https:" + source : source,
+                    UriKind.Absolute, out var uri);
+                var name = Path.GetFileName(absolute ? uri!.LocalPath : source);
+                var normalizedName = MediaFileMatchKey(name);
+                if (name.Length > 0 && (localMediaNames.Contains(name) || package.MediaFiles.Any(file =>
+                        MediaFileMatchKey(file).Equals(normalizedName, StringComparison.OrdinalIgnoreCase)) ||
+                    mediaBySource.ContainsKey(source) || uploads.Any(u =>
+                        u.FileName.Equals(name, StringComparison.OrdinalIgnoreCase) ||
+                        MediaFileMatchKey(u.FileName).Equals(normalizedName, StringComparison.OrdinalIgnoreCase)))) continue;
                 if (source.StartsWith('/') && !source.StartsWith("//"))
                 {
                     missingMedia++;
                     issues.Add(Issue("Warning", "UNRESOLVED_RELATIVE_MEDIA", $"Relative media '{Limit(source)}' could not be matched safely and was preserved.", "answers.csv", answer.RowNumber, "Answer", answer.Id));
                     continue;
                 }
-                var name = Path.GetFileName(Uri.TryCreate(source, UriKind.Absolute, out var uri) ? uri.LocalPath : source);
-                if (name.Length > 0 && (localMediaNames.Contains(name) || mediaBySource.ContainsKey(source) || uploads.Any(u => u.FileName.Equals(name, StringComparison.OrdinalIgnoreCase)))) continue;
-                missingMedia++;
-                issues.Add(Issue("Warning", "EXTERNAL_MEDIA_LEFT_EXTERNAL", $"External media '{Limit(source)}' is not in uploads.csv and will remain external.", "answers.csv", answer.RowNumber, "Answer", answer.Id));
+                if (absolute && uri!.Scheme == Uri.UriSchemeHttps)
+                    issues.Add(Issue("Info", "EXTERNAL_MEDIA_IMPORT_PLANNED",
+                        $"External media '{Limit(source)}' passed preview URL validation and will be downloaded, inspected, deduplicated, and internalized only after final confirmation.",
+                        "answers.csv", answer.RowNumber, "Answer", answer.Id, "automaticallyRepaired=true;action=planned;previewSideEffects=false"));
+                else
+                {
+                    missingMedia++;
+                    issues.Add(Issue("Warning", "UNSUPPORTED_MEDIA_URL",
+                        $"Media URL '{Limit(source)}' does not use a supported absolute HTTPS URL and cannot be imported safely (action=unsafe; preserved=true).",
+                        "answers.csv", answer.RowNumber, "Answer", answer.Id));
+                }
             }
             foreach (var warning in conversion.Warnings.Where(w => w.Code is not "UNRESOLVED_MEDIA" and not "UNRESOLVED_TEMPORARY_MEDIA"))
                 issues.Add(Issue("Warning", warning.Code, warning.Message, "answers.csv", answer.RowNumber, "Answer", answer.Id));
@@ -436,11 +497,18 @@ public static class HelpJuiceSourceParser
         IReadOnlyDictionary<string, HelpJuiceQuestion> byId, int? sourceLanguageId,
         IReadOnlyDictionary<string, string>? targetSlugsByExternalId)
     {
-        string Target(HelpJuiceQuestion question) => $"/kb/{targetSlugsByExternalId?.GetValueOrDefault(question.Id) ?? question.Slug}";
-        if (!Uri.TryCreate(href, UriKind.Absolute, out var uri) ||
-            !(uri.Host.Equals("helpjuice.com", StringComparison.OrdinalIgnoreCase) ||
-              uri.Host.EndsWith(".helpjuice.com", StringComparison.OrdinalIgnoreCase))) return null;
-        var rawParts = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var decodedHref = System.Net.WebUtility.HtmlDecode(href).Trim();
+        if (decodedHref.StartsWith('#') || decodedHref.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase) ||
+            decodedHref.StartsWith("tel:", StringComparison.OrdinalIgnoreCase)) return null;
+        if (decodedHref.StartsWith("//", StringComparison.Ordinal)) decodedHref = "https:" + decodedHref;
+        var wasRelative = !Uri.TryCreate(decodedHref, UriKind.Absolute, out var uri);
+        if (wasRelative && !Uri.TryCreate(new Uri("https://helpjuice.com/"), decodedHref, out uri)) return null;
+        var resolvedUri = uri!;
+        if (!wasRelative && !(resolvedUri.Host.Equals("helpjuice.com", StringComparison.OrdinalIgnoreCase) ||
+              resolvedUri.Host.EndsWith(".helpjuice.com", StringComparison.OrdinalIgnoreCase))) return null;
+        string Target(HelpJuiceQuestion question) =>
+            $"/kb/{targetSlugsByExternalId?.GetValueOrDefault(question.Id) ?? question.Slug}{resolvedUri.Fragment}";
+        var rawParts = resolvedUri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
         var parts = rawParts.Where((part, index) => !part.Equals("version", StringComparison.OrdinalIgnoreCase) &&
                 (index == 0 || !rawParts[index - 1].Equals("version", StringComparison.OrdinalIgnoreCase)))
             .Select(Uri.UnescapeDataString).ToArray();
@@ -450,7 +518,7 @@ public static class HelpJuiceSourceParser
             foreach (Match match in Regex.Matches(part, @"\d+"))
                 if (byId.TryGetValue(match.Value, out var identified)) return new(Target(identified));
         }
-        var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
+        var query = System.Web.HttpUtility.ParseQueryString(resolvedUri.Query);
         foreach (var name in new[] { "id", "question_id", "article_id", "questionId", "articleId", "content_id", "contentId", "qid" })
             if (byId.TryGetValue(query[name] ?? string.Empty, out var identified)) return new(Target(identified));
         var queryCandidates = new[] { "slug", "codename", "path", "url" }
@@ -490,6 +558,22 @@ public static class HelpJuiceSourceParser
                 foreach (var part in uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries).Reverse())
                     foreach (var candidate in LinkSlugCandidates(part)) yield return candidate;
             foreach (var candidate in LinkSlugCandidates(value)) yield return candidate;
+        }
+    }
+
+    private static bool HasMeaningfulConvertedContent(string tiptapJson)
+    {
+        using var document = JsonDocument.Parse(tiptapJson);
+        return Visit(document.RootElement);
+
+        static bool Visit(JsonElement element)
+        {
+            if (element.ValueKind != JsonValueKind.Object) return false;
+            var type = element.TryGetProperty("type", out var typeElement) ? typeElement.GetString() : null;
+            if (type == "text" && element.TryGetProperty("text", out var text) && !string.IsNullOrWhiteSpace(text.GetString())) return true;
+            if (type is "image" or "youtube" or "video" or "attachment" or "horizontalRule" or "table") return true;
+            return element.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.Array &&
+                   content.EnumerateArray().Any(Visit);
         }
     }
 

@@ -14,6 +14,8 @@ const card = (skin: Skin): Theme['components'] => {
       },
       styleOverrides: {
         root: ({ ownerState }) => ({
+          borderRadius: 'var(--mui-shape-customBorderRadius-lg)',
+          borderColor: 'var(--mui-palette-divider)',
           ...(ownerState.variant !== 'outlined' && {
             boxShadow: 'var(--mui-customShadows-md)'
           })

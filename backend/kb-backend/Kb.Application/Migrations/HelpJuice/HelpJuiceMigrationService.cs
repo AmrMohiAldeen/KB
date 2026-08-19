@@ -1,4 +1,6 @@
 using System.IO.Compression;
+using System.Net;
+using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -42,7 +44,7 @@ public sealed partial class HelpJuiceMigrationService(
             using var package = await HelpJuicePackageReader.ExtractAsync(packageStream, limits, ct);
             var destinationSlugs = await writer.GetActiveArticleSlugsAsync(ct);
             var mappedArticleSlugs = await writer.GetMappedArticleSlugsAsync(ct);
-            var source = await HelpJuiceSourceParser.ParseAndValidateAsync(
+            var source = await ParseSourceAsync(
                 package, limits, timeProvider, destinationSlugs, mappedArticleSlugs, ct);
             return HelpJuicePreviewBuilder.Build(source, articleLimit);
         }
@@ -75,11 +77,9 @@ public sealed partial class HelpJuiceMigrationService(
             using var package = await HelpJuicePackageReader.ExtractAsync(packageStream, limits, ct);
             var destinationSlugs = await writer.GetActiveArticleSlugsAsync(ct);
             var mappedArticleSlugs = await writer.GetMappedArticleSlugsAsync(ct);
-            var source = await HelpJuiceSourceParser.ParseAndValidateAsync(
+            var source = await ParseSourceAsync(
                 package, limits, timeProvider, destinationSlugs, mappedArticleSlugs, ct);
             var issues = source.Issues.ToList();
-            var mediaIssues = await ValidateMediaFilesAsync(package.MediaFiles, ct);
-            issues.AddRange(mediaIssues);
             var validation = source.Summary with
             {
                 BlockingErrorCount = issues.Count(x => x.Severity == "Error"),
@@ -111,8 +111,9 @@ public sealed partial class HelpJuiceMigrationService(
             migrationStarted = true;
             var categoryPhase = new PhaseCounter("Categories", options.ImportCategories ? source.Categories.Count : 0);
             var inlineMedia = BuildInlineMedia(source);
+            var externalMedia = BuildExternalMedia(source);
             var uploadCount = source.Uploads?.Count ?? 0;
-            var mediaPhase = new PhaseCounter("Media", options.ImportMedia ? uploadCount + inlineMedia.Count + source.MediaFiles.Count : 0);
+            var mediaPhase = new PhaseCounter("Media", options.ImportMedia ? uploadCount + inlineMedia.Count + source.MediaFiles.Count + externalMedia.Count : 0);
             var articlePhase = new PhaseCounter("Articles", source.Questions.Count);
             phases.AddRange([categoryPhase, mediaPhase, articlePhase]);
 
@@ -183,7 +184,7 @@ public sealed partial class HelpJuiceMigrationService(
                         else if (upload.PreviewUrl is not null || legacyUrlByName.TryGetValue(Path.GetFileName(upload.FileName), out _))
                         {
                             var downloadUrl = upload.PreviewUrl ?? legacyUrlByName[Path.GetFileName(upload.FileName)];
-                            bytes = await DownloadLegacyMediaAsync(downloadUrl, ct);
+                            bytes = (await DownloadExternalMediaAsync(downloadUrl, ct)).Bytes;
                         }
                         else
                         {
@@ -245,6 +246,32 @@ public sealed partial class HelpJuiceMigrationService(
                         writer.ResetState(); mediaPhase.Skip();
                         issues.Add(NewIssue("Warning", Path.GetFileName(file), null, "Media", Path.GetFileName(file),
                             "MEDIA_IMPORT_FAILED", SafeMessage(ex)));
+                    }
+                }
+
+                foreach (var external in externalMedia)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    if (MediaKeys(external.Source).Any(mediaMap.ContainsKey))
+                    {
+                        mediaPhase.Skip();
+                        continue;
+                    }
+                    try
+                    {
+                        var downloaded = await DownloadExternalMediaAsync(external.Source, ct);
+                        var fileName = SelectDownloadedFileName(external.FileName, downloaded);
+                        var pair = await ImportMediaBytesAsync(operationId, external.ExternalId, fileName,
+                            downloaded.ContentType ?? MimeFromExtension(fileName), downloaded.Bytes, external.MediaId, storageByHash, ct);
+                        foreach (var key in MediaKeys(external.Source)) mediaMap[key] = pair.Media;
+                        mediaPhase.Record(pair.Disposition);
+                        if (pair.Disposition == MigrationWriteDisposition.Imported) mediaImported++; else mediaReused++;
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        writer.ResetState(); mediaPhase.Skip();
+                        issues.Add(NewIssue("Warning", "answers.csv", external.AnswerRowNumber, "Question", external.QuestionId,
+                            "EXTERNAL_MEDIA_IMPORT_FAILED", $"External media '{external.Source}' could not be internalized: {SafeMessage(ex)}"));
                     }
                 }
             }
@@ -392,6 +419,26 @@ public sealed partial class HelpJuiceMigrationService(
         }
     }
 
+    private async Task<HelpJuiceSource> ParseSourceAsync(PackageContents package,
+        HelpJuiceMigrationLimits migrationLimits, TimeProvider clock, IReadOnlySet<string> destinationSlugs,
+        IReadOnlyDictionary<string, string> mappedSlugs, CancellationToken ct)
+    {
+        var source = await HelpJuiceSourceParser.ParseAndValidateAsync(
+            package, migrationLimits, clock, destinationSlugs, mappedSlugs, ct);
+        var mediaIssues = await ValidateMediaFilesAsync(package.MediaFiles, ct);
+        if (mediaIssues.Count == 0) return source;
+        var issues = source.Issues.Concat(mediaIssues).ToArray();
+        return source with
+        {
+            Issues = issues,
+            Summary = source.Summary with
+            {
+                BlockingErrorCount = issues.Count(issue => issue.Severity == "Error"),
+                WarningCount = issues.Count(issue => issue.Severity == "Warning")
+            }
+        };
+    }
+
     private async Task<ImportedMediaOutcome> ImportMediaBytesAsync(Guid operationId, string externalId,
         string fileName, string mimeType, byte[] bytes, Guid mediaId, IDictionary<string, string> storageByHash,
         CancellationToken ct)
@@ -417,26 +464,77 @@ public sealed partial class HelpJuiceMigrationService(
         return new((result.InternalId, $"/api/media/{result.InternalId}/content"), result.Disposition);
     }
 
-    private async Task<byte[]> DownloadLegacyMediaAsync(string sourceUrl, CancellationToken ct)
+    private async Task<DownloadedMediaData> DownloadExternalMediaAsync(string sourceUrl, CancellationToken ct)
     {
+        if (sourceUrl.StartsWith("//", StringComparison.Ordinal)) sourceUrl = "https:" + sourceUrl;
         if (!Uri.TryCreate(sourceUrl, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps ||
-            !(uri.Host.Equals("helpjuice.com", StringComparison.OrdinalIgnoreCase) ||
-              uri.Host.EndsWith(".helpjuice.com", StringComparison.OrdinalIgnoreCase)))
-            throw new InvalidDataException("Legacy media URL is not an approved HTTPS HelpJuice host.");
+            string.IsNullOrWhiteSpace(uri.Host) || !string.IsNullOrEmpty(uri.UserInfo))
+            throw new InvalidDataException("External media must use an absolute HTTPS URL without embedded credentials.");
         var client = httpClientFactory.CreateClient("HelpJuiceMigration");
-        using var response = await client.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, ct);
-        response.EnsureSuccessStatusCode();
-        var finalUri = response.RequestMessage?.RequestUri;
-        if (finalUri is null || finalUri.Scheme != Uri.UriSchemeHttps ||
-            !(finalUri.Host.Equals("helpjuice.com", StringComparison.OrdinalIgnoreCase) ||
-              finalUri.Host.EndsWith(".helpjuice.com", StringComparison.OrdinalIgnoreCase)))
-            throw new InvalidDataException("Legacy media redirected outside the approved HelpJuice host.");
-        if (response.Content.Headers.ContentLength is > 0 && response.Content.Headers.ContentLength > mediaOptions.MaxFileSizeBytes)
-            throw new InvalidDataException("Legacy media exceeds the configured file-size limit.");
-        await using var source = await response.Content.ReadAsStreamAsync(ct);
-        await using var target = new MemoryStream();
-        await CopyLimited(source, target, mediaOptions.MaxFileSizeBytes, ct);
-        return target.ToArray();
+        var current = uri;
+        for (var redirects = 0; redirects <= 5; redirects++)
+        {
+            await EnsurePublicMediaHostAsync(current, ct);
+            using var request = new HttpRequestMessage(HttpMethod.Get, current);
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+            if ((int)response.StatusCode is >= 300 and < 400)
+            {
+                if (redirects == 5 || response.Headers.Location is null)
+                    throw new InvalidDataException("External media exceeded the safe redirect limit.");
+                current = response.Headers.Location.IsAbsoluteUri
+                    ? response.Headers.Location
+                    : new Uri(current, response.Headers.Location);
+                if (current.Scheme != Uri.UriSchemeHttps || !string.IsNullOrEmpty(current.UserInfo))
+                    throw new InvalidDataException("External media redirected to an unsafe URL.");
+                continue;
+            }
+            response.EnsureSuccessStatusCode();
+            var finalUri = response.RequestMessage?.RequestUri ?? current;
+            await EnsurePublicMediaHostAsync(finalUri, ct);
+            if (response.Content.Headers.ContentLength is > 0 && response.Content.Headers.ContentLength > mediaOptions.MaxFileSizeBytes)
+                throw new InvalidDataException("External media exceeds the configured file-size limit.");
+            await using var source = await response.Content.ReadAsStreamAsync(ct);
+            await using var target = new MemoryStream();
+            await CopyLimited(source, target, mediaOptions.MaxFileSizeBytes, ct);
+            var dispositionName = response.Content.Headers.ContentDisposition?.FileNameStar ??
+                                  response.Content.Headers.ContentDisposition?.FileName;
+            var suggested = string.IsNullOrWhiteSpace(dispositionName)
+                ? null
+                : Path.GetFileName(dispositionName.Trim().Trim('"'));
+            return new(target.ToArray(), response.Content.Headers.ContentType?.MediaType, suggested);
+        }
+        throw new InvalidDataException("External media download failed.");
+    }
+
+    private static async Task EnsurePublicMediaHostAsync(Uri uri, CancellationToken ct)
+    {
+        if (uri.Scheme != Uri.UriSchemeHttps || string.IsNullOrWhiteSpace(uri.DnsSafeHost))
+            throw new InvalidDataException("External media URL is not HTTPS.");
+        IPAddress[] addresses;
+        if (IPAddress.TryParse(uri.DnsSafeHost, out var literal)) addresses = [literal];
+        else
+        {
+            try { addresses = await Dns.GetHostAddressesAsync(uri.DnsSafeHost, ct); }
+            catch (SocketException ex) { throw new InvalidDataException("External media host could not be resolved safely.", ex); }
+        }
+        if (addresses.Length == 0 || addresses.Any(address => !IsPublicAddress(address)))
+            throw new InvalidDataException("External media host resolves to a private, local, reserved, or otherwise unsafe address.");
+    }
+
+    private static bool IsPublicAddress(IPAddress address)
+    {
+        if (IPAddress.IsLoopback(address)) return false;
+        if (address.IsIPv4MappedToIPv6) return IsPublicAddress(address.MapToIPv4());
+        var bytes = address.GetAddressBytes();
+        if (address.AddressFamily == AddressFamily.InterNetwork)
+            return bytes[0] is not (0 or 10 or 127) && bytes[0] < 224 &&
+                   !(bytes[0] == 100 && bytes[1] is >= 64 and <= 127) &&
+                   !(bytes[0] == 169 && bytes[1] == 254) &&
+                   !(bytes[0] == 172 && bytes[1] is >= 16 and <= 31) &&
+                   !(bytes[0] == 192 && bytes[1] == 168) &&
+                   !(bytes[0] == 198 && bytes[1] is 18 or 19);
+        return address.AddressFamily == AddressFamily.InterNetworkV6 &&
+               !address.IsIPv6LinkLocal && !address.IsIPv6Multicast && !address.IsIPv6SiteLocal && (bytes[0] & 0xfe) != 0xfc;
     }
 
     private static List<InlineMediaData> BuildInlineMedia(HelpJuiceSource source)
@@ -467,6 +565,49 @@ public sealed partial class HelpJuiceMigrationService(
             }
         }
         return result.DistinctBy(x => x.ExternalId).ToList();
+    }
+
+    private static List<ExternalMediaData> BuildExternalMedia(HelpJuiceSource source)
+    {
+        var answers = source.Answers.ToDictionary(answer => answer.Id, StringComparer.OrdinalIgnoreCase);
+        var result = new List<ExternalMediaData>();
+        foreach (var conversion in source.ConvertedAnswersById)
+        {
+            if (!answers.TryGetValue(conversion.Key, out var answer)) continue;
+            foreach (var raw in conversion.Value.MediaSources.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                var normalized = raw.StartsWith("//", StringComparison.Ordinal) ? "https:" + raw : raw;
+                if (!Uri.TryCreate(normalized, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps ||
+                    raw.StartsWith("data:", StringComparison.OrdinalIgnoreCase)) continue;
+                var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(uri.AbsoluteUri))).ToLowerInvariant();
+                var fileName = Path.GetFileName(uri.LocalPath);
+                if (string.IsNullOrWhiteSpace(fileName)) fileName = $"external-media-{hash[..12]}";
+                var externalId = $"external:{hash}";
+                result.Add(new(externalId, answer.QuestionId, answer.RowNumber, uri.AbsoluteUri, fileName,
+                    HelpJuiceSourceParser.StableGuid($"helpjuice:media:{externalId}")));
+            }
+        }
+        return result.DistinctBy(item => item.Source, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private static string SelectDownloadedFileName(string sourceName, DownloadedMediaData downloaded)
+    {
+        static bool HasExtension(string value) => !string.IsNullOrWhiteSpace(Path.GetExtension(value));
+        if (HasExtension(sourceName)) return Path.GetFileName(sourceName);
+        if (!string.IsNullOrWhiteSpace(downloaded.SuggestedFileName) && HasExtension(downloaded.SuggestedFileName))
+            return Path.GetFileName(downloaded.SuggestedFileName);
+        var extension = downloaded.ContentType?.ToLowerInvariant() switch
+        {
+            "image/jpeg" => ".jpg", "image/png" => ".png", "image/gif" => ".gif", "image/webp" => ".webp",
+            "image/bmp" => ".bmp", "image/tiff" => ".tiff", "image/svg+xml" => ".svg",
+            "video/mp4" => ".mp4", "video/quicktime" => ".mov", "video/webm" => ".webm",
+            "video/x-msvideo" => ".avi", "video/mpeg" => ".mpeg", "application/pdf" => ".pdf",
+            "text/plain" => ".txt", "text/markdown" => ".md", "application/json" => ".json",
+            "application/xml" or "text/xml" => ".xml", _ => null
+        };
+        if (extension is null)
+            throw new InvalidDataException("External media has no usable filename extension and its HTTP MIME type is unsupported.");
+        return Path.GetFileName(sourceName) + extension;
     }
 
     private async Task BuildTemporaryPackageAsync(IReadOnlyList<MigrationUploadFile> files,
@@ -573,6 +714,9 @@ public sealed partial class HelpJuiceMigrationService(
     private sealed record ImportedMediaOutcome((Guid Id, string Url) Media, MigrationWriteDisposition Disposition);
     private sealed record InlineMediaData(string ExternalId, string QuestionId, int AnswerRowNumber,
         string Source, string FileName, string MimeType, byte[] Bytes, Guid MediaId);
+    private sealed record ExternalMediaData(string ExternalId, string QuestionId, int AnswerRowNumber,
+        string Source, string FileName, Guid MediaId);
+    private sealed record DownloadedMediaData(byte[] Bytes, string? ContentType, string? SuggestedFileName);
 
     [System.Text.RegularExpressions.GeneratedRegex("\\\"mediaId\\\":\\\"([0-9a-fA-F-]{36})\\\"")]
     private static partial System.Text.RegularExpressions.Regex MediaIdRegex();

@@ -63,6 +63,9 @@ export const KbPageHeader = ({ title, description, actions, eyebrow }: KbPageHea
           sx={{
             flexWrap: 'wrap',
             justifyContent: { xs: 'flex-start', md: 'flex-end' },
+            '& .MuiButton-root': {
+              minBlockSize: 44
+            },
             '& .lucide': {
               inlineSize: 18,
               blockSize: 18
