@@ -35,14 +35,20 @@ Start the development server:
 npm run dev
 ```
 
-Start the local Typesense dependency before running the API:
+Start the local Azurite object-storage emulator and Typesense before running the API:
 
 ```bash
 cd backend/kb-backend
 docker compose -f compose.typesense.yml up -d
 ```
 
-Development configuration points the API at `http://127.0.0.1:8108` with the key from that compose file.
+Development configuration uses `UseDevelopmentStorage=true`, so article content and media are stored in
+Azurite at `http://127.0.0.1:10000`. It also points the API at Typesense on `http://127.0.0.1:8108` with the
+key from that compose file. The API checks blob connectivity during startup and fails with setup guidance if
+Azurite is not reachable.
+
+For non-development environments, provide Azure Blob configuration through `Storage__ConnectionString`;
+do not place production credentials in appsettings files.
 For non-development environments, set `Typesense__Endpoint`, `Typesense__AdminApiKey`, and optionally
 `Typesense__InternalCollectionAlias`. After the API and database migrations are running, an administrator can
 rebuild all retained article/category documents with `POST /api/dashboard/search/rebuild`.

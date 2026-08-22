@@ -29,7 +29,8 @@ import Typography from '@mui/material/Typography'
 import { Ban, ChevronDown, Download, Eye, FileArchive, FileSpreadsheet, FolderOpen, PackageCheck, RotateCcw, ShieldCheck, X } from 'lucide-react'
 
 import KnowledgeBaseViewer from '@/features/editor/core/KnowledgeBaseViewer'
-import { describeApiError } from '@/lib/api/http'
+import { ApiError, describeApiError, hasAccessToken } from '@/lib/api/http'
+import { useAccessToken } from '@/lib/auth/accessTokenContext'
 import {
   helpJuiceMigrationsApi,
   type HelpJuiceDiagnosticDownload,
@@ -55,15 +56,20 @@ const defaultOptions: HelpJuiceMigrationOptions = {
   preserveTimestamps: true,
   conflictBehavior: 'Skip'
 }
+const migrationPermissionError = 'Your account is authenticated, but HelpJuice migration requires a KB administrator.'
 
-export type HelpJuiceMigrationPageProps = { accessToken: string; api?: HelpJuiceMigrationsApi }
+export type HelpJuiceMigrationPageProps = { accessToken?: string; api?: HelpJuiceMigrationsApi }
 
-const HelpJuiceMigrationPage = ({ accessToken, api = helpJuiceMigrationsApi }: HelpJuiceMigrationPageProps) => {
+const HelpJuiceMigrationPage = ({ accessToken: accessTokenOverride, api = helpJuiceMigrationsApi }: HelpJuiceMigrationPageProps) => {
+  const contextAccessToken = useAccessToken()
+  const accessToken = accessTokenOverride || contextAccessToken
+  const authenticated = hasAccessToken(accessToken)
   const [usersFile, setUsersFile] = useState<File>()
   const [usersResult, setUsersResult] = useState<HelpJuiceUserMigrationResponse>()
   const [usersStatus, setUsersStatus] = useState<HelpJuiceUserMigrationStatus>()
-  const [usersStatusLoading, setUsersStatusLoading] = useState(Boolean(accessToken))
-  const [usersStatusError, setUsersStatusError] = useState<string>()
+  const [usersStatusLoading, setUsersStatusLoading] = useState(authenticated)
+  const [usersAuthorization, setUsersAuthorization] = useState<{ accessToken: string; allowed: boolean }>()
+  const [usersStatusError, setUsersStatusError] = useState<{ accessToken: string; message: string }>()
   const [usersMessages, setUsersMessages] = useState<string[]>([])
   const [usersConfirmOpen, setUsersConfirmOpen] = useState(false)
   const [usersSubmitting, setUsersSubmitting] = useState(false)
@@ -72,7 +78,7 @@ const HelpJuiceMigrationPage = ({ accessToken, api = helpJuiceMigrationsApi }: H
   const [preview, setPreview] = useState<Awaited<ReturnType<HelpJuiceMigrationsApi['preview']>>>()
   const [selectedArticle, setSelectedArticle] = useState<HelpJuiceMigrationPreviewArticle>()
   const [previewing, setPreviewing] = useState(false)
-  const [messages, setMessages] = useState<string[]>(accessToken ? [] : ['Authentication is required.'])
+  const [messages, setMessages] = useState<string[]>(authenticated ? [] : ['Authentication is required.'])
   const [options, setOptions] = useState(defaultOptions)
   const [result, setResult] = useState<HelpJuiceMigrationResponse>()
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -89,16 +95,24 @@ const HelpJuiceMigrationPage = ({ accessToken, api = helpJuiceMigrationsApi }: H
 
   useEffect(() => {
     let active = true
-    if (!accessToken) return () => { active = false }
+    if (!authenticated) return () => { active = false }
     void api.usersStatus(accessToken).then(status => {
-      if (active) { setUsersStatus(status); setUsersStatusError(undefined) }
+      if (active) { setUsersStatus(status); setUsersAuthorization({ accessToken, allowed: true }); setUsersStatusError(undefined) }
     }).catch(error => {
-      if (active) setUsersStatusError(describeApiError(error).join(' '))
+      if (!active) return
+      if (error instanceof ApiError && error.status === 403) {
+        setUsersAuthorization({ accessToken, allowed: false })
+        setUsersStatusError({ accessToken, message: migrationPermissionError })
+        setUsersConfirmOpen(false)
+      } else {
+        setUsersAuthorization(undefined)
+        setUsersStatusError({ accessToken, message: describeApiError(error).join(' ') })
+      }
     }).finally(() => {
       if (active) setUsersStatusLoading(false)
     })
     return () => { active = false }
-  }, [accessToken, api])
+  }, [accessToken, api, authenticated])
 
   const onUsersFile = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.currentTarget.files?.[0]
@@ -114,7 +128,8 @@ const HelpJuiceMigrationPage = ({ accessToken, api = helpJuiceMigrationsApi }: H
     setUsersFile(file)
   }
   const runUsers = async () => {
-    if (usersSubmitting || submitting || diagnosing || previewing || !usersFile) return
+    if (usersSubmitting || submitting || diagnosing || previewing || !usersFile || !authenticated ||
+      (usersAuthorization?.accessToken === accessToken && usersAuthorization.allowed === false)) return
     setUsersConfirmOpen(false); setUsersSubmitting(true); setUsersResult(undefined); setUsersMessages([]); setUsersProgress(0)
     const request = api.runUsers(usersFile, accessToken, setUsersProgress)
     usersRequestCancel.current = request.cancel
@@ -128,7 +143,13 @@ const HelpJuiceMigrationPage = ({ accessToken, api = helpJuiceMigrationsApi }: H
     }
     catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') setUsersMessages(['Users migration cancelled. Users committed before cancellation may remain; rerun the same users CSV safely to reconcile them.'])
-      else setUsersMessages(describeApiError(error))
+      else {
+        if (error instanceof ApiError && error.status === 403) {
+          setUsersAuthorization({ accessToken, allowed: false })
+          setUsersStatusError({ accessToken, message: migrationPermissionError })
+        }
+        setUsersMessages(describeApiError(error))
+      }
     } finally { usersRequestCancel.current = undefined; setUsersSubmitting(false) }
   }
   const resetUsers = () => {
@@ -221,6 +242,12 @@ const HelpJuiceMigrationPage = ({ accessToken, api = helpJuiceMigrationsApi }: H
     hasSelectedPublicationState && !preview.missingRequiredFiles.length && !packageErrors && !previewErrors &&
     usersStatus?.isCompleted && !usersStatusLoading &&
     !usersSubmitting && !submitting && !diagnosing && !previewing)
+  const usersAuthorizationDenied = usersAuthorization?.accessToken === accessToken && usersAuthorization.allowed === false
+  const currentUsersStatusError = !authenticated
+    ? 'Sign in through the company authentication provider to run a migration.'
+    : usersStatusError?.accessToken === accessToken ? usersStatusError.message : undefined
+  const usersMigrationDisabled = !usersFile || !authenticated || usersAuthorizationDenied ||
+    usersSubmitting || submitting || diagnosing || previewing
 
   return <KbPageShell>
     <PageHeader title='HelpJuice Migration' subtitle='Migrate HelpJuice users first, then preview and migrate the exported knowledge-base content.' />
@@ -235,7 +262,7 @@ const HelpJuiceMigrationPage = ({ accessToken, api = helpJuiceMigrationsApi }: H
             Choose users CSV
             <input hidden type='file' accept='.csv,text/csv' onChange={onUsersFile} />
           </Button>
-          <Button variant='contained' startIcon={<PackageCheck size={18} />} disabled={!accessToken || !usersFile || usersSubmitting || submitting || diagnosing || previewing} onClick={() => setUsersConfirmOpen(true)}>
+          <Button variant='contained' startIcon={<PackageCheck size={18} />} disabled={usersMigrationDisabled} onClick={() => setUsersConfirmOpen(true)}>
             Migrate users
           </Button>
           <Button variant='text' startIcon={<RotateCcw size={18} />} disabled={usersSubmitting || (!usersFile && !usersResult)} onClick={resetUsers}>
@@ -273,7 +300,7 @@ const HelpJuiceMigrationPage = ({ accessToken, api = helpJuiceMigrationsApi }: H
       : usersStatus?.isCompleted
         ? <Alert severity='success'><AlertTitle>Users Migration prerequisite completed</AlertTitle>{usersStatus.completedAt ? `Completed ${formatDate(usersStatus.completedAt)}. ` : ''}HelpJuice content authors can now resolve through Users.HelpJuiceUserId.</Alert>
         : <Alert severity='warning'><AlertTitle>Complete Users Migration before Content Migration</AlertTitle>Run Users Migration above before importing content so HelpJuice authors resolve to KB users.</Alert>}
-    {usersStatusError && <Alert severity='error'><AlertTitle>Users Migration status could not be verified</AlertTitle>{usersStatusError}</Alert>}
+    {currentUsersStatusError && <Alert severity='error'><AlertTitle>Users Migration status could not be verified</AlertTitle>{currentUsersStatusError}</Alert>}
 
     <KbSectionCard title='2. HelpJuice Content Migration' description='Preview, diagnose, configure, and import the HelpJuice content package after users have been migrated.'>
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>

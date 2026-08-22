@@ -1,4 +1,24 @@
 services:
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:3.35.0
+    command: azurite-blob --blobHost 0.0.0.0 --blobPort 10000 --location /data --skipApiVersionCheck
+    ports:
+      - "10000:10000"
+    volumes:
+      - azurite-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          require('http').get('http://127.0.0.1:10000/devstoreaccount1?comp=list',
+          response => process.exit(response.statusCode < 500 ? 0 : 1))
+          .on('error', () => process.exit(1))
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
   typesense:
     image: typesense/typesense:27.1
     command: >-
@@ -23,4 +43,5 @@ services:
       retries: 12
 
 volumes:
+  azurite-data:
   typesense-data:

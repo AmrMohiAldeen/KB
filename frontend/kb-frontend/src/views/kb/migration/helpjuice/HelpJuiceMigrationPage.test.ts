@@ -3,6 +3,8 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import HelpJuiceMigrationPage from './HelpJuiceMigrationPage'
 import { helpJuiceMigrationsApi } from '@/lib/api/helpJuiceMigrationsApi'
+import { ApiError } from '@/lib/api/http'
+import { AccessTokenProvider } from '@/lib/auth/accessTokenContext'
 
 describe('HelpJuiceMigrationPage options',()=>{
   let root:Root|undefined;let host:HTMLDivElement|undefined
@@ -45,6 +47,35 @@ describe('HelpJuiceMigrationPage options',()=>{
     expect(host.textContent).toContain('Total rows')
     expect(host.textContent).toContain('User row was skipped.')
     expect(host.textContent).toContain('Issue CSV')
+  })
+
+  it('enables users migration from dashboard authentication while authorization is loading',async()=>{
+    host=document.createElement('div');document.body.append(host);root=createRoot(host)
+    let resolveStatus!: (status: {isCompleted: boolean}) => void
+    const api={...helpJuiceMigrationsApi,usersStatus:vi.fn().mockReturnValue(new Promise(resolve=>{resolveStatus=resolve}))}
+    await act(async()=>root?.render(createElement(AccessTokenProvider,{
+      accessToken:'dashboard-token',children:createElement(HelpJuiceMigrationPage,{api})
+    })))
+    const input=host.querySelector<HTMLInputElement>('input[accept=".csv,text/csv"]')!
+    Object.defineProperty(input,'files',{configurable:true,value:[new File(['id,email\n1,a@example.test'],'gamalearn-users.csv')]})
+    await act(async()=>input.dispatchEvent(new Event('change',{bubbles:true})))
+    const button=Array.from(host.querySelectorAll('button')).find(candidate=>candidate.textContent==='Migrate users')!
+    expect(button.disabled).toBe(false)
+    await act(async()=>resolveStatus({isCompleted:false}))
+    expect(api.usersStatus).toHaveBeenCalledWith('dashboard-token')
+  })
+
+  it('keeps users migration disabled and explains a genuine authorization denial',async()=>{
+    host=document.createElement('div');document.body.append(host);root=createRoot(host)
+    const api={...helpJuiceMigrationsApi,usersStatus:vi.fn().mockRejectedValue(
+      new ApiError(403,{title:'Forbidden',detail:'Forbidden'}))}
+    await act(async()=>root?.render(createElement(HelpJuiceMigrationPage,{accessToken:'token',api})))
+    const input=host.querySelector<HTMLInputElement>('input[accept=".csv,text/csv"]')!
+    Object.defineProperty(input,'files',{configurable:true,value:[new File(['id,email\n1,a@example.test'],'gamalearn-users.csv')]})
+    await act(async()=>input.dispatchEvent(new Event('change',{bubbles:true})))
+    const button=Array.from(host.querySelectorAll('button')).find(candidate=>candidate.textContent==='Migrate users')!
+    expect(button.disabled).toBe(true)
+    expect(host.textContent).toContain('HelpJuice migration requires a KB administrator.')
   })
 
   it('shows the limited backend preview and opens a read-only article with row-scoped issues',async()=>{

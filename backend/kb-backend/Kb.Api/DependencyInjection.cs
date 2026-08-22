@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Kb.Api.OpenApi;
+using Kb.Api.Startup;
 using Kb.Application.Media;
 using Microsoft.AspNetCore.Http.Features;
 using Kb.Application.Migrations.HelpJuice;
@@ -56,6 +57,7 @@ public static class DependencyInjection
         services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>
             context.ProblemDetails.Extensions["traceId"] = System.Diagnostics.Activity.Current?.Id ?? context.HttpContext.TraceIdentifier);
         services.AddExceptionHandler<GlobalExceptionHandler>();
+        services.AddHostedService<BlobStorageStartupCheck>();
         services.AddHttpContextAccessor();
         // TODO: Configure company authentication/SSO and protect business endpoints.
         services.AddAuthentication();
