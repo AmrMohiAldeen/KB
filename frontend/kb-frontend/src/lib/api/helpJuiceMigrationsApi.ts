@@ -1,4 +1,4 @@
-import { ApiError, getApiBaseUrl, normalizeAccessToken, type ProblemDetails } from './http'
+import { ApiError, apiRequest, getApiBaseUrl, normalizeAccessToken, type ProblemDetails } from './http'
 
 export type HelpJuiceConflictBehavior = 'Skip' | 'UpdateExisting' | 'CreateCopy'
 export type HelpJuiceMigrationOptions = {
@@ -55,18 +55,13 @@ export type HelpJuiceDiagnosticDownload = { blob: Blob; fileName: string; totalR
 const parseJson = (value: string): unknown => { try { return value ? JSON.parse(value) : undefined } catch { return undefined } }
 
 export const previewHelpJuiceMigration = async (files: File[], accessToken: string): Promise<HelpJuiceMigrationPreviewResponse> => {
-  const token = normalizeAccessToken(accessToken)
-  if (!token) throw new ApiError(401, { title: 'Unauthorized', detail: 'Authentication is required.' })
   const form = new FormData()
   files.forEach(file => form.append('files', file, file.webkitRelativePath || file.name))
-  const response = await fetch(`${getApiBaseUrl()}/api/migrations/helpjuice/preview`, {
+
+  return apiRequest<HelpJuiceMigrationPreviewResponse>('/api/migrations/helpjuice/preview', accessToken, {
     method: 'POST',
-    headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
     body: form
   })
-  const body = parseJson(await response.text())
-  if (!response.ok) throw new ApiError(response.status, body as ProblemDetails | undefined)
-  return body as HelpJuiceMigrationPreviewResponse
 }
 
 export const runHelpJuiceMigration = (files: File[], options: HelpJuiceMigrationOptions, accessToken: string,
@@ -120,16 +115,8 @@ export const runHelpJuiceUserMigration = (file: File, accessToken: string,
 
 export const getHelpJuiceUserMigrationStatus = async (
   accessToken: string
-): Promise<HelpJuiceUserMigrationStatus> => {
-  const token = normalizeAccessToken(accessToken)
-  if (!token) throw new ApiError(401, { title: 'Unauthorized', detail: 'Authentication is required.' })
-  const response = await fetch(`${getApiBaseUrl()}/api/migrations/helpjuice/users/status`, {
-    headers: { Accept: 'application/json', Authorization: `Bearer ${token}` }
-  })
-  const body = parseJson(await response.text())
-  if (!response.ok) throw new ApiError(response.status, body as ProblemDetails | undefined)
-  return body as HelpJuiceUserMigrationStatus
-}
+): Promise<HelpJuiceUserMigrationStatus> =>
+  apiRequest<HelpJuiceUserMigrationStatus>('/api/migrations/helpjuice/users/status', accessToken)
 
 export const runHelpJuiceDiagnostic = (files: File[], accessToken: string,
   onProgress?: (percent: number) => void, onScanning?: () => void): { promise: Promise<HelpJuiceDiagnosticDownload>; cancel: () => void } => {
