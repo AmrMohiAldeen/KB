@@ -217,6 +217,23 @@ export async function apiBlobRequest(
   return response.blob()
 }
 
+export async function viewerBlobRequest(path: string, signal?: AbortSignal): Promise<Blob> {
+  let response: Response
+  try {
+    response = await fetch(`${getApiBaseUrl()}${path}`, {
+      cache: 'no-store',
+      credentials: 'include',
+      headers: { Accept: '*/*' },
+      signal
+    })
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error
+    throw new ApiError(0, { status: 0, title: 'Network error', detail: 'The Viewer image could not be reached.' })
+  }
+  if (!response.ok) throw new ApiError(response.status, defaultProblem(response.status))
+  return response.blob()
+}
+
 export const describeApiError = (error: unknown): string[] => {
   if (!(error instanceof ApiError))
     return [error instanceof Error ? error.message : 'An unexpected error occurred.']

@@ -46,7 +46,7 @@ public sealed class CategoriesController(CategoryService categories) : Controlle
     {
         var created = await categories.CreateAsync(
             new(request.ParentCategoryId, request.Name, request.Description, request.SortOrder, request.Slug,
-                request.Visibility), cancellationToken);
+                request.Visibility, request.ViewerImageMediaId, request.ViewerIcon), cancellationToken);
         return CreatedAtAction(nameof(GetById), new { id = created.Id }, ToDetailsResponse(created));
     }
 
@@ -59,7 +59,8 @@ public sealed class CategoriesController(CategoryService categories) : Controlle
         CancellationToken cancellationToken)
     {
         var updated = await categories.UpdateAsync(id,
-            new(request.Name, request.Description, request.SortOrder, request.Slug, request.Visibility), cancellationToken);
+            new(request.Name, request.Description, request.SortOrder, request.Slug, request.Visibility,
+                request.ViewerImageMediaId, request.ViewerIcon), cancellationToken);
         return Ok(ToDetailsResponse(updated));
     }
 
@@ -105,10 +106,11 @@ public sealed class CategoriesController(CategoryService categories) : Controlle
 
     private static CategoryDetailsResponse ToDetailsResponse(CategoryData category) => new(category.Id,
         category.ParentCategoryId, category.Name, category.Slug, category.Description, category.SortOrder,
-        category.Path, category.Depth, category.ArticleCount, category.Status, category.Visibility);
+        category.Path, category.Depth, category.ArticleCount, category.Status, category.Visibility,
+        category.ViewerImageMediaId, category.ViewerIcon);
 
     private static CategoryTreeNodeResponse ToTreeResponse(CategoryTreeNode category) => new(category.Id,
         category.ParentCategoryId, category.Name, category.Slug, category.Description, category.SortOrder,
         category.Path, category.Depth, category.ArticleCount, category.Children.Select(ToTreeResponse).ToArray(),
-        category.Status, category.Visibility);
+        category.Status, category.Visibility, category.ViewerImageMediaId, category.ViewerIcon);
 }

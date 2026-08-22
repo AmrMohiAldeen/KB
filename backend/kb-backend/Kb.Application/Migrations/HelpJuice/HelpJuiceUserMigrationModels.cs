@@ -33,6 +33,8 @@ public sealed record HelpJuiceUserWriteResult(MigrationWriteDisposition Disposit
 public sealed record HelpJuiceUserMigrationResult(Guid JobId, string Status, string OriginalFileName,
     DateTime StartedAt, DateTime CompletedAt, int TotalRows, int ImportedUsers, int UpdatedUsers,
     int SkippedUsers, int FailedUsers, IReadOnlyList<MigrationIssueData> Issues);
+public sealed record HelpJuiceUserMigrationStatus(bool IsCompleted, Guid? JobId, string? Status,
+    DateTime? CompletedAt);
 
 public interface IHelpJuiceUserMigrationStore
 {
@@ -44,4 +46,5 @@ public interface IHelpJuiceUserMigrationStore
     Task PersistJobResultAsync(Guid jobId, string status, string summaryJson,
         IReadOnlyList<MigrationIssueData> issues, DateTime completedAt,
         CancellationToken cancellationToken);
+    Task<HelpJuiceUserMigrationStatus> GetLatestStatusAsync(CancellationToken cancellationToken);
 }

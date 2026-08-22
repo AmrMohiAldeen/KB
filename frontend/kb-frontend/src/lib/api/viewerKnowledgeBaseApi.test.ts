@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { getViewerPortal, getViewerPreviewPortal } from './viewerKnowledgeBaseApi'
+import {
+  getViewerCategoryImage,
+  getViewerPortal,
+  getViewerPreviewCategoryImage,
+  getViewerPreviewPortal
+} from './viewerKnowledgeBaseApi'
 
 describe('viewer knowledge base authorization paths', () => {
   const fetchMock = vi.fn<typeof fetch>()
@@ -25,6 +30,26 @@ describe('viewer knowledge base authorization paths', () => {
     expect(fetchMock.mock.calls[0][1]?.credentials).toBe('include')
     expect(new Headers(fetchMock.mock.calls[0][1]?.headers).has('Authorization')).toBe(false)
     expect(fetchMock.mock.calls[1][0]).toBe('https://kb-api.example.test/api/viewer/preview/synopsis')
+    expect(new Headers(fetchMock.mock.calls[1][1]?.headers).get('Authorization')).toBe('Bearer internal.jwt')
+  })
+
+  it('loads category artwork through the same scoped authentication boundary', async () => {
+    fetchMock.mockImplementation(async () => new Response(new Uint8Array([1, 2, 3]), {
+      status: 200,
+      headers: { 'Content-Type': 'image/png' }
+    }))
+
+    await getViewerCategoryImage('swiftassess', 'category-1')
+    await getViewerPreviewCategoryImage('synopsis', 'category-2', 'internal.jwt')
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      'https://kb-api.example.test/api/viewer/swiftassess/categories/category-1/image'
+    )
+    expect(fetchMock.mock.calls[0][1]?.credentials).toBe('include')
+    expect(new Headers(fetchMock.mock.calls[0][1]?.headers).has('Authorization')).toBe(false)
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      'https://kb-api.example.test/api/viewer/preview/synopsis/categories/category-2/image'
+    )
     expect(new Headers(fetchMock.mock.calls[1][1]?.headers).get('Authorization')).toBe('Bearer internal.jwt')
   })
 })

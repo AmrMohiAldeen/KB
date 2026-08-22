@@ -8,6 +8,8 @@ export type CategoryFormState = {
   parentCategoryId: string
   sortOrder: number
   visibility: 'Public' | 'Internal'
+  viewerImageMediaId: string
+  viewerIcon: string
 }
 
 export const emptyCategoryForm: CategoryFormState = {
@@ -16,7 +18,9 @@ export const emptyCategoryForm: CategoryFormState = {
   description: '',
   parentCategoryId: '',
   sortOrder: 0,
-  visibility: 'Public'
+  visibility: 'Public',
+  viewerImageMediaId: '',
+  viewerIcon: 'folder'
 }
 
 export const getInitialCategoryForm = (category?: KbCategoryNode): CategoryFormState =>
@@ -27,7 +31,9 @@ export const getInitialCategoryForm = (category?: KbCategoryNode): CategoryFormS
         description: category.description,
         parentCategoryId: category.parentId ?? '',
         sortOrder: category.sortOrder,
-        visibility: category.visibility ?? 'Public'
+        visibility: category.visibility ?? 'Public',
+        viewerImageMediaId: category.viewerImageMediaId ?? '',
+        viewerIcon: category.viewerIcon ?? (category.viewerImageMediaId ? '' : 'folder')
       }
     : emptyCategoryForm
 

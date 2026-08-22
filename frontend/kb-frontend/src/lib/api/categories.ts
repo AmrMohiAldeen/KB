@@ -13,6 +13,8 @@ export type CategoryTreeNodeResponse = {
   articleCount: number
   status: 'Active' | 'Archived'
   visibility: 'Public' | 'Internal'
+  viewerImageMediaId: string | null
+  viewerIcon: string | null
   children: CategoryTreeNodeResponse[]
 }
 
@@ -28,6 +30,8 @@ export type CategoryDetailsResponse = {
   articleCount: number
   status: 'Active' | 'Archived'
   visibility: 'Public' | 'Internal'
+  viewerImageMediaId: string | null
+  viewerIcon: string | null
 }
 
 export type CreateCategoryRequest = {
@@ -37,6 +41,8 @@ export type CreateCategoryRequest = {
   sortOrder: number
   slug?: string | null
   visibility: 'Public' | 'Internal'
+  viewerImageMediaId: string | null
+  viewerIcon: string | null
 }
 
 export type UpdateCategoryRequest = {
@@ -45,6 +51,8 @@ export type UpdateCategoryRequest = {
   sortOrder: number
   slug: string | null
   visibility: 'Public' | 'Internal'
+  viewerImageMediaId: string | null
+  viewerIcon: string | null
 }
 
 export type MoveCategoryRequest = {
@@ -66,6 +74,8 @@ export const mapCategoryTreeNode = (
   articleCount: category.articleCount,
   status: category.status,
   visibility: category.visibility,
+  viewerImageMediaId: category.viewerImageMediaId,
+  viewerIcon: category.viewerIcon,
   children: category.children.map(mapCategoryTreeNode)
 })
 

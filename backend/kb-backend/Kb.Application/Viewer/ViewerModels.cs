@@ -24,9 +24,13 @@ public sealed record ViewerPortalData(Guid SolutionId, string Slug, string Name,
     public Guid RootId => SolutionId;
 }
 public sealed record ViewerCategoryData(Guid Id, Guid? ParentId, string Name, string Slug, string? Description,
-    int SortOrder, string? Path, int Depth, int ArticleCount);
+    int SortOrder, string? Path, int Depth, int ArticleCount, bool HasViewerImage = false,
+    string? ViewerIcon = null);
 public sealed record ViewerCategoryNode(Guid Id, Guid? ParentId, string Name, string Slug, string? Description,
-    int SortOrder, string? Path, int Depth, int ArticleCount, IReadOnlyList<ViewerCategoryNode> Children);
+    int SortOrder, string? Path, int Depth, int ArticleCount, IReadOnlyList<ViewerCategoryNode> Children,
+    bool HasViewerImage = false, string? ViewerIcon = null);
+public sealed record ViewerCategoryImageSource(string StoragePath, string MimeType, string FileName);
+public sealed record ViewerCategoryImage(Stream Content, string MimeType, string FileName);
 public sealed record ViewerArticleSummary(Guid Id, string Title, string Slug, Guid CategoryId,
     string CategoryName, string CategoryPath, DateTime UpdatedAt);
 public sealed record ViewerArticleSource(Guid Id, string Title, string Slug, Guid CategoryId,
@@ -40,6 +44,7 @@ public sealed class ViewerAuthenticationOptions
     public TimeSpan SessionLifetime { get; set; } = TimeSpan.FromHours(1);
     public TimeSpan MaximumHandoffLifetime { get; set; } = TimeSpan.FromMinutes(5);
     public string ArticleContentContainerName { get; set; } = "article-content";
+    public string MediaContainerName { get; set; } = "media";
 }
 
 public interface IViewerRepository
@@ -56,12 +61,16 @@ public interface IViewerRepository
         Guid? categoryId, CancellationToken cancellationToken);
     Task<ViewerArticleSource?> GetArticleAsync(Guid sessionId, string solutionSlug, string slug,
         Guid? articleId, CancellationToken cancellationToken);
+    Task<ViewerCategoryImageSource?> GetCategoryImageAsync(Guid sessionId, string solutionSlug, Guid categoryId,
+        CancellationToken cancellationToken);
     Task<ViewerPortalData> GetPreviewPortalAsync(string rootCategorySlug, CancellationToken cancellationToken);
     Task<IReadOnlyList<ViewerCategoryData>> GetPreviewCategoriesAsync(string rootCategorySlug,
         CancellationToken cancellationToken);
     Task<IReadOnlyList<ViewerArticleSummary>> GetPreviewArticlesAsync(string rootCategorySlug, string? search,
         Guid? categoryId, CancellationToken cancellationToken);
     Task<ViewerArticleSource?> GetPreviewArticleAsync(string rootCategorySlug, string slug, Guid? articleId,
+        CancellationToken cancellationToken);
+    Task<ViewerCategoryImageSource?> GetPreviewCategoryImageAsync(string rootCategorySlug, Guid categoryId,
         CancellationToken cancellationToken);
     Task RecordArticleViewAsync(ICurrentViewer viewer, ViewerArticleSource article, string? ipAddress,
         string? userAgent, CancellationToken cancellationToken);

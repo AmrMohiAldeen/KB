@@ -63,6 +63,14 @@ public sealed class ViewerService(IViewerRepository repository, IViewerSearchCli
     public Task<ViewerArticle> GetArticleByIdAsync(string solutionSlug, Guid articleId, string? ip,
         string? userAgent, CancellationToken token) => GetArticleAsync(solutionSlug, null, articleId, ip, userAgent, token);
 
+    public async Task<ViewerCategoryImage> GetCategoryImageAsync(string solutionSlug, Guid categoryId,
+        CancellationToken token)
+    {
+        var source = await repository.GetCategoryImageAsync(RequireViewer().SessionId,
+            NormalizeSlug(solutionSlug), categoryId, token) ?? throw new NotFoundException("The category image was not found.");
+        return await LoadCategoryImageAsync(source, token);
+    }
+
     private async Task<ViewerArticle> GetArticleAsync(string solutionSlug, string? articleSlug, Guid? articleId,
         string? ip, string? userAgent, CancellationToken token)
     {
@@ -112,6 +120,15 @@ public sealed class ViewerService(IViewerRepository repository, IViewerSearchCli
     public Task<ViewerArticle> GetPreviewArticleByIdAsync(string rootCategorySlug, Guid articleId,
         CancellationToken token) => GetPreviewArticleAsync(rootCategorySlug, null, articleId, token);
 
+    public async Task<ViewerCategoryImage> GetPreviewCategoryImageAsync(string rootCategorySlug, Guid categoryId,
+        CancellationToken token)
+    {
+        RequireInternalUser();
+        var source = await repository.GetPreviewCategoryImageAsync(NormalizeSlug(rootCategorySlug), categoryId,
+            token) ?? throw new NotFoundException("The category image was not found.");
+        return await LoadCategoryImageAsync(source, token);
+    }
+
     private async Task<ViewerArticle> GetPreviewArticleAsync(string rootCategorySlug, string? articleSlug,
         Guid? articleId, CancellationToken token)
     {
@@ -140,6 +157,24 @@ public sealed class ViewerService(IViewerRepository repository, IViewerSearchCli
         }
     }
 
+    private async Task<ViewerCategoryImage> LoadCategoryImageAsync(ViewerCategoryImageSource source,
+        CancellationToken token)
+    {
+        if (string.IsNullOrWhiteSpace(source.StoragePath) || Path.IsPathRooted(source.StoragePath) ||
+            source.StoragePath.Contains("..", StringComparison.Ordinal) ||
+            source.StoragePath.Contains('\\'))
+            throw new NotFoundException("The category image was not found.");
+        try
+        {
+            var stream = await storage.DownloadAsync(options.Value.MediaContainerName, source.StoragePath, token);
+            return new(stream, source.MimeType, source.FileName);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException and not NotFoundException)
+        {
+            throw new NotFoundException("The category image was not found.");
+        }
+    }
+
     private static IReadOnlyList<ViewerCategoryNode> BuildTree(IReadOnlyList<ViewerCategoryData> categories)
     {
         if (categories.Count == 0) return [];
@@ -150,7 +185,8 @@ public sealed class ViewerService(IViewerRepository repository, IViewerSearchCli
                 group => group.OrderBy(item => item.SortOrder).ThenBy(item => item.Name).ToArray());
         ViewerCategoryNode Map(ViewerCategoryData item) => new(item.Id, item.Id == root.Id ? null : item.ParentId,
             item.Name, item.Slug, item.Description, item.SortOrder, item.Path, item.Depth - root.Depth,
-            item.ArticleCount, children.TryGetValue(item.Id, out var values) ? values.Select(Map).ToArray() : []);
+            item.ArticleCount, children.TryGetValue(item.Id, out var values) ? values.Select(Map).ToArray() : [],
+            item.HasViewerImage, item.ViewerIcon);
         return [Map(root)];
     }
 

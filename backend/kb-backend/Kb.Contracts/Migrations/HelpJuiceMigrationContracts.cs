@@ -122,3 +122,9 @@ public sealed record HelpJuiceUserMigrationResponse(
     int SkippedUsers,
     int FailedUsers,
     IReadOnlyList<MigrationIssueResponse> Issues);
+
+public sealed record HelpJuiceUserMigrationStatusResponse(
+    bool IsCompleted,
+    Guid? JobId,
+    string? Status,
+    DateTime? CompletedAt);

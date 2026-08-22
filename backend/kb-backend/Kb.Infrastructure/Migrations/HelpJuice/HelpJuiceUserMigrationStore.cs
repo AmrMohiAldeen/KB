@@ -128,6 +128,29 @@ public sealed class HelpJuiceUserMigrationStore(KbDbContext db) : IHelpJuiceUser
         db.ChangeTracker.Clear();
     }
 
+    public async Task<HelpJuiceUserMigrationStatus> GetLatestStatusAsync(CancellationToken ct)
+    {
+        var jobs = db.MigrationJobs.AsNoTracking().Where(job =>
+            job.SourceSystem == "HelpJuice" &&
+            job.OptionsJson != null &&
+            job.OptionsJson.Contains("\"migrationType\":\"Users\""));
+        var completed = await jobs
+            .Where(job => job.Status == HelpJuiceMigrationStatuses.Completed ||
+                          job.Status == HelpJuiceMigrationStatuses.CompletedWithErrors)
+            .OrderByDescending(job => job.CompletedAt)
+            .Select(job => new { job.MigrationJobId, job.Status, job.CompletedAt })
+            .FirstOrDefaultAsync(ct);
+        if (completed is not null)
+            return new(true, completed.MigrationJobId, completed.Status, completed.CompletedAt);
+
+        var latest = await jobs.OrderByDescending(job => job.StartedAt)
+            .Select(job => new { job.MigrationJobId, job.Status, job.CompletedAt })
+            .FirstOrDefaultAsync(ct);
+        return latest is null
+            ? new(false, null, null, null)
+            : new(false, latest.MigrationJobId, latest.Status, latest.CompletedAt);
+    }
+
     private async Task SaveAndCommitAsync(Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction transaction,
         CancellationToken ct)
     {
@@ -165,7 +188,9 @@ public sealed class HelpJuiceUserMigrationStore(KbDbContext db) : IHelpJuiceUser
         var name = string.Join(' ', new[] { source.HelpJuiceFirstName, source.HelpJuiceLastName }
             .Where(value => !string.IsNullOrWhiteSpace(value)));
         if (name.Length is > 0 and <= 200) return name;
-        var fallback = source.ValidEmail![..source.ValidEmail.IndexOf('@')];
+        var validEmail = source.ValidEmail ?? throw new InvalidOperationException(
+            "A valid email is required to construct a native user name.");
+        var fallback = validEmail[..validEmail.IndexOf('@')];
         if (name.Length > 200)
             diagnostics.Add(new("Warning", "HELPJUICE_USER_FULL_NAME_FALLBACK",
                 "Combined source first and last name exceeds the native 200-character limit; the email local-part was used without truncating source metadata."));

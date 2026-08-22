@@ -60,6 +60,8 @@ public sealed partial class HelpJuiceMigrationService(
         if (!currentUser.IsAuthenticated) throw new UnauthorizedAccessException();
         if (files.Count == 0) throw new BusinessRuleException("Select a HelpJuice ZIP or migration files.");
         ValidateOptions(options);
+        if (!await writer.HasCompletedUserMigrationAsync(ct))
+            throw new BusinessRuleException("Complete Users Migration before HelpJuice Content Migration.");
 
         var startedAt = timeProvider.GetUtcNow().UtcDateTime;
         var operationId = Guid.NewGuid();

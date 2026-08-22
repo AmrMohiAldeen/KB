@@ -71,10 +71,7 @@ public static class HelpJuiceUserCsvParser
             Timestamp(row, "deactivated_at", diagnostics),
             Text(row["role_id"]),
             migrationAt);
-        var canWrite = !diagnostics.Any(diagnostic => diagnostic.ErrorCode is
-            "HELPJUICE_USER_BOOLEAN_INVALID" or "HELPJUICE_USER_INTEGER_INVALID" or
-            "HELPJUICE_USER_TIMESTAMP_INVALID" or "HELPJUICE_USER_IP_INVALID");
-        return new(row.RowNumber, user, canWrite, diagnostics);
+        return new(row.RowNumber, user, true, diagnostics);
     }
 
     private static void DiagnoseDuplicates(List<ParsedHelpJuiceUser> rows, IReadOnlyList<CsvRow> sourceRows)

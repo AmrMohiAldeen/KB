@@ -432,12 +432,19 @@ public partial class KbDbContext : DbContext
             entity.Property(e => e.Status)
                 .HasMaxLength(40)
                 .HasDefaultValue("Active", "DF_CATEGORIES_Status");
+            entity.Property(e => e.ViewerIcon).HasMaxLength(50);
+            entity.Property(e => e.ViewerImageMediaIdFk).HasColumnName("ViewerImageMediaID_FK");
             entity.Property(e => e.Visibility).HasMaxLength(20)
                 .HasDefaultValue(ContentVisibilities.Public, "DF_CATEGORIES_Visibility");
 
             entity.HasOne(d => d.ParentCategoryIdFkNavigation).WithMany(p => p.InverseParentCategoryIdFkNavigation)
                 .HasForeignKey(d => d.ParentCategoryIdFk)
                 .HasConstraintName("FK_CATEGORIES_Parent_CATEGORIES");
+
+            entity.HasOne(d => d.ViewerImageMediaIdFkNavigation).WithMany(p => p.ViewerImageCategories)
+                .HasForeignKey(d => d.ViewerImageMediaIdFk)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("FK_CATEGORIES_ViewerImage_MEDIA_FILES");
         });
 
         modelBuilder.Entity<ContentBlock>(entity =>

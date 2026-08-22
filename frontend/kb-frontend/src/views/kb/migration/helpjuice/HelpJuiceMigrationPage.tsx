@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useRef, useState, type ChangeEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import Accordion from '@mui/material/Accordion'
 import AccordionDetails from '@mui/material/AccordionDetails'
 import AccordionSummary from '@mui/material/AccordionSummary'
@@ -38,6 +38,7 @@ import {
   type HelpJuiceMigrationResponse,
   type HelpJuiceMigrationsApi,
   type HelpJuiceUserMigrationResponse,
+  type HelpJuiceUserMigrationStatus,
   type MigrationIssue
 } from '@/lib/api/helpJuiceMigrationsApi'
 import { KbPageShell, KbSectionCard } from '@/views/shared'
@@ -60,6 +61,9 @@ export type HelpJuiceMigrationPageProps = { accessToken: string; api?: HelpJuice
 const HelpJuiceMigrationPage = ({ accessToken, api = helpJuiceMigrationsApi }: HelpJuiceMigrationPageProps) => {
   const [usersFile, setUsersFile] = useState<File>()
   const [usersResult, setUsersResult] = useState<HelpJuiceUserMigrationResponse>()
+  const [usersStatus, setUsersStatus] = useState<HelpJuiceUserMigrationStatus>()
+  const [usersStatusLoading, setUsersStatusLoading] = useState(Boolean(accessToken))
+  const [usersStatusError, setUsersStatusError] = useState<string>()
   const [usersMessages, setUsersMessages] = useState<string[]>([])
   const [usersConfirmOpen, setUsersConfirmOpen] = useState(false)
   const [usersSubmitting, setUsersSubmitting] = useState(false)
@@ -83,15 +87,28 @@ const HelpJuiceMigrationPage = ({ accessToken, api = helpJuiceMigrationsApi }: H
   const diagnosticCancel = useRef<(() => void) | undefined>(undefined)
   const previewSequence = useRef(0)
 
+  useEffect(() => {
+    let active = true
+    if (!accessToken) return () => { active = false }
+    void api.usersStatus(accessToken).then(status => {
+      if (active) { setUsersStatus(status); setUsersStatusError(undefined) }
+    }).catch(error => {
+      if (active) setUsersStatusError(describeApiError(error).join(' '))
+    }).finally(() => {
+      if (active) setUsersStatusLoading(false)
+    })
+    return () => { active = false }
+  }, [accessToken, api])
+
   const onUsersFile = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.currentTarget.files?.[0]
     event.currentTarget.value = ''
     setUsersResult(undefined)
     setUsersMessages([])
     if (!file) { setUsersFile(undefined); return }
-    if (file.name.toLowerCase() !== 'users.csv') {
+    if (!file.name.toLowerCase().endsWith('.csv')) {
       setUsersFile(undefined)
-      setUsersMessages(['Choose the HelpJuice users.csv file.'])
+      setUsersMessages(['Choose the HelpJuice users CSV file.'])
       return
     }
     setUsersFile(file)
@@ -102,12 +119,15 @@ const HelpJuiceMigrationPage = ({ accessToken, api = helpJuiceMigrationsApi }: H
     const request = api.runUsers(usersFile, accessToken, setUsersProgress)
     usersRequestCancel.current = request.cancel
     try {
-      setUsersResult(await request.promise)
+      const nextResult = await request.promise
+      setUsersResult(nextResult)
+      if (nextResult.status === 'Completed' || nextResult.status === 'CompletedWithErrors')
+        setUsersStatus({ isCompleted: true, jobId: nextResult.jobId, status: nextResult.status, completedAt: nextResult.completedAt })
       previewSequence.current += 1
       setFiles([]); setPreview(undefined); setSelectedArticle(undefined); setResult(undefined)
     }
     catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') setUsersMessages(['Users migration cancelled. Users committed before cancellation may remain; rerun users.csv safely to reconcile them.'])
+      if (error instanceof DOMException && error.name === 'AbortError') setUsersMessages(['Users migration cancelled. Users committed before cancellation may remain; rerun the same users CSV safely to reconcile them.'])
       else setUsersMessages(describeApiError(error))
     } finally { usersRequestCancel.current = undefined; setUsersSubmitting(false) }
   }
@@ -199,6 +219,7 @@ const HelpJuiceMigrationPage = ({ accessToken, api = helpJuiceMigrationsApi }: H
   const hasSelectedPublicationState = options.importPublished || options.importUnpublishedAsDrafts
   const canImport = Boolean(accessToken && files.length && preview && preview.articles.length &&
     hasSelectedPublicationState && !preview.missingRequiredFiles.length && !packageErrors && !previewErrors &&
+    usersStatus?.isCompleted && !usersStatusLoading &&
     !usersSubmitting && !submitting && !diagnosing && !previewing)
 
   return <KbPageShell>
@@ -207,11 +228,11 @@ const HelpJuiceMigrationPage = ({ accessToken, api = helpJuiceMigrationsApi }: H
     <KbSectionCard title='1. Users Migration' description='Import HelpJuice users into existing KB users before migrating content.'>
       <Stack spacing={3}>
         <Alert severity='info'>
-          The migration matches users by HelpJuice ID first, then email, and stores migration metadata only—never passwords or roles. It is safe to rerun users.csv.
+          The migration matches users by HelpJuice ID first, then email, and stores migration metadata only—never passwords or roles. It is safe to rerun the users CSV.
         </Alert>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
           <Button component='label' variant='outlined' startIcon={<FileSpreadsheet size={18} />} disabled={usersSubmitting || submitting || diagnosing || previewing}>
-            Choose users.csv
+            Choose users CSV
             <input hidden type='file' accept='.csv,text/csv' onChange={onUsersFile} />
           </Button>
           <Button variant='contained' startIcon={<PackageCheck size={18} />} disabled={!accessToken || !usersFile || usersSubmitting || submitting || diagnosing || previewing} onClick={() => setUsersConfirmOpen(true)}>
@@ -221,10 +242,10 @@ const HelpJuiceMigrationPage = ({ accessToken, api = helpJuiceMigrationsApi }: H
             Reset users migration
           </Button>
         </Stack>
-        <Typography color='text.primary' sx={{ fontWeight: 600 }}>{usersFile ? `${usersFile.name} selected` : 'No users.csv selected'}</Typography>
+        <Typography color='text.primary' sx={{ fontWeight: 600 }}>{usersFile ? `${usersFile.name} selected` : 'No users CSV selected'}</Typography>
         {usersMessages.length > 0 && <Alert severity='error'><AlertTitle>Users migration could not be completed</AlertTitle><List dense disablePadding>{usersMessages.map(message => <ListItem key={message} disablePadding><ListItemText primary={message} /></ListItem>)}</List></Alert>}
         {usersSubmitting && <Stack spacing={1.5} role='status' aria-live='polite'>
-          <Stack direction='row' sx={{ justifyContent: 'space-between' }}><Typography>{usersProgress < 100 ? 'Uploading users.csv' : 'Importing users into the KB'}</Typography><Typography>{usersProgress < 100 ? `${usersProgress}%` : 'Processing'}</Typography></Stack>
+          <Stack direction='row' sx={{ justifyContent: 'space-between' }}><Typography>{usersProgress < 100 ? 'Uploading users CSV' : 'Importing users into the KB'}</Typography><Typography>{usersProgress < 100 ? `${usersProgress}%` : 'Processing'}</Typography></Stack>
           <LinearProgress aria-label='Users migration progress' variant={usersProgress < 100 ? 'determinate' : 'indeterminate'} value={usersProgress} />
           <Button color='error' variant='outlined' startIcon={<Ban size={18} />} sx={{ alignSelf: 'flex-start' }} onClick={() => usersRequestCancel.current?.()}>Cancel users migration</Button>
         </Stack>}
@@ -247,7 +268,12 @@ const HelpJuiceMigrationPage = ({ accessToken, api = helpJuiceMigrationsApi }: H
       </Stack>
     </KbSectionCard>
 
-    <Alert severity='warning'><AlertTitle>Complete Users Migration before Content Migration</AlertTitle>Users may already have been migrated in an earlier session. If not, run Users Migration above before importing content so HelpJuice authors resolve to KB users.</Alert>
+    {usersStatusLoading
+      ? <Alert severity='info'><AlertTitle>Checking Users Migration prerequisite</AlertTitle>Content import will be enabled after the saved migration status is verified.</Alert>
+      : usersStatus?.isCompleted
+        ? <Alert severity='success'><AlertTitle>Users Migration prerequisite completed</AlertTitle>{usersStatus.completedAt ? `Completed ${formatDate(usersStatus.completedAt)}. ` : ''}HelpJuice content authors can now resolve through Users.HelpJuiceUserId.</Alert>
+        : <Alert severity='warning'><AlertTitle>Complete Users Migration before Content Migration</AlertTitle>Run Users Migration above before importing content so HelpJuice authors resolve to KB users.</Alert>}
+    {usersStatusError && <Alert severity='error'><AlertTitle>Users Migration status could not be verified</AlertTitle>{usersStatusError}</Alert>}
 
     <KbSectionCard title='2. HelpJuice Content Migration' description='Preview, diagnose, configure, and import the HelpJuice content package after users have been migrated.'>
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
@@ -319,7 +345,7 @@ const HelpJuiceMigrationPage = ({ accessToken, api = helpJuiceMigrationsApi }: H
 
     {result && <KbSectionCard title='2.5 Content reconciliation and issue summary' description={`Persistent migration job ${result.jobId} groups final states, warnings, and errors for reconciliation and retry.`}><Stack spacing={2}>{result.result && <Stack direction='row' spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}><Chip color='success' label={`Published: ${result.result.publishedImported}`} /><Chip color='secondary' label={`Draft: ${result.result.draftImported}`} /><Chip color='warning' label={`Archived: ${result.result.archivedImported}`} /></Stack>}<IssueSummary issues={result.issues} /></Stack></KbSectionCard>}
     <ArticlePreviewDialog article={selectedArticle} onClose={() => setSelectedArticle(undefined)} />
-    <KbWorkflowDialog open={usersConfirmOpen} title='Confirm Users Migration' description='Import users.csv into existing KB users, matching HelpJuice ID first and email second.' notice='Only HelpJuice migration metadata is stored; passwords and roles are never imported. The migration is safe to rerun.' confirmLabel='Start users migration' onClose={() => setUsersConfirmOpen(false)} onConfirm={() => void runUsers()} />
+    <KbWorkflowDialog open={usersConfirmOpen} title='Confirm Users Migration' description={`Import ${usersFile?.name ?? 'the users CSV'} into existing KB users, matching HelpJuice ID first and email second.`} notice='Only HelpJuice migration metadata is stored; passwords and roles are never imported. The migration is safe to rerun.' confirmLabel='Start users migration' onClose={() => setUsersConfirmOpen(false)} onConfirm={() => void runUsers()} />
     <KbWorkflowDialog open={confirmOpen} title='Confirm HelpJuice Content Migration' description={`Users Migration must be completed before Content Migration. The backend will validate the complete package again, then import content using ${options.conflictBehavior} conflict handling.`} notice='This synchronous operation can take a long time. Do not close the page; cancellation may leave already committed content records in place.' confirmLabel='Start content migration' onClose={() => setConfirmOpen(false)} onConfirm={() => void run()}><Stack spacing={1}><Typography>{options.importPublished ? 'Published articles included' : 'Published articles excluded'}</Typography><Typography>{options.importUnpublishedAsDrafts ? 'Unpublished articles imported as drafts' : 'Unpublished articles excluded'}</Typography><Typography>{options.importCategories ? 'Categories included' : 'Categories excluded'} · {options.importMedia ? 'Media included' : 'Media excluded'}</Typography></Stack></KbWorkflowDialog>
   </KbPageShell>
 }

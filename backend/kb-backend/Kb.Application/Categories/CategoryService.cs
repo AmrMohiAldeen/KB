@@ -17,6 +17,10 @@ public sealed class CategoryService(
     private const int MaxDescriptionLength = 1000;
     private const int MaxSlugLength = 250;
     private const int MaxPathLength = 2048;
+    private static readonly HashSet<string> ViewerIcons = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "book-open", "chart", "folder", "graduation-cap", "life-buoy", "rocket", "settings", "shield-check"
+    };
 
     public Task<CategoryData?> GetAsync(Guid id, CancellationToken cancellationToken) =>
         repository.GetByIdAsync(id, cancellationToken);
@@ -50,9 +54,11 @@ public sealed class CategoryService(
     {
         var (name, description) = ValidateWrite(command.Name, command.Description, command.SortOrder);
         var visibility = NormalizeVisibility(command.Visibility);
+        var viewerIcon = NormalizeViewerIcon(command.ViewerImageMediaId, command.ViewerIcon);
         var actorId = currentUser.UserId;
         return repository.ExecuteSerializableAsync(async token =>
         {
+            await ValidateViewerImageAsync(command.ViewerImageMediaId, token);
             CategoryData? parent = null;
             if (command.ParentCategoryId is { } parentId)
             {
@@ -64,12 +70,14 @@ public sealed class CategoryService(
             var slug = await GenerateUniqueSlugAsync(command.Slug ?? name, null, token);
             var depth = parent is null ? 0 : checked(parent.Depth + 1);
             var inserted = await repository.InsertAsync(
-                new(command.ParentCategoryId, name, slug, description, command.SortOrder, depth, visibility), token);
+                new(command.ParentCategoryId, name, slug, description, command.SortOrder, depth, visibility,
+                    command.ViewerImageMediaId, viewerIcon), token);
             var path = parent is null ? $"/{FormatId(inserted.Id)}/" : $"{parent.Path}{FormatId(inserted.Id)}/";
             EnsurePathFits(path);
             var audit = Audit(actorId, CategoryAuditActions.Created, new
             {
-                name, parentId = command.ParentCategoryId, path, depth, sortOrder = command.SortOrder, visibility
+                name, parentId = command.ParentCategoryId, path, depth, sortOrder = command.SortOrder, visibility,
+                viewerImageMediaId = command.ViewerImageMediaId, viewerIcon
             });
             return await repository.SetPathAndAuditAsync(inserted.Id, path, depth, audit, token);
         }, cancellationToken);
@@ -78,9 +86,11 @@ public sealed class CategoryService(
     public Task<CategoryData> UpdateAsync(Guid id, UpdateCategoryCommand command, CancellationToken cancellationToken)
     {
         var (name, description) = ValidateWrite(command.Name, command.Description, command.SortOrder);
+        var viewerIcon = NormalizeViewerIcon(command.ViewerImageMediaId, command.ViewerIcon);
         var actorId = currentUser.UserId;
         return repository.ExecuteSerializableAsync(async token =>
         {
+            await ValidateViewerImageAsync(command.ViewerImageMediaId, token);
             var existing = await repository.GetByIdAsync(id, token)
                 ?? throw new NotFoundException("The category was not found.");
             var visibility = command.Visibility is null ? existing.Visibility : NormalizeVisibility(command.Visibility);
@@ -90,11 +100,14 @@ public sealed class CategoryService(
             var audit = Audit(actorId,
                 existing.Visibility == visibility ? CategoryAuditActions.Updated : CategoryAuditActions.VisibilityChanged, new
             {
-                before = new { existing.Name, existing.Slug, existing.Description, existing.SortOrder, existing.Visibility },
-                after = new { name, slug, description, sortOrder = command.SortOrder, visibility },
+                before = new { existing.Name, existing.Slug, existing.Description, existing.SortOrder,
+                    existing.Visibility, existing.ViewerImageMediaId, existing.ViewerIcon },
+                after = new { name, slug, description, sortOrder = command.SortOrder, visibility,
+                    viewerImageMediaId = command.ViewerImageMediaId, viewerIcon },
                 visibilityChange = existing.Visibility == visibility ? null : new { oldValue = existing.Visibility, newValue = visibility }
             });
-            return await repository.UpdateAndAuditAsync(id, name, slug, description, command.SortOrder, visibility, audit, token);
+            return await repository.UpdateAndAuditAsync(id, name, slug, description, command.SortOrder, visibility,
+                command.ViewerImageMediaId, viewerIcon, audit, token);
         }, cancellationToken);
     }
 
@@ -236,6 +249,22 @@ public sealed class CategoryService(
             throw new BusinessRuleException("Category sort order cannot be negative.");
     }
 
+    private async Task ValidateViewerImageAsync(Guid? mediaId, CancellationToken token)
+    {
+        if (mediaId is { } id && !await repository.IsActiveImageMediaAsync(id, token))
+            throw new BusinessRuleException("The Viewer category image must be an active image from the media library.");
+    }
+
+    private static string? NormalizeViewerIcon(Guid? mediaId, string? icon)
+    {
+        if (mediaId is not null && !string.IsNullOrWhiteSpace(icon))
+            throw new BusinessRuleException("Choose either a Viewer category image or an icon, not both.");
+        if (string.IsNullOrWhiteSpace(icon)) return null;
+        var value = icon.Trim().ToLowerInvariant();
+        return ViewerIcons.Contains(value) ? value :
+            throw new BusinessRuleException("The selected Viewer category icon is not supported.");
+    }
+
     private static void EnsureValidStoredPath(CategoryData category)
     {
         if (category.Path is null || !category.Path.EndsWith($"/{FormatId(category.Id)}/", StringComparison.OrdinalIgnoreCase))
@@ -277,7 +306,7 @@ public sealed class CategoryService(
         active.Remove(category.Id);
         return new(category.Id, category.ParentCategoryId, category.Name, category.Slug, category.Description,
             category.SortOrder, category.Path, category.Depth, category.ArticleCount, nodes, category.Status,
-            category.Visibility);
+            category.Visibility, category.ViewerImageMediaId, category.ViewerIcon);
     }
 
     private static string NormalizeVisibility(string visibility)

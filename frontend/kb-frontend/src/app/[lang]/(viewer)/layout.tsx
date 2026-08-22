@@ -10,5 +10,5 @@ export default async function ViewerLayout({ children, params }: {
 }) {
   const { lang } = await params
   if (!i18n.locales.includes(lang as Locale)) notFound()
-  return <Providers direction={i18n.langDirection[lang as Locale]}><Box component='main' sx={{ minBlockSize: '100vh', p: { xs: 4, md: 8 }, bgcolor: 'background.default' }}>{children}</Box></Providers>
+  return <Providers direction={i18n.langDirection[lang as Locale]}><Box component='main' sx={{ minBlockSize: '100vh', p: { xs: 2, sm: 4, md: 6 }, bgcolor: 'background.default' }}>{children}</Box></Providers>
 }

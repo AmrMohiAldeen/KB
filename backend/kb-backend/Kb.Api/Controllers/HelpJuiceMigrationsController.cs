@@ -106,6 +106,15 @@ public sealed class HelpJuiceMigrationsController(
         }
     }
 
+    [HttpGet("users/status")]
+    [ProducesResponseType<HelpJuiceUserMigrationStatusResponse>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<HelpJuiceUserMigrationStatusResponse>> UserMigrationStatus(CancellationToken ct)
+    {
+        var status = await userMigrations.GetStatusAsync(ct);
+        return Ok(new HelpJuiceUserMigrationStatusResponse(
+            status.IsCompleted, status.JobId, status.Status, status.CompletedAt));
+    }
+
     private async Task<MigrationUploadFile[]> ReadFilesAsync(CancellationToken ct)
     {
         var form = await Request.ReadFormAsync(ct);

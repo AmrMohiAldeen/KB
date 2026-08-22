@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { previewHelpJuiceMigration, runHelpJuiceDiagnostic, runHelpJuiceMigration, runHelpJuiceUserMigration, type HelpJuiceMigrationOptions } from './helpJuiceMigrationsApi'
+import { getHelpJuiceUserMigrationStatus, previewHelpJuiceMigration, runHelpJuiceDiagnostic, runHelpJuiceMigration, runHelpJuiceUserMigration, type HelpJuiceMigrationOptions } from './helpJuiceMigrationsApi'
 
 const options:HelpJuiceMigrationOptions={importPublished:true,importUnpublishedAsDrafts:true,importCategories:true,importMedia:false,preserveTimestamps:true,conflictBehavior:'UpdateExisting'}
 
@@ -14,6 +14,14 @@ describe('helpJuiceMigrationsApi',()=>{
     vi.stubGlobal('fetch',fetchMock)
     await expect(previewHelpJuiceMigration([new File(['id,name'],'questions.csv')],'token')).resolves.toEqual(response)
     expect(fetchMock).toHaveBeenCalledWith('https://kb-api.example.test/api/migrations/helpjuice/preview',expect.objectContaining({method:'POST',body:expect.any(FormData)}))
+  })
+
+  it('loads the persisted users-migration prerequisite status',async()=>{
+    const status={isCompleted:true,jobId:'users-job',status:'Completed',completedAt:new Date().toISOString()}
+    const fetchMock=vi.fn().mockResolvedValue({ok:true,status:200,text:async()=>JSON.stringify(status)})
+    vi.stubGlobal('fetch',fetchMock)
+    await expect(getHelpJuiceUserMigrationStatus('token')).resolves.toEqual(status)
+    expect(fetchMock).toHaveBeenCalledWith('https://kb-api.example.test/api/migrations/helpjuice/users/status',expect.objectContaining({headers:expect.objectContaining({Authorization:'Bearer token'})}))
   })
 
   it('runs one synchronous multipart request and reports upload progress',async()=>{
@@ -38,7 +46,7 @@ describe('helpJuiceMigrationsApi',()=>{
     await expect(request.promise).rejects.toMatchObject({name:'AbortError'})
   })
 
-  it('posts one users.csv file to the users endpoint and reports upload progress',async()=>{
+  it('posts one dated users CSV file to the users endpoint and reports upload progress',async()=>{
     let sent:FormData|undefined
     class FakeRequest {
       status=200;responseText=JSON.stringify({jobId:'job-1',status:'CompletedWithErrors',originalFileName:'users.csv',startedAt:new Date().toISOString(),completedAt:new Date().toISOString(),totalRows:4,importedUsers:2,updatedUsers:1,skippedUsers:0,failedUsers:1,issues:[]});upload:{onprogress?: (event:ProgressEvent)=>void}={};onload?:()=>void;onerror?:()=>void;onabort?:()=>void
@@ -48,12 +56,12 @@ describe('helpJuiceMigrationsApi',()=>{
       abort(){this.onabort?.()}
     }
     vi.stubGlobal('XMLHttpRequest',FakeRequest)
-    const file=new File(['id,email\n1,a@example.test'],'users.csv')
+    const file=new File(['id,email\n1,a@example.test'],'gamalearn-users-2026-08-19.csv')
     const progress=vi.fn();const request=runHelpJuiceUserMigration(file,'token',progress)
     await expect(request.promise).resolves.toMatchObject({totalRows:4,importedUsers:2,updatedUsers:1,failedUsers:1})
     expect(progress).toHaveBeenCalledWith(75)
     expect(sent?.getAll('files')).toHaveLength(1)
-    expect((sent?.get('files') as File).name).toBe('users.csv')
+    expect((sent?.get('files') as File).name).toBe('gamalearn-users-2026-08-19.csv')
   })
 
   it('downloads the read-only full diagnostic and reports upload and scan status',async()=>{

@@ -161,6 +161,9 @@ public static class DependencyInjection
                 configuration.GetValue<int?>("ViewerAuthentication:SessionLifetimeMinutes") ?? 60);
             options.MaximumHandoffLifetime = TimeSpan.FromSeconds(
                 configuration.GetValue<int?>("ViewerAuthentication:MaximumHandoffLifetimeSeconds") ?? 300);
+            options.ArticleContentContainerName =
+                configuration["Storage:Containers:ArticleContent"] ?? "article-content";
+            options.MediaContainerName = configuration["Storage:Containers:Media"] ?? "media";
         });
         services.AddSingleton<ISlugGenerator, SlugGenerator>();
         services.AddSingleton(TimeProvider.System);

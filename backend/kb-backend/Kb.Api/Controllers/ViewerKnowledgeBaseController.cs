@@ -22,6 +22,14 @@ public sealed class ViewerKnowledgeBaseController(ViewerService viewers) : Contr
     public async Task<ActionResult<IReadOnlyList<ViewerCategoryNodeResponse>>> Categories(string solutionSlug,
         CancellationToken token) => Ok((await viewers.GetTreeAsync(solutionSlug, token)).Select(Map).ToArray());
 
+    [HttpGet("categories/{categoryId:guid}/image")]
+    public async Task<IActionResult> CategoryImage(string solutionSlug, Guid categoryId, CancellationToken token)
+    {
+        var image = await viewers.GetCategoryImageAsync(solutionSlug, categoryId, token);
+        Response.Headers.CacheControl = "private, max-age=300";
+        return File(image.Content, image.MimeType, enableRangeProcessing: true);
+    }
+
     [HttpGet("articles")]
     public async Task<ActionResult<IReadOnlyList<ViewerArticleSummaryResponse>>> Articles(string solutionSlug,
         [FromQuery] string? search, [FromQuery] Guid? categoryId, CancellationToken token) =>
@@ -44,7 +52,7 @@ public sealed class ViewerKnowledgeBaseController(ViewerService viewers) : Contr
 
     private static ViewerCategoryNodeResponse Map(ViewerCategoryNode item) => new(item.Id, item.ParentId, item.Name,
         item.Slug, item.Description, item.SortOrder, item.Path, item.Depth, item.ArticleCount,
-        item.Children.Select(Map).ToArray());
+        item.Children.Select(Map).ToArray(), item.HasViewerImage, item.ViewerIcon);
     private static ViewerArticleSummaryResponse Map(ViewerArticleSummary item) => new(item.Id, item.Title,
         item.Slug, item.CategoryId, item.CategoryName, item.CategoryPath, item.UpdatedAt);
     private static ViewerArticleResponse Map(ViewerArticle item) => new(item.Id, item.Title, item.Slug,

@@ -44,6 +44,7 @@ public sealed class HelpJuiceUserMigrationTests
         Assert.Null(first.HelpJuiceLastSignInIp);
         Assert.Equal("role-7", first.HelpJuiceRoleId);
         Assert.Contains(parsed.Rows[0].Diagnostics, item => item.ErrorCode == "HELPJUICE_USER_IP_INVALID");
+        Assert.True(parsed.Rows[0].CanWrite);
         Assert.False(parsed.Rows[1].CanWrite);
         Assert.Contains(parsed.Rows[1].Diagnostics, item => item.ErrorCode == "HELPJUICE_USER_EMAIL_DUPLICATE");
         Assert.Contains(parsed.Rows[1].Diagnostics, item => item.ErrorCode == "HELPJUICE_USER_BOOLEAN_INVALID");
@@ -72,7 +73,7 @@ public sealed class HelpJuiceUserMigrationTests
             u-missing,No,Email,,,false,,,,0,,,,,,,,,
             """;
 
-        var first = await fixture.ExecuteAsync(csv);
+        var first = await fixture.ExecuteAsync(csv, "gamalearn-users-2026-08-19.csv");
         Assert.Equal(3, first.TotalRows);
         Assert.Equal(1, first.ImportedUsers);
         Assert.Equal(1, first.UpdatedUsers);
@@ -98,6 +99,8 @@ public sealed class HelpJuiceUserMigrationTests
         Assert.Single(await fixture.Context.MigrationJobs.Where(job => job.MigrationJobId == first.JobId).ToListAsync());
         Assert.NotEmpty(await fixture.Context.MigrationJobIssues
             .Where(issue => issue.MigrationJobIdFk == first.JobId).ToListAsync());
+        Assert.All(first.Issues, issue => Assert.Equal("gamalearn-users-2026-08-19.csv", issue.FileName));
+        Assert.True((await fixture.Store.GetLatestStatusAsync(default)).IsCompleted);
 
         var retry = await fixture.ExecuteAsync(csv);
         Assert.Equal(0, retry.ImportedUsers);
@@ -174,7 +177,7 @@ public sealed class HelpJuiceUserMigrationTests
             return new(connection, context);
         }
 
-        public async Task<HelpJuiceUserMigrationResult> ExecuteAsync(string csv)
+        public async Task<HelpJuiceUserMigrationResult> ExecuteAsync(string csv, string fileName = "users.csv")
         {
             var bytes = Encoding.UTF8.GetBytes(csv);
             await using var stream = new MemoryStream(bytes, writable: false);
@@ -182,7 +185,7 @@ public sealed class HelpJuiceUserMigrationTests
             var service = new HelpJuiceUserMigrationService(Store, new CurrentUser(ActorId), clock,
                 Options.Create(new HelpJuiceMigrationLimits()));
             return await service.ExecuteAsync(
-                [new MigrationUploadFile("users.csv", "text/csv", bytes.LongLength, stream)], default);
+                [new MigrationUploadFile(fileName, "text/csv", bytes.LongLength, stream)], default);
         }
 
         public async ValueTask DisposeAsync()

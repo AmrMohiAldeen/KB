@@ -97,6 +97,14 @@ public sealed class HelpJuiceImportWriter(KbDbContext db, TimeProvider timeProvi
             StringComparer.OrdinalIgnoreCase);
     }
 
+    public Task<bool> HasCompletedUserMigrationAsync(CancellationToken ct) =>
+        db.MigrationJobs.AsNoTracking().AnyAsync(job =>
+            job.SourceSystem == "HelpJuice" &&
+            job.OptionsJson != null &&
+            job.OptionsJson.Contains("\"migrationType\":\"Users\"") &&
+            (job.Status == HelpJuiceMigrationStatuses.Completed ||
+             job.Status == HelpJuiceMigrationStatuses.CompletedWithErrors), ct);
+
     public async Task<MigrationWriteResult> WriteCategoryAsync(Guid operationId, ImportedCategoryData source,
         string behavior, Guid actorId, CancellationToken ct)
     {

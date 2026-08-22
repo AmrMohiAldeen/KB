@@ -123,6 +123,7 @@ public interface IHelpJuiceImportWriter
     Task<IReadOnlyDictionary<string, string>> GetMappedArticleSlugsAsync(CancellationToken cancellationToken);
     Task<IReadOnlyDictionary<string, HelpJuiceAuthorMapping>> ResolveHelpJuiceAuthorsAsync(
         IReadOnlyCollection<string> helpJuiceUserIds, CancellationToken cancellationToken);
+    Task<bool> HasCompletedUserMigrationAsync(CancellationToken cancellationToken);
     Task<MigrationWriteResult> WriteCategoryAsync(Guid operationId, ImportedCategoryData category,
         string conflictBehavior, Guid actorId, CancellationToken cancellationToken);
     Task<MigrationWriteResult> WriteMediaAsync(Guid operationId, ImportedMediaData media, CancellationToken cancellationToken);

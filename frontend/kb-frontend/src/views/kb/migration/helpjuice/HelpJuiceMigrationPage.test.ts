@@ -6,11 +6,12 @@ import { helpJuiceMigrationsApi } from '@/lib/api/helpJuiceMigrationsApi'
 
 describe('HelpJuiceMigrationPage options',()=>{
   let root:Root|undefined;let host:HTMLDivElement|undefined
+  const completedUsersStatus=()=>vi.fn().mockResolvedValue({isCompleted:true,jobId:'users-job',status:'Completed',completedAt:new Date().toISOString()})
   afterEach(async()=>{if(root)await act(async()=>root?.unmount());host?.remove();root=undefined;host=undefined})
 
   it('allows selecting conflict behavior and publication/media options before validation',async()=>{
     host=document.createElement('div');document.body.append(host);root=createRoot(host)
-    const api={...helpJuiceMigrationsApi,run:vi.fn(helpJuiceMigrationsApi.run)}
+    const api={...helpJuiceMigrationsApi,usersStatus:completedUsersStatus(),run:vi.fn(helpJuiceMigrationsApi.run)}
     await act(async()=>root?.render(createElement(HelpJuiceMigrationPage,{accessToken:'token',api})))
     const update=host.querySelector<HTMLInputElement>('input[value="UpdateExisting"]')!
     await act(async()=>update.click())
@@ -26,7 +27,7 @@ describe('HelpJuiceMigrationPage options',()=>{
       importedUsers:2,updatedUsers:1,skippedUsers:1,failedUsers:1,
       issues:[{id:'u1',severity:'Warning' as const,fileName:'users.csv',rowNumber:5,errorCode:'USER_SKIPPED',message:'User row was skipped.',createdAt:new Date().toISOString()}]}
     const runUsers=vi.fn().mockReturnValue({promise:Promise.resolve(response),cancel:vi.fn()})
-    const api={...helpJuiceMigrationsApi,runUsers}
+    const api={...helpJuiceMigrationsApi,usersStatus:vi.fn().mockResolvedValue({isCompleted:false}),runUsers}
     await act(async()=>root?.render(createElement(HelpJuiceMigrationPage,{accessToken:'token',api})))
     const text=host.textContent ?? ''
     expect(text.indexOf('1. Users Migration')).toBeLessThan(text.indexOf('2. HelpJuice Content Migration'))
@@ -34,7 +35,7 @@ describe('HelpJuiceMigrationPage options',()=>{
     expect(text).toContain('HelpJuice ID first, then email')
     expect(text).toContain('never passwords or roles')
     const input=host.querySelector<HTMLInputElement>('input[accept=".csv,text/csv"]')!
-    const usersFile=new File(['id,email\n1,a@example.test'],'users.csv')
+    const usersFile=new File(['id,email\n1,a@example.test'],'gamalearn-users-2026-08-19.csv')
     Object.defineProperty(input,'files',{configurable:true,value:[usersFile]})
     await act(async()=>input.dispatchEvent(new Event('change',{bubbles:true})))
     await act(async()=>Array.from(host!.querySelectorAll('button')).find(button=>button.textContent==='Migrate users')?.click())
@@ -48,7 +49,7 @@ describe('HelpJuiceMigrationPage options',()=>{
 
   it('shows the limited backend preview and opens a read-only article with row-scoped issues',async()=>{
     host=document.createElement('div');document.body.append(host);root=createRoot(host)
-    const api={...helpJuiceMigrationsApi,preview:vi.fn().mockResolvedValue({
+    const api={...helpJuiceMigrationsApi,usersStatus:completedUsersStatus(),preview:vi.fn().mockResolvedValue({
       previewLimit:100,sourceArticleCount:250,sourceCategoryCount:4,isLimited:true,
       availableFiles:['questions.csv','answers.csv'],missingRequiredFiles:[],unsupportedFiles:[],packageIssues:[],
       articles:[{externalId:'q1',questionRowNumber:2,answerExternalId:'a1',answerRowNumber:7,title:'Preview article',

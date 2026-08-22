@@ -9,7 +9,7 @@ public sealed record ViewerSessionResponse(Guid SessionId, Guid CustomerId, stri
 public sealed record ViewerPortalResponse(Guid SolutionId, string Slug, string Name, string? Description);
 public sealed record ViewerCategoryNodeResponse(Guid CategoryId, Guid? ParentCategoryId, string Name, string Slug,
     string? Description, int SortOrder, string? Path, int Depth, int ArticleCount,
-    IReadOnlyList<ViewerCategoryNodeResponse> Children);
+    IReadOnlyList<ViewerCategoryNodeResponse> Children, bool HasViewerImage, string? ViewerIcon);
 public sealed record ViewerArticleSummaryResponse(Guid ArticleId, string Title, string Slug, Guid CategoryId,
     string CategoryName, string CategoryPath, DateTime UpdatedAt);
 public sealed record ViewerArticleResponse(Guid ArticleId, string Title, string Slug, Guid CategoryId,

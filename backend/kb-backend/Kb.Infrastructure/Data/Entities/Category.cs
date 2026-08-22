@@ -17,6 +17,10 @@ public partial class Category
 
     public int SortOrder { get; set; }
 
+    public Guid? ViewerImageMediaIdFk { get; set; }
+
+    public string? ViewerIcon { get; set; }
+
     public string? Path { get; set; }
 
     public int Depth { get; set; }
@@ -32,6 +36,8 @@ public partial class Category
     public virtual ICollection<Category> InverseParentCategoryIdFkNavigation { get; set; } = new List<Category>();
 
     public virtual Category? ParentCategoryIdFkNavigation { get; set; }
+
+    public virtual MediaFile? ViewerImageMediaIdFkNavigation { get; set; }
 
     public virtual ViewerSolution? ViewerSolution { get; set; }
 }

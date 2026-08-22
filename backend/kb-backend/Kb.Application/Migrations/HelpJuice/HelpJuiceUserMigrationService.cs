@@ -22,8 +22,8 @@ public sealed class HelpJuiceUserMigrationService(
         if (files.Count != 1) throw new BusinessRuleException("Select exactly one users.csv file.");
         var file = files[0];
         var originalName = Path.GetFileName(file.FileName.Replace('\\', '/'));
-        if (!originalName.Equals("users.csv", StringComparison.OrdinalIgnoreCase))
-            throw new BusinessRuleException("The user migration file must be named users.csv.");
+        if (!Path.GetExtension(originalName).Equals(".csv", StringComparison.OrdinalIgnoreCase))
+            throw new BusinessRuleException("The user migration file must be a CSV file.");
         if (file.Length <= 0 || file.Length > limits.MaxEntrySizeBytes)
             throw new BusinessRuleException("The users.csv file size is invalid.");
 
@@ -46,7 +46,7 @@ public sealed class HelpJuiceUserMigrationService(
             }
             catch (Exception exception) when (exception is InvalidDataException or DecoderFallbackException)
             {
-                issues.Add(Issue("Error", null, null, "HELPJUICE_USERS_CSV_INVALID", SafeMessage(exception)));
+                issues.Add(Issue(originalName, "Error", null, null, "HELPJUICE_USERS_CSV_INVALID", SafeMessage(exception)));
                 return await CompleteAsync(HelpJuiceMigrationStatuses.CompletedWithErrors,
                     0, 0, 0, 0, 1, issues, ct);
             }
@@ -56,7 +56,7 @@ public sealed class HelpJuiceUserMigrationService(
             if (missingHeaders.Length > 0)
             {
                 foreach (var header in missingHeaders)
-                    issues.Add(Issue("Error", null, null, "HELPJUICE_USER_COLUMN_MISSING",
+                    issues.Add(Issue(originalName, "Error", null, null, "HELPJUICE_USER_COLUMN_MISSING",
                         $"Required users.csv column '{header}' is missing."));
                 return await CompleteAsync(HelpJuiceMigrationStatuses.CompletedWithErrors,
                     csv.Rows.Count, 0, 0, csv.Rows.Count, 0, issues, ct);
@@ -72,7 +72,7 @@ public sealed class HelpJuiceUserMigrationService(
                 ct.ThrowIfCancellationRequested();
                 var externalId = row.User?.HelpJuiceUserId;
                 foreach (var diagnostic in row.Diagnostics)
-                    issues.Add(Issue(diagnostic.Severity, row.RowNumber, externalId,
+                    issues.Add(Issue(originalName, diagnostic.Severity, row.RowNumber, externalId,
                         diagnostic.ErrorCode, diagnostic.Message));
                 if (!row.CanWrite || row.User is null)
                 {
@@ -84,7 +84,7 @@ public sealed class HelpJuiceUserMigrationService(
                 {
                     var write = await store.WriteUserAsync(row.User, ct);
                     foreach (var diagnostic in write.Diagnostics)
-                        issues.Add(Issue(diagnostic.Severity, row.RowNumber, externalId,
+                        issues.Add(Issue(originalName, diagnostic.Severity, row.RowNumber, externalId,
                             diagnostic.ErrorCode, diagnostic.Message));
                     if (write.Disposition == MigrationWriteDisposition.Imported) imported++;
                     else if (write.Disposition == MigrationWriteDisposition.Updated) updated++;
@@ -94,7 +94,7 @@ public sealed class HelpJuiceUserMigrationService(
                 {
                     store.ResetState();
                     failed++;
-                    issues.Add(Issue("Error", row.RowNumber, externalId,
+                    issues.Add(Issue(originalName, "Error", row.RowNumber, externalId,
                         "HELPJUICE_USER_IMPORT_FAILED", SafeMessage(exception)));
                 }
             }
@@ -145,9 +145,15 @@ public sealed class HelpJuiceUserMigrationService(
         }
     }
 
-    private MigrationIssueData Issue(string severity, int? row, string? externalId,
+    public async Task<HelpJuiceUserMigrationStatus> GetStatusAsync(CancellationToken ct)
+    {
+        if (!currentUser.IsAuthenticated) throw new UnauthorizedAccessException();
+        return await store.GetLatestStatusAsync(ct);
+    }
+
+    private MigrationIssueData Issue(string fileName, string severity, int? row, string? externalId,
         string code, string message) =>
-        new(Guid.NewGuid(), severity, "users.csv", row, "User", externalId, code, message,
+        new(Guid.NewGuid(), severity, fileName, row, "User", externalId, code, message,
             externalId is null ? null : $"HelpJuiceUserId={externalId}",
             timeProvider.GetUtcNow().UtcDateTime);
 

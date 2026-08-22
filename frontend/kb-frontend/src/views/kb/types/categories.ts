@@ -10,5 +10,7 @@ export type KbCategoryNode = {
   articleCount: number
   status?: 'Active' | 'Archived'
   visibility?: 'Public' | 'Internal'
+  viewerImageMediaId?: string | null
+  viewerIcon?: string | null
   children: KbCategoryNode[]
 }

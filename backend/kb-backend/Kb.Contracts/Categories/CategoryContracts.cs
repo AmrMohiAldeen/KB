@@ -17,6 +17,12 @@ public abstract class CategoryWriteRequest
     [NonWhiteSpace, StringLength(250)]
     public string? Slug { get; init; }
 
+    [NonEmptyGuid]
+    public Guid? ViewerImageMediaId { get; init; }
+
+    [NonWhiteSpace, StringLength(50)]
+    public string? ViewerIcon { get; init; }
+
 }
 
 public sealed class CreateCategoryRequest : CategoryWriteRequest
@@ -55,7 +61,9 @@ public sealed record CategoryTreeNodeResponse(
     int ArticleCount,
     IReadOnlyList<CategoryTreeNodeResponse> Children,
     string Status,
-    string Visibility);
+    string Visibility,
+    Guid? ViewerImageMediaId,
+    string? ViewerIcon);
 
 public sealed record CategoryDetailsResponse(
     Guid Id,
@@ -68,4 +76,6 @@ public sealed record CategoryDetailsResponse(
     int Depth,
     int ArticleCount,
     string Status,
-    string Visibility);
+    string Visibility,
+    Guid? ViewerImageMediaId,
+    string? ViewerIcon);

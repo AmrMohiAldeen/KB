@@ -783,7 +783,9 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
           slug: form.slug,
           description: form.description || null,
           sortOrder: form.sortOrder,
-          visibility: form.visibility
+          visibility: form.visibility,
+          viewerImageMediaId: form.viewerImageMediaId || null,
+          viewerIcon: form.viewerIcon || null
         }, accessToken)
         if ((editingCategory.parentId ?? '') !== form.parentCategoryId) {
           await moveCategory(editingCategory.id, {
@@ -798,7 +800,9 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
           description: form.description || null,
           parentCategoryId: form.parentCategoryId || null,
           sortOrder: form.sortOrder,
-          visibility: form.visibility
+          visibility: form.visibility,
+          viewerImageMediaId: form.viewerImageMediaId || null,
+          viewerIcon: form.viewerIcon || null
         }, accessToken)
       }
       setCategoryDialogOpen(false)
@@ -1820,6 +1824,7 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
 
       <KbCategoryDialog
         open={categoryDialogOpen}
+        accessToken={accessToken}
         category={editingCategory}
         categories={categories}
         submitting={mutating}

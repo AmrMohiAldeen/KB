@@ -49,6 +49,7 @@ export type HelpJuiceMigrationResult = { importedItems: number; updatedItems: nu
 export type HelpJuiceMigrationPhase = { phase: string; status: string; totalItems: number; processedItems: number; importedItems: number; updatedItems: number; skippedItems: number; failedItems: number }
 export type HelpJuiceMigrationResponse = { jobId: string; status: 'ValidationFailed'|'Completed'|'CompletedWithErrors'; originalFileName: string; startedAt: string; completedAt: string; options: HelpJuiceMigrationOptions; validation: HelpJuiceValidationSummary; result?: HelpJuiceMigrationResult; phases: HelpJuiceMigrationPhase[]; issues: MigrationIssue[] }
 export type HelpJuiceUserMigrationResponse = { jobId: string; status: string; originalFileName: string; startedAt: string; completedAt: string; totalRows: number; importedUsers: number; updatedUsers: number; skippedUsers: number; failedUsers: number; issues: MigrationIssue[] }
+export type HelpJuiceUserMigrationStatus = { isCompleted: boolean; jobId?: string; status?: string; completedAt?: string }
 export type HelpJuiceDiagnosticDownload = { blob: Blob; fileName: string; totalRecords?: number; errorCount?: number; warningCount?: number; status?: 'Completed' | 'Partial' }
 
 const parseJson = (value: string): unknown => { try { return value ? JSON.parse(value) : undefined } catch { return undefined } }
@@ -117,6 +118,19 @@ export const runHelpJuiceUserMigration = (file: File, accessToken: string,
   return { promise, cancel: () => request.abort() }
 }
 
+export const getHelpJuiceUserMigrationStatus = async (
+  accessToken: string
+): Promise<HelpJuiceUserMigrationStatus> => {
+  const token = normalizeAccessToken(accessToken)
+  if (!token) throw new ApiError(401, { title: 'Unauthorized', detail: 'Authentication is required.' })
+  const response = await fetch(`${getApiBaseUrl()}/api/migrations/helpjuice/users/status`, {
+    headers: { Accept: 'application/json', Authorization: `Bearer ${token}` }
+  })
+  const body = parseJson(await response.text())
+  if (!response.ok) throw new ApiError(response.status, body as ProblemDetails | undefined)
+  return body as HelpJuiceUserMigrationStatus
+}
+
 export const runHelpJuiceDiagnostic = (files: File[], accessToken: string,
   onProgress?: (percent: number) => void, onScanning?: () => void): { promise: Promise<HelpJuiceDiagnosticDownload>; cancel: () => void } => {
   const request = new XMLHttpRequest()
@@ -166,5 +180,5 @@ const responseFileName = (contentDisposition: string | null): string | undefined
   return contentDisposition?.match(/filename="?([^";]+)"?/i)?.[1]
 }
 
-export const helpJuiceMigrationsApi = { preview: previewHelpJuiceMigration, run: runHelpJuiceMigration, runUsers: runHelpJuiceUserMigration, diagnostic: runHelpJuiceDiagnostic }
+export const helpJuiceMigrationsApi = { preview: previewHelpJuiceMigration, run: runHelpJuiceMigration, runUsers: runHelpJuiceUserMigration, usersStatus: getHelpJuiceUserMigrationStatus, diagnostic: runHelpJuiceDiagnostic }
 export type HelpJuiceMigrationsApi = typeof helpJuiceMigrationsApi

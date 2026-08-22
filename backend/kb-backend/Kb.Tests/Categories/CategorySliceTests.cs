@@ -7,6 +7,7 @@ using Kb.Application.Exceptions;
 using Kb.Domain.Constants;
 using Kb.Infrastructure.Categories;
 using Kb.Infrastructure.Data;
+using Kb.Infrastructure.Data.Entities;
 using Kb.Infrastructure.Services;
 using Kb.Infrastructure.Public;
 using Microsoft.AspNetCore.Authorization;
@@ -96,6 +97,44 @@ public sealed class CategorySliceTests
         var audit = await f.Context.ArticleAuditLogs.SingleAsync(x => x.ActionType == CategoryAuditActions.Updated);
         Assert.Contains("before", audit.MetaDataJson);
         Assert.Contains("after", audit.MetaDataJson);
+    }
+
+    [Fact]
+    public async Task Viewer_artwork_uses_active_library_images_or_supported_icons()
+    {
+        await using var f = await Fixture.CreateAsync();
+        var imageId = Guid.NewGuid();
+        f.Context.MediaFiles.Add(new MediaFile
+        {
+            MediaId = imageId,
+            OriginalFileName = "category.png",
+            StoredFileName = "category.png",
+            MimeType = "image/png",
+            FileExtension = ".png",
+            FileSizeBytes = 10,
+            StoragePath = "categories/category.png",
+            Status = MediaStatuses.Active,
+            UploadedByFk = f.UserId,
+            UploadedAt = DateTime.UtcNow
+        });
+        await f.Context.SaveChangesAsync();
+
+        var category = await f.Service.CreateAsync(new(null, "Guides", null, 0, null,
+            ContentVisibilities.Public, imageId), default);
+        Assert.Equal(imageId, category.ViewerImageMediaId);
+        Assert.Null(category.ViewerIcon);
+
+        var updated = await f.Service.UpdateAsync(category.Id, new(category.Name, category.Description,
+            category.SortOrder, category.Slug, category.Visibility, null, "rocket"), default);
+        Assert.Null(updated.ViewerImageMediaId);
+        Assert.Equal("rocket", updated.ViewerIcon);
+
+        await Assert.ThrowsAsync<BusinessRuleException>(() => f.Service.UpdateAsync(category.Id,
+            new(category.Name, category.Description, category.SortOrder, category.Slug, category.Visibility,
+                imageId, "folder"), default));
+        await Assert.ThrowsAsync<BusinessRuleException>(() => f.Service.UpdateAsync(category.Id,
+            new(category.Name, category.Description, category.SortOrder, category.Slug, category.Visibility,
+                null, "unsupported"), default));
     }
 
     [Fact]

@@ -2,6 +2,7 @@ using System.Text;
 using Kb.Application.Abstractions;
 using Kb.Application.Abstractions.Storage;
 using Kb.Application.Drafts;
+using Kb.Application.Exceptions;
 using Kb.Application.Media;
 using Kb.Application.Migrations.HelpJuice;
 using Microsoft.Extensions.Options;
@@ -10,6 +11,21 @@ namespace Kb.Tests.Migrations;
 
 public sealed class HelpJuiceDiagnosticTests
 {
+    [Fact]
+    public async Task Content_import_requires_a_completed_users_migration()
+    {
+        await using var package = Stream("not a package");
+        var service = new HelpJuiceMigrationService(new ReadOnlyWriter(userMigrationCompleted: false),
+            new UnusedStorage(), new ClientFactory(), new User(), TimeProvider.System,
+            Options.Create(new HelpJuiceMigrationLimits()), Options.Create(new MediaOptions()),
+            Options.Create(new DraftContentOptions()));
+
+        var error = await Assert.ThrowsAsync<BusinessRuleException>(() => service.ExecuteAsync(
+            [new("export.zip", "application/zip", package.Length, package)], new(), default));
+
+        Assert.Contains("Complete Users Migration", error.Message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task Preview_plans_external_media_without_downloading_uploading_or_persisting()
     {
@@ -156,7 +172,8 @@ public sealed class HelpJuiceDiagnosticTests
     }
 
     private sealed class ReadOnlyWriter(
-        IReadOnlyDictionary<string,HelpJuiceAuthorMapping>? authorMappings=null) : IHelpJuiceImportWriter
+        IReadOnlyDictionary<string,HelpJuiceAuthorMapping>? authorMappings=null,
+        bool userMigrationCompleted=true) : IHelpJuiceImportWriter
     {
         public int ReadCalls { get; private set; }
         public void ResetState() => throw Mutation();
@@ -178,6 +195,8 @@ public sealed class HelpJuiceDiagnosticTests
                 (IReadOnlyDictionary<string,HelpJuiceAuthorMapping>)
                 new Dictionary<string,HelpJuiceAuthorMapping>(StringComparer.OrdinalIgnoreCase));
         }
+        public Task<bool> HasCompletedUserMigrationAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(userMigrationCompleted);
         public Task WriteOperationAuditAsync(Guid operationId, string action, string status, Guid actorId, CancellationToken cancellationToken) => throw Mutation();
         public Task<Guid> StartOrResumeJobAsync(Guid proposedJobId, string packageHash, string optionsJson, Guid actorId, DateTime startedAt, CancellationToken cancellationToken) => throw Mutation();
         public Task PersistJobResultAsync(Guid jobId, string status, string summaryJson, IReadOnlyList<MigrationIssueData> issues, DateTime completedAt, CancellationToken cancellationToken) => throw Mutation();

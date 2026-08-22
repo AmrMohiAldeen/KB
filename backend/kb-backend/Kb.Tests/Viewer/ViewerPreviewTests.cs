@@ -57,6 +57,23 @@ public sealed class ViewerPreviewTests
     }
 
     [Fact]
+    public async Task Preview_category_images_are_limited_to_the_selected_root_scope()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.AddCategoryImageAsync(fixture.SelectedId, "media/selected.png");
+        await fixture.AddCategoryImageAsync(fixture.SiblingId, "media/sibling.png");
+
+        var image = await fixture.Service.GetPreviewCategoryImageAsync("getting-started", fixture.SelectedId,
+            default);
+        Assert.Equal("image/png", image.MimeType);
+        Assert.True(image.Content.Length > 0);
+        await image.Content.DisposeAsync();
+
+        await Assert.ThrowsAsync<NotFoundException>(() => fixture.Service.GetPreviewCategoryImageAsync(
+            "getting-started", fixture.SiblingId, default));
+    }
+
+    [Fact]
     public async Task Preview_requires_internal_identity_and_does_not_select_viewer_cookie_scheme()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -82,6 +99,7 @@ public sealed class ViewerPreviewTests
         public ViewerService Service { get; }
         public CurrentUser CurrentUser { get; }
         public Guid SelectedId { get; private init; }
+        public Guid SiblingId { get; private init; }
         public Guid InternalCategoryId { get; private init; }
         public Guid SiblingArticleId { get; private init; }
 
@@ -140,8 +158,32 @@ public sealed class ViewerPreviewTests
             context.ChangeTracker.Clear();
             return new Fixture(connection, context, storage, service, currentUser)
             {
-                SelectedId = selectedId, InternalCategoryId = internalId, SiblingArticleId = siblingArticleId
+                SelectedId = selectedId, SiblingId = siblingId, InternalCategoryId = internalId,
+                SiblingArticleId = siblingArticleId
             };
+        }
+
+        public async Task AddCategoryImageAsync(Guid categoryId, string path)
+        {
+            var mediaId = Guid.NewGuid();
+            Context.MediaFiles.Add(new MediaFile
+            {
+                MediaId = mediaId,
+                OriginalFileName = "category.png",
+                StoredFileName = $"{mediaId:N}.png",
+                MimeType = "image/png",
+                FileExtension = ".png",
+                FileSizeBytes = 5,
+                StoragePath = path,
+                Status = MediaStatuses.Active,
+                UploadedByFk = await Context.Users.Select(user => user.UserId).SingleAsync(),
+                UploadedAt = DateTime.UtcNow
+            });
+            var category = await Context.Categories.SingleAsync(item => item.CategoryId == categoryId);
+            category.ViewerImageMediaIdFk = mediaId;
+            await Context.SaveChangesAsync();
+            storage.Seed(path, "image");
+            Context.ChangeTracker.Clear();
         }
 
         public async Task<(int Solutions, int Entitlements, int Sessions)> ViewerRowCountsAsync() =>

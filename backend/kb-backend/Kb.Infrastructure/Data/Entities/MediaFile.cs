@@ -29,5 +29,7 @@ public partial class MediaFile
 
     public virtual ICollection<MediaReference> MediaReferences { get; set; } = new List<MediaReference>();
 
+    public virtual ICollection<Category> ViewerImageCategories { get; set; } = new List<Category>();
+
     public virtual User UploadedByFkNavigation { get; set; } = null!;
 }

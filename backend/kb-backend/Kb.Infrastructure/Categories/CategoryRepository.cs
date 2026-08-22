@@ -42,7 +42,9 @@ public sealed class CategoryRepository(KbDbContext dbContext) : ICategoryReposit
                     article.DeletedAt == null && article.Status != ArticleStatuses.Deleted &&
                     article.Status != ArticleStatuses.Archived),
                 category.Status,
-                category.Visibility))
+                category.Visibility,
+                category.ViewerImageMediaIdFk,
+                category.ViewerIcon))
             .SingleOrDefaultAsync(cancellationToken);
 
     public async Task<IReadOnlyList<CategoryData>> GetAllAsync(CancellationToken cancellationToken) =>
@@ -60,7 +62,9 @@ public sealed class CategoryRepository(KbDbContext dbContext) : ICategoryReposit
                     article.DeletedAt == null && article.Status != ArticleStatuses.Deleted &&
                     article.Status != ArticleStatuses.Archived),
                 category.Status,
-                category.Visibility))
+                category.Visibility,
+                category.ViewerImageMediaIdFk,
+                category.ViewerIcon))
             .ToListAsync(cancellationToken);
 
     public async Task<IReadOnlyList<CategoryData>> GetDescendantsAsync(string pathPrefix, Guid categoryId, CancellationToken cancellationToken) =>
@@ -79,6 +83,10 @@ public sealed class CategoryRepository(KbDbContext dbContext) : ICategoryReposit
     public Task<bool> HasArticlesAsync(Guid id, CancellationToken cancellationToken) =>
         dbContext.Articles.AsNoTracking().AnyAsync(article => article.CategoryIdFk == id, cancellationToken);
 
+    public Task<bool> IsActiveImageMediaAsync(Guid id, CancellationToken cancellationToken) =>
+        dbContext.MediaFiles.AsNoTracking().AnyAsync(media => media.MediaId == id &&
+            media.Status == MediaStatuses.Active && media.MimeType.StartsWith("image/"), cancellationToken);
+
     public async Task<CategoryData> InsertAsync(NewCategoryData category, CancellationToken cancellationToken)
     {
         var entity = new Category
@@ -91,7 +99,9 @@ public sealed class CategoryRepository(KbDbContext dbContext) : ICategoryReposit
             SortOrder = category.SortOrder,
             Path = null,
             Depth = category.Depth,
-            Visibility = category.Visibility
+            Visibility = category.Visibility,
+            ViewerImageMediaIdFk = category.ViewerImageMediaId,
+            ViewerIcon = category.ViewerIcon
         };
         dbContext.Categories.Add(entity);
         try
@@ -118,7 +128,8 @@ public sealed class CategoryRepository(KbDbContext dbContext) : ICategoryReposit
     }
 
     public async Task<CategoryData> UpdateAndAuditAsync(Guid id, string name, string slug, string? description, int sortOrder,
-        string visibility, AuditData audit, CancellationToken cancellationToken)
+        string visibility, Guid? viewerImageMediaId, string? viewerIcon, AuditData audit,
+        CancellationToken cancellationToken)
     {
         var entity = await dbContext.Categories.SingleAsync(category => category.CategoryId == id, cancellationToken);
         entity.Name = name;
@@ -126,6 +137,8 @@ public sealed class CategoryRepository(KbDbContext dbContext) : ICategoryReposit
         entity.Description = description;
         entity.SortOrder = sortOrder;
         entity.Visibility = visibility;
+        entity.ViewerImageMediaIdFk = viewerImageMediaId;
+        entity.ViewerIcon = viewerIcon;
         AddAudit(id, audit);
         var affectedIds = string.IsNullOrWhiteSpace(entity.Path)
             ? [id]
@@ -231,7 +244,8 @@ public sealed class CategoryRepository(KbDbContext dbContext) : ICategoryReposit
 
     private static CategoryData Map(Category category) => new(category.CategoryId, category.ParentCategoryIdFk,
         category.Name, category.Slug, category.Description, category.SortOrder, category.Path, category.Depth,
-        Status: category.Status, Visibility: category.Visibility);
+        Status: category.Status, Visibility: category.Visibility, ViewerImageMediaId: category.ViewerImageMediaIdFk,
+        ViewerIcon: category.ViewerIcon);
 
     private static bool IsSlugUniquenessViolation(DbUpdateException exception)
     {

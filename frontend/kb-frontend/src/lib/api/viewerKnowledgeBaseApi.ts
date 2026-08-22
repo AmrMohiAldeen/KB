@@ -1,5 +1,5 @@
 import type { Content } from '@tiptap/core'
-import { apiRequest, viewerApiRequest } from './http'
+import { apiBlobRequest, apiRequest, viewerApiRequest, viewerBlobRequest } from './http'
 
 export type ViewerPortal = { solutionId: string; slug: string; name: string; description: string | null }
 export type ViewerCategoryNode = {
@@ -12,6 +12,8 @@ export type ViewerCategoryNode = {
   path: string | null
   depth: number
   articleCount: number
+  hasViewerImage: boolean
+  viewerIcon: string | null
   children: ViewerCategoryNode[]
 }
 export type ViewerArticleSummary = {
@@ -38,6 +40,8 @@ export const searchViewerArticles = (solutionSlug: string, query: string, signal
   viewerApiRequest<ViewerArticleSummary[]>(`${root(solutionSlug)}/search?query=${encodeURIComponent(query)}`, { signal })
 export const getViewerArticle = (solutionSlug: string, articleSlug: string, signal?: AbortSignal) =>
   viewerApiRequest<ViewerArticle>(`${root(solutionSlug)}/articles/${encodeURIComponent(articleSlug)}`, { signal })
+export const getViewerCategoryImage = (solutionSlug: string, categoryId: string, signal?: AbortSignal) =>
+  viewerBlobRequest(`${root(solutionSlug)}/categories/${encodeURIComponent(categoryId)}/image`, signal)
 export const signOutViewer = () => viewerApiRequest<void>('/api/viewer/auth/signout', { method: 'POST' })
 
 export const getViewerPreviewPortal = (categorySlug: string, accessToken: string, signal?: AbortSignal) =>
@@ -65,4 +69,14 @@ export const getViewerPreviewArticle = (
   `${previewRoot(categorySlug)}/articles/${encodeURIComponent(articleSlug)}`,
   accessToken,
   { signal }
+)
+export const getViewerPreviewCategoryImage = (
+  categorySlug: string,
+  categoryId: string,
+  accessToken: string,
+  signal?: AbortSignal
+) => apiBlobRequest(
+  `${previewRoot(categorySlug)}/categories/${encodeURIComponent(categoryId)}/image`,
+  accessToken,
+  signal
 )

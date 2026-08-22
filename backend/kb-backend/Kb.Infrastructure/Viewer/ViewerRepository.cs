@@ -115,6 +115,13 @@ public sealed class ViewerRepository(KbDbContext db, TimeProvider timeProvider) 
         return await GetArticleForRootAsync(RequiredRootPath(solution), slug, articleId, solution.SolutionId, token);
     }
 
+    public async Task<ViewerCategoryImageSource?> GetCategoryImageAsync(Guid sessionId, string solutionSlug,
+        Guid categoryId, CancellationToken token)
+    {
+        var solution = await ResolveAuthorizedSolutionAsync(sessionId, solutionSlug, token);
+        return await GetCategoryImageForRootAsync(RequiredRootPath(solution), categoryId, token);
+    }
+
     public async Task<ViewerPortalData> GetPreviewPortalAsync(string rootCategorySlug, CancellationToken token)
     {
         var root = await ResolvePreviewRootAsync(rootCategorySlug, token);
@@ -140,6 +147,13 @@ public sealed class ViewerRepository(KbDbContext db, TimeProvider timeProvider) 
     {
         var root = await ResolvePreviewRootAsync(rootCategorySlug, token);
         return await GetArticleForRootAsync(root.Path!, slug, articleId, null, token);
+    }
+
+    public async Task<ViewerCategoryImageSource?> GetPreviewCategoryImageAsync(string rootCategorySlug,
+        Guid categoryId, CancellationToken token)
+    {
+        var root = await ResolvePreviewRootAsync(rootCategorySlug, token);
+        return await GetCategoryImageForRootAsync(root.Path!, categoryId, token);
     }
 
     public async Task RecordArticleViewAsync(ICurrentViewer viewer, ViewerArticleSource article, string? ipAddress,
@@ -196,8 +210,20 @@ public sealed class ViewerRepository(KbDbContext db, TimeProvider timeProvider) 
                 category.ParentCategoryIdFk, category.Name, category.Slug, category.Description, category.SortOrder,
                 category.Path, category.Depth, category.Articles.Count(article =>
                     article.Visibility == ContentVisibilities.Public && article.Status == ArticleStatuses.Published &&
-                    article.DeletedAt == null && article.LastPublishedVersionIdFk != null)))
+                    article.DeletedAt == null && article.LastPublishedVersionIdFk != null),
+                category.ViewerImageMediaIdFkNavigation != null &&
+                    category.ViewerImageMediaIdFkNavigation.Status == MediaStatuses.Active &&
+                    category.ViewerImageMediaIdFkNavigation.MimeType.StartsWith("image/"), category.ViewerIcon))
             .ToListAsync(token);
+
+    private Task<ViewerCategoryImageSource?> GetCategoryImageForRootAsync(string rootPath, Guid categoryId,
+        CancellationToken token) => VisibleCategories(rootPath).Where(category => category.CategoryId == categoryId &&
+            category.ViewerImageMediaIdFkNavigation != null &&
+            category.ViewerImageMediaIdFkNavigation.Status == MediaStatuses.Active &&
+            category.ViewerImageMediaIdFkNavigation.MimeType.StartsWith("image/"))
+        .Select(category => new ViewerCategoryImageSource(category.ViewerImageMediaIdFkNavigation!.StoragePath,
+            category.ViewerImageMediaIdFkNavigation.MimeType,
+            category.ViewerImageMediaIdFkNavigation.OriginalFileName)).SingleOrDefaultAsync(token);
 
     private async Task<IReadOnlyList<ViewerArticleSummary>> GetArticlesForRootAsync(string rootPath, string? search,
         Guid? categoryId, CancellationToken token)
