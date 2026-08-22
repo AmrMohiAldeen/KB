@@ -10,10 +10,10 @@ public sealed record HelpJuiceQuestion(
     int RowNumber, string Id, string Slug, string Name, string? Description, bool IsPublished,
     DateTime? CreatedAt, DateTime? UpdatedAt, string? CategoryId, IReadOnlyDictionary<string, string> Source,
     bool IsArchived = false, bool HasUnrecoverableNewerDraft = false, int? LanguageId = null,
-    string? TranslationId = null, string? CreatedById = null, string? UpdatedById = null, int Position = 0,
+    string? TranslationId = null, string? HelpJuiceAuthorId = null, string? UpdatedById = null, int Position = 0,
     IReadOnlyList<string>? RelatedQuestionIds = null, IReadOnlyList<string>? UploadIds = null,
     string Visibility = "Public", bool VisibilityWasExplicit = false,
-    string? LegacyAuthorName = null, string? LegacyAuthorEmail = null, string? LegacyAuthorExternalId = null);
+    Guid? AuthorUserId = null, string? AuthorName = null);
 public sealed record HelpJuiceAnswer(int RowNumber, string Id, string QuestionId, string Body,
     IReadOnlyDictionary<string, string> Source);
 public sealed record HelpJuiceCategory(int RowNumber, string Id, string? ParentId, string Name, int Depth = 0,
@@ -42,8 +42,7 @@ public static class HelpJuiceSourceParser
         HelpJuiceMigrationLimits limits, TimeProvider timeProvider,
         IReadOnlySet<string>? destinationArticleSlugs = null,
         IReadOnlyDictionary<string, string>? mappedArticleSlugs = null,
-        CancellationToken cancellationToken = default,
-        IHelpJuiceAuthorLookup? authorLookup = null)
+        CancellationToken cancellationToken = default)
     {
         var now = timeProvider.GetUtcNow().UtcDateTime;
         var issues = new List<MigrationIssueData>();
@@ -76,8 +75,6 @@ public static class HelpJuiceSourceParser
         }
         RequireColumns(questionsCsv, ["id", "name"], issues, Issue);
         RequireColumns(answersCsv, ["id", "question_id", "body"], issues, Issue);
-        var legacyUsers = await ParseLegacyUsersAsync(package, limits, issues, Issue, cancellationToken);
-        var authorResolver = new HelpJuiceAuthorResolver(legacyUsers, authorLookup);
 
         var questions = new List<HelpJuiceQuestion>();
         foreach (var row in questionsCsv.Rows)
@@ -122,35 +119,11 @@ public static class HelpJuiceSourceParser
                 issues.Add(Issue("Warning", "TAGS_IGNORED", "HelpJuice tags are not imported because the KB has no article-tag model.", "questions.csv", row.RowNumber, "Question", id));
 
             var visibility = ParseVisibility(row);
-            var externalAuthorId = NullIfEmpty(row["created_by_id"]);
-            HelpJuiceLegacyAuthor? legacyUser = null;
-            if (externalAuthorId is null)
-            {
-                issues.Add(Issue("Warning", "HELPJUICE_AUTHOR_ID_MISSING",
-                    "The article has no created_by_id, so its Helpjuice author cannot be resolved.",
-                    "questions.csv", row.RowNumber, "Question", id,
-                    "authorStatus=missing-created-by-id"));
-            }
-            else
-            {
-                legacyUser = await authorResolver.ResolveAsync(externalAuthorId, cancellationToken);
-                if (legacyUser is null)
-                    issues.Add(Issue("Warning", "HELPJUICE_AUTHOR_MAPPING_MISSING",
-                        $"Helpjuice author ID '{externalAuthorId}' has no user mapping. The external ID was retained for review.",
-                        "questions.csv", row.RowNumber, "Question", id,
-                        $"authorStatus=unresolved;created_by_id={externalAuthorId};usersCsvAvailable={package.KnownCsvFiles.ContainsKey("users.csv").ToString().ToLowerInvariant()}"));
-                else
-                    issues.Add(Issue("Info", "HELPJUICE_AUTHOR_RESOLVED",
-                        $"Helpjuice author ID '{externalAuthorId}' was resolved to legacy author metadata.",
-                        "questions.csv", row.RowNumber, "Question", id,
-                        $"authorStatus=resolved;created_by_id={externalAuthorId}"));
-            }
-
             questions.Add(new(row.RowNumber, id, slug, name, NullIfEmpty(row["description"]), published,
                 created, updated, NullIfEmpty(row["category_id"]), row.Values, archived, newerDraft, ParseInt(row["language_id"]),
                 NullIfEmpty(row["translation_id"]), NullIfEmpty(row["created_by_id"]), NullIfEmpty(row["updated_by_id"]),
                 ParseInt(row["position"]) ?? 0, SplitIds(row["related_question_ids"]), SplitIds(row["upload_ids"]),
-                visibility.Value, visibility.WasExplicit, legacyUser?.Name, legacyUser?.Email, externalAuthorId));
+                visibility.Value, visibility.WasExplicit));
         }
 
         var answers = answersCsv.Rows.Select(row => new HelpJuiceAnswer(row.RowNumber,
@@ -600,45 +573,6 @@ public static class HelpJuiceSourceParser
     private sealed record PermissionVisibility(HashSet<string> QuestionIds, HashSet<string> CategoryIds,
         List<int> UnresolvedRows);
 
-    private static async Task<Dictionary<string, HelpJuiceLegacyAuthor>> ParseLegacyUsersAsync(PackageContents package,
-        HelpJuiceMigrationLimits limits, List<MigrationIssueData> issues,
-        Func<string,string,string,string?,int?,string?,string?,string?,MigrationIssueData> issue,
-        CancellationToken ct)
-    {
-        var identityHeaders = new[] { "name", "full_name", "display_name", "first_name", "last_name", "email",
-            "email_address", "firstName", "lastName", "fullName", "displayName" };
-        var result = new Dictionary<string, HelpJuiceLegacyAuthor>(StringComparer.OrdinalIgnoreCase);
-        const string sourceName = "users.csv";
-        if (package.KnownCsvFiles.TryGetValue(sourceName, out var path))
-        {
-            var csv = await HelpJuiceCsvReader.ReadAsync(path, limits.MaxCsvRows, ct);
-            var hasAccountKey = csv.Headers.Contains("id", StringComparer.OrdinalIgnoreCase);
-            var hasIdentity = csv.Headers.Any(header => identityHeaders.Contains(header, StringComparer.OrdinalIgnoreCase));
-            if (!hasAccountKey || !hasIdentity)
-            {
-                issues.Add(issue("Warning", "UNSUPPORTED_FILE",
-                    $"Unsupported file '{sourceName}' does not contain recognizable HelpJuice account identity columns and will not be imported.",
-                    sourceName, null, "Package", null, null));
-                return result;
-            }
-            foreach (var row in csv.Rows)
-            {
-                var id = row["id"].Trim();
-                if (id.Length == 0) continue;
-                var name = NullIfEmpty(First(row, "name", "full_name", "display_name", "fullName", "displayName"))
-                    ?? CombineName(row, "first_name", "last_name")
-                    ?? CombineName(row, "firstName", "lastName");
-                var author = new HelpJuiceLegacyAuthor(id, name,
-                    NullIfEmpty(First(row, "email", "email_address")));
-                if (!result.TryAdd(id, author))
-                    issues.Add(issue("Warning", "HELPJUICE_USER_ID_DUPLICATE",
-                        $"Duplicate Helpjuice user ID '{id}' was ignored after the first mapping.",
-                        sourceName, row.RowNumber, "User", id, "authorStatus=duplicate-user-mapping"));
-            }
-        }
-        return result;
-    }
-
     private static async Task<PermissionVisibility> ParsePermissionVisibilityAsync(PackageContents package,
         HelpJuiceMigrationLimits limits, IReadOnlySet<string> questionIds, IReadOnlySet<string> categoryIds,
         CancellationToken ct)
@@ -699,12 +633,6 @@ public static class HelpJuiceSourceParser
         if (row["is_public"].Length > 0 && ParseBoolean(row["is_public"], out var publicValid) && publicValid)
             return ("Public", true);
         return ("Public", false);
-    }
-
-    private static string? CombineName(CsvRow row, string firstNameField, string lastNameField)
-    {
-        var combined = $"{row[firstNameField].Trim()} {row[lastNameField].Trim()}".Trim();
-        return NullIfEmpty(combined);
     }
 
     private static HashSet<string> ExtractMatchingPermissionTargets(CsvRow row, IReadOnlySet<string> knownIds)

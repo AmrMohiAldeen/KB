@@ -78,6 +78,7 @@ public static class DependencyInjection
         services.AddScoped<IArticleCommentRepository, ArticleCommentRepository>();
         services.AddScoped<IDashboardRepository, DashboardRepository>();
         services.AddScoped<IHelpJuiceImportWriter, HelpJuiceImportWriter>();
+        services.AddScoped<IHelpJuiceUserMigrationStore, HelpJuiceUserMigrationStore>();
         services.AddHttpClient("HelpJuiceMigration", client =>
         {
             client.Timeout = TimeSpan.FromSeconds(45);

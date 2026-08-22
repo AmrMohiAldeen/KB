@@ -37,9 +37,6 @@ export type ArticleListItemResponse = {
   lockedBy: UserSummaryResponse | null
   position: number
   visibility?: ContentVisibility
-  legacyAuthorName?: string | null
-  legacyAuthorEmail?: string | null
-  legacyAuthorExternalId?: string | null
 }
 
 export type ArticleDraftMetadataResponse = {
@@ -83,9 +80,6 @@ export type ArticleDetailsResponse = {
   approvedAt: string | null
   publishedAt: string | null
   visibility?: ContentVisibility
-  legacyAuthorName?: string | null
-  legacyAuthorEmail?: string | null
-  legacyAuthorExternalId?: string | null
 }
 
 export type CreateArticleRequest = {

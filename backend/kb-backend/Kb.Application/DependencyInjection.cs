@@ -30,6 +30,7 @@ public static class DependencyInjection
         services.AddScoped<DashboardService>();
         services.AddScoped<DashboardBulkService>();
         services.AddScoped<HelpJuiceMigrationService>();
+        services.AddScoped<HelpJuiceUserMigrationService>();
         services.AddScoped<NotificationService>();
         services.AddScoped<ExportService>();
         services.AddScoped<ExportJobProcessor>();

@@ -79,6 +79,24 @@ public sealed class HelpJuiceImportWriter(KbDbContext db, TimeProvider timeProvi
         return mappings.ToDictionary(item => item.ExternalId, item => item.Slug, StringComparer.OrdinalIgnoreCase);
     }
 
+    public async Task<IReadOnlyDictionary<string, HelpJuiceAuthorMapping>> ResolveHelpJuiceAuthorsAsync(
+        IReadOnlyCollection<string> helpJuiceUserIds, CancellationToken ct)
+    {
+        var normalizedIds = helpJuiceUserIds.Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id.Trim().ToUpperInvariant()).Distinct(StringComparer.Ordinal).ToArray();
+        if (normalizedIds.Length == 0)
+            return new Dictionary<string, HelpJuiceAuthorMapping>(StringComparer.OrdinalIgnoreCase);
+
+        var users = await db.Users.AsNoTracking()
+            .Where(user => user.HelpJuiceUserId != null &&
+                           normalizedIds.Contains(user.HelpJuiceUserId!.ToUpper()))
+            .Select(user => new { user.HelpJuiceUserId, user.UserId, user.FullName })
+            .ToListAsync(ct);
+        return users.ToDictionary(user => user.HelpJuiceUserId!,
+            user => new HelpJuiceAuthorMapping(user.HelpJuiceUserId!, user.UserId, user.FullName),
+            StringComparer.OrdinalIgnoreCase);
+    }
+
     public async Task<MigrationWriteResult> WriteCategoryAsync(Guid operationId, ImportedCategoryData source,
         string behavior, Guid actorId, CancellationToken ct)
     {
@@ -144,21 +162,31 @@ public sealed class HelpJuiceImportWriter(KbDbContext db, TimeProvider timeProvi
                 ?? throw new ConflictException($"Mapped HelpJuice article '{source.ExternalId}' no longer exists.");
         if(mapping is null&&existing is not null&&!behavior.Equals(MigrationConflictBehaviors.UpdateExisting,StringComparison.OrdinalIgnoreCase)) existing=null;
         if(existing is not null&&(mapping is not null&&!behavior.Equals(MigrationConflictBehaviors.UpdateExisting,StringComparison.OrdinalIgnoreCase)||behavior.Equals(MigrationConflictBehaviors.Skip,StringComparison.OrdinalIgnoreCase)))
-        { AddAudit(source.UserId,"MigrationArticleSkipped","Article",existing.ArticleId,existing.ArticleId,operationId);await SaveAsync(ct);await tx.CommitAsync(ct);return new(existing.ArticleId,MigrationWriteDisposition.Skipped,existing.CurrentDraftIdFk); }
+        {
+            if(source.AuthorResolved&&Reattribute(existing,source.AuthorId))
+            {
+                await SearchIndexJobQueue.EnqueueArticleAsync(db,existing.ArticleId,SearchIndexJobTypes.Upsert,timeProvider.GetUtcNow().UtcDateTime,ct);
+                AddAudit(source.ActorId,"MigrationArticleAuthorReconciled","Article",existing.ArticleId,existing.ArticleId,operationId);
+                await SaveAsync(ct);await tx.CommitAsync(ct);
+                return new(existing.ArticleId,MigrationWriteDisposition.Updated,existing.CurrentDraftIdFk,
+                    StagedContentConsumed:false);
+            }
+            AddAudit(source.ActorId,"MigrationArticleSkipped","Article",existing.ArticleId,existing.ArticleId,operationId);await SaveAsync(ct);await tx.CommitAsync(ct);return new(existing.ArticleId,MigrationWriteDisposition.Skipped,existing.CurrentDraftIdFk,StagedContentConsumed:false);
+        }
 
         var disposition=MigrationWriteDisposition.Imported; Article article; ArticleDraft draft;
         if(existing is not null&&behavior.Equals(MigrationConflictBehaviors.UpdateExisting,StringComparison.OrdinalIgnoreCase))
         {
             disposition=MigrationWriteDisposition.Updated; article=existing; draft=existing.CurrentDraftIdFkNavigation??throw new ConflictException("The destination article has no current draft.");
             article.Title=Normalize(source.Title,300);article.CategoryIdFk=source.CategoryId;article.UpdatedAt=source.UpdatedAt;article.Status=source.Status;article.Position=source.Position;article.Visibility=source.Visibility;
-            article.LegacyAuthorName=NormalizeNullable(source.LegacyAuthorName,300);article.LegacyAuthorEmail=NormalizeNullable(source.LegacyAuthorEmail,320);article.LegacyAuthorExternalId=NormalizeNullable(source.LegacyAuthorExternalId,100);
-            draft.ContentJsonStoragePath=source.Content.JsonPath;draft.RenderedHtmlStoragePath=source.Content.HtmlPath;draft.PlainTextStoragePath=source.Content.TextPath;draft.ContentHash=source.Content.Hash;draft.ContentSizeBytes=source.Content.Size;draft.UpdatedByFk=source.UserId;draft.UpdatedAt=source.UpdatedAt;draft.Status=DraftStatus(source.Status);Touch(draft);
+            if(source.AuthorResolved)Reattribute(article,source.AuthorId);
+            draft.ContentJsonStoragePath=source.Content.JsonPath;draft.RenderedHtmlStoragePath=source.Content.HtmlPath;draft.PlainTextStoragePath=source.Content.TextPath;draft.ContentHash=source.Content.Hash;draft.ContentSizeBytes=source.Content.Size;draft.UpdatedAt=source.UpdatedAt;draft.Status=DraftStatus(source.Status);Touch(draft);
         }
         else
         {
             var slug=await AllocateArticleSlugAsync(source.Slug,source.ExternalId,ct);var articleId=Guid.NewGuid();var draftId=Guid.NewGuid();
-            article=new Article{ArticleId=articleId,Title=Normalize(source.Title,300),Slug=slug,CategoryIdFk=source.CategoryId,AuthorIdFk=source.UserId,Status=source.Status,Visibility=source.Visibility,LegacyAuthorName=NormalizeNullable(source.LegacyAuthorName,300),LegacyAuthorEmail=NormalizeNullable(source.LegacyAuthorEmail,320),LegacyAuthorExternalId=NormalizeNullable(source.LegacyAuthorExternalId,100),Position=source.Position,CreatedAt=source.CreatedAt,UpdatedAt=source.UpdatedAt,CurrentDraftIdFk=null};
-            draft=new ArticleDraft{DraftId=draftId,ArticleIdFk=articleId,DraftNumber=1,ContentJsonStoragePath=source.Content.JsonPath,RenderedHtmlStoragePath=source.Content.HtmlPath,PlainTextStoragePath=source.Content.TextPath,ContentHash=source.Content.Hash,ContentSizeBytes=source.Content.Size,IsLocked=false,CreatedByFk=source.UserId,UpdatedByFk=source.UserId,CreatedAt=source.CreatedAt,UpdatedAt=source.UpdatedAt,Status=DraftStatus(source.Status)};Touch(draft);
+            article=new Article{ArticleId=articleId,Title=Normalize(source.Title,300),Slug=slug,CategoryIdFk=source.CategoryId,AuthorIdFk=source.AuthorId,Status=source.Status,Visibility=source.Visibility,Position=source.Position,CreatedAt=source.CreatedAt,UpdatedAt=source.UpdatedAt,CurrentDraftIdFk=null};
+            draft=new ArticleDraft{DraftId=draftId,ArticleIdFk=articleId,DraftNumber=1,ContentJsonStoragePath=source.Content.JsonPath,RenderedHtmlStoragePath=source.Content.HtmlPath,PlainTextStoragePath=source.Content.TextPath,ContentHash=source.Content.Hash,ContentSizeBytes=source.Content.Size,IsLocked=false,CreatedByFk=source.AuthorId,UpdatedByFk=source.AuthorId,CreatedAt=source.CreatedAt,UpdatedAt=source.UpdatedAt,Status=DraftStatus(source.Status)};Touch(draft);
             db.Articles.Add(article);await db.SaveChangesAsync(ct);
             if(db.Database.IsSqlServer()){db.ArticleDrafts.Add(draft);await db.SaveChangesAsync(ct);}
             else
@@ -187,17 +215,29 @@ public sealed class HelpJuiceImportWriter(KbDbContext db, TimeProvider timeProvi
             else
             {
                 versionId=Guid.NewGuid();var number=await db.ArticleVersions.Where(x=>x.ArticleIdFk==article.ArticleId).MaxAsync(x=>(int?)x.VersionNumber,ct)??0;number++;
-                var version=new ArticleVersion{VersionId=versionId.Value,ArticleIdFk=article.ArticleId,VersionNumber=number,SourceDraftIdFk=draft.DraftId,SourceDraftNumber=draft.DraftNumber,SnapshotReason=ArticleSnapshotReasons.Published,ContentJsonStoragePath=source.Content.VersionJsonPath??source.Content.JsonPath,RenderedHtmlStoragePath=source.Content.VersionHtmlPath??source.Content.HtmlPath,PlainTextStoragePath=source.Content.VersionTextPath??source.Content.TextPath,ContentHash=source.Content.Hash,ContentSizeBytes=source.Content.Size,CreatedAt=source.UpdatedAt,CreatedByFk=source.UserId,PublishedByFk=source.UserId,PublishedAt=source.PublishedAt};
+                var version=new ArticleVersion{VersionId=versionId.Value,ArticleIdFk=article.ArticleId,VersionNumber=number,SourceDraftIdFk=draft.DraftId,SourceDraftNumber=draft.DraftNumber,SnapshotReason=ArticleSnapshotReasons.Published,ContentJsonStoragePath=source.Content.VersionJsonPath??source.Content.JsonPath,RenderedHtmlStoragePath=source.Content.VersionHtmlPath??source.Content.HtmlPath,PlainTextStoragePath=source.Content.VersionTextPath??source.Content.TextPath,ContentHash=source.Content.Hash,ContentSizeBytes=source.Content.Size,CreatedAt=source.UpdatedAt,CreatedByFk=source.AuthorId,PublishedByFk=source.AuthorId,PublishedAt=source.PublishedAt};
                 db.ArticleVersions.Add(version);
-                AddAudit(source.UserId,"MigrationPublishedVersionCreated","ArticleVersion",versionId,article.ArticleId,operationId);
+                AddAudit(source.ActorId,"MigrationPublishedVersionCreated","ArticleVersion",versionId,article.ArticleId,operationId);
             }
             article.LastPublishedVersionIdFk=versionId;
             await SynchronizeReferencesAsync(source.Content.MediaIds,article.ArticleId,"Version",versionId.Value,ct);
         }
         await SynchronizeReferencesAsync(source.Content.MediaIds,article.ArticleId,"Draft",draft.DraftId,ct);
         await SearchIndexJobQueue.EnqueueArticleAsync(db,article.ArticleId,SearchIndexJobTypes.Upsert,timeProvider.GetUtcNow().UtcDateTime,ct);
-        AddAudit(source.UserId,disposition==MigrationWriteDisposition.Updated?"MigrationArticleUpdated":"MigrationArticleImported","Article",article.ArticleId,article.ArticleId,operationId);
+        AddAudit(source.ActorId,disposition==MigrationWriteDisposition.Updated?"MigrationArticleUpdated":"MigrationArticleImported","Article",article.ArticleId,article.ArticleId,operationId);
         await SaveAsync(ct);await tx.CommitAsync(ct);return new(article.ArticleId,disposition,draft.DraftId,versionId);
+    }
+
+    private static bool Reattribute(Article article,Guid authorId)
+    {
+        var changed=article.AuthorIdFk!=authorId;
+        article.AuthorIdFk=authorId;
+        if(article.CurrentDraftIdFkNavigation is { } draft)
+        {
+            changed|=draft.CreatedByFk!=authorId||draft.UpdatedByFk!=authorId;
+            draft.CreatedByFk=authorId;draft.UpdatedByFk=authorId;
+        }
+        return changed;
     }
 
     private async Task SynchronizeReferencesAsync(IEnumerable<Guid> ids,Guid articleId,string type,Guid entityId,CancellationToken ct){var desired=ids.ToHashSet();var existing=await db.MediaReferences.Where(x=>x.ReferenceEntityType==type&&x.ReferenceEntityId==entityId).ToListAsync(ct);db.MediaReferences.RemoveRange(existing.Where(x=>!desired.Contains(x.MediaIdFk)));var current=existing.Select(x=>x.MediaIdFk).ToHashSet();foreach(var id in desired.Where(id=>!current.Contains(id)))db.MediaReferences.Add(new(){ReferenceId=NewId(),MediaIdFk=id,ArticleIdFk=articleId,ReferenceEntityType=type,ReferenceEntityId=entityId});}
@@ -208,7 +248,6 @@ public sealed class HelpJuiceImportWriter(KbDbContext db, TimeProvider timeProvi
     private async Task SaveAsync(CancellationToken ct){await db.SaveChangesAsync(ct);db.ChangeTracker.Clear();}
     private void Touch(ArticleDraft draft){if(!db.Database.IsSqlServer())draft.RowVersion=Guid.NewGuid().ToByteArray();}
     private Guid NewId()=>db.Database.IsSqlServer()?Guid.Empty:Guid.NewGuid();private static string Normalize(string value,int max){var v=value.Trim();return v[..Math.Min(v.Length,max)];}
-    private static string? NormalizeNullable(string? value,int max)=>string.IsNullOrWhiteSpace(value)?null:Normalize(value,max);
     private static string DraftStatus(string articleStatus)=>articleStatus==ArticleStatuses.Published?ArticleStatuses.Approved:articleStatus;
     private Task<MigrationExternalMapping?> FindMappingAsync(string type,string externalId,CancellationToken ct)=>db.MigrationExternalMappings.SingleOrDefaultAsync(x=>x.SourceSystem=="HelpJuice"&&x.ExternalEntityType==type&&x.ExternalId==externalId,ct);
     private void AddMapping(string type,string externalId,Guid internalId,string? hash,object metadata)=>db.MigrationExternalMappings.Add(new(){MappingId=Guid.NewGuid(),SourceSystem="HelpJuice",ExternalEntityType=type,ExternalId=externalId,InternalId=internalId,ContentHash=hash,MetadataJson=JsonSerializer.Serialize(metadata),CreatedAt=timeProvider.GetUtcNow().UtcDateTime,UpdatedAt=timeProvider.GetUtcNow().UtcDateTime});

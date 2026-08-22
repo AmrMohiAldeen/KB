@@ -25,9 +25,9 @@ export type HelpJuiceMigrationPreviewArticle = {
   categoryExternalId?: string
   categoryLocation?: string
   visibility: 'Public' | 'Internal'
-  legacyAuthorName?: string
-  legacyAuthorEmail?: string
-  legacyAuthorExternalId?: string
+  helpJuiceAuthorId?: string
+  authorUserId?: string
+  authorName?: string
   contentHtml: string
   contentTextLength: number
   sourceMetadata: Record<string, string>
@@ -48,6 +48,7 @@ export type HelpJuiceValidationSummary = { totalArticles: number; publishedArtic
 export type HelpJuiceMigrationResult = { importedItems: number; updatedItems: number; skippedItems: number; failedItems: number; categoryImported: number; categoryUpdated: number; categorySkipped: number; publishedImported: number; draftImported: number; archivedImported: number; mediaImported: number; mediaReused: number; unresolvedMedia: number; unsupportedData: number; warningCount: number }
 export type HelpJuiceMigrationPhase = { phase: string; status: string; totalItems: number; processedItems: number; importedItems: number; updatedItems: number; skippedItems: number; failedItems: number }
 export type HelpJuiceMigrationResponse = { jobId: string; status: 'ValidationFailed'|'Completed'|'CompletedWithErrors'; originalFileName: string; startedAt: string; completedAt: string; options: HelpJuiceMigrationOptions; validation: HelpJuiceValidationSummary; result?: HelpJuiceMigrationResult; phases: HelpJuiceMigrationPhase[]; issues: MigrationIssue[] }
+export type HelpJuiceUserMigrationResponse = { jobId: string; status: string; originalFileName: string; startedAt: string; completedAt: string; totalRows: number; importedUsers: number; updatedUsers: number; skippedUsers: number; failedUsers: number; issues: MigrationIssue[] }
 export type HelpJuiceDiagnosticDownload = { blob: Blob; fileName: string; totalRecords?: number; errorCount?: number; warningCount?: number; status?: 'Completed' | 'Partial' }
 
 const parseJson = (value: string): unknown => { try { return value ? JSON.parse(value) : undefined } catch { return undefined } }
@@ -87,6 +88,30 @@ export const runHelpJuiceMigration = (files: File[], options: HelpJuiceMigration
     }
     request.onerror = () => reject(new ApiError(0, { title: 'Network error', detail: 'The migration request failed. Already committed rows may remain.' }))
     request.onabort = () => reject(new DOMException('The migration request was cancelled.', 'AbortError'))
+    request.send(form)
+  })
+  return { promise, cancel: () => request.abort() }
+}
+
+export const runHelpJuiceUserMigration = (file: File, accessToken: string,
+  onProgress?: (percent: number) => void): { promise: Promise<HelpJuiceUserMigrationResponse>; cancel: () => void } => {
+  const request = new XMLHttpRequest()
+  const promise = new Promise<HelpJuiceUserMigrationResponse>((resolve, reject) => {
+    const token = normalizeAccessToken(accessToken)
+    if (!token) { reject(new ApiError(401, { title: 'Unauthorized', detail: 'Authentication is required.' })); return }
+    const form = new FormData()
+    form.append('files', file, file.name)
+    request.open('POST', `${getApiBaseUrl()}/api/migrations/helpjuice/users`)
+    request.setRequestHeader('Accept', 'application/json')
+    request.setRequestHeader('Authorization', `Bearer ${token}`)
+    request.upload.onprogress = event => { if (event.lengthComputable) onProgress?.(Math.min(100, Math.round(event.loaded / event.total * 100))) }
+    request.onload = () => {
+      const body = parseJson(request.responseText)
+      if (request.status >= 200 && request.status < 300) resolve(body as HelpJuiceUserMigrationResponse)
+      else reject(new ApiError(request.status, body as ProblemDetails | undefined))
+    }
+    request.onerror = () => reject(new ApiError(0, { title: 'Network error', detail: 'The users migration request failed. Already committed users may remain.' }))
+    request.onabort = () => reject(new DOMException('The users migration request was cancelled.', 'AbortError'))
     request.send(form)
   })
   return { promise, cancel: () => request.abort() }
@@ -141,5 +166,5 @@ const responseFileName = (contentDisposition: string | null): string | undefined
   return contentDisposition?.match(/filename="?([^";]+)"?/i)?.[1]
 }
 
-export const helpJuiceMigrationsApi = { preview: previewHelpJuiceMigration, run: runHelpJuiceMigration, diagnostic: runHelpJuiceDiagnostic }
+export const helpJuiceMigrationsApi = { preview: previewHelpJuiceMigration, run: runHelpJuiceMigration, runUsers: runHelpJuiceUserMigration, diagnostic: runHelpJuiceDiagnostic }
 export type HelpJuiceMigrationsApi = typeof helpJuiceMigrationsApi

@@ -94,10 +94,7 @@ public sealed class DashboardRepository(KbDbContext dbContext) : IDashboardRepos
                         article.CurrentDraftIdFkNavigation.LockedByFkNavigation.UserId,
                         article.CurrentDraftIdFkNavigation.LockedByFkNavigation.FullName),
                 article.Position,
-                article.Visibility,
-                article.LegacyAuthorName,
-                article.LegacyAuthorEmail,
-                article.LegacyAuthorExternalId))
+                article.Visibility))
             .ToListAsync(cancellationToken);
 
         var combined = categoryItems.Select(category => new DashboardItemData(

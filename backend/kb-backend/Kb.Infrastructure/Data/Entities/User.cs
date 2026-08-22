@@ -19,6 +19,44 @@ public partial class User
 
     public DateTime? LastLoginAt { get; set; }
 
+    public string? HelpJuiceUserId { get; set; }
+
+    public string? HelpJuiceFirstName { get; set; }
+
+    public string? HelpJuiceLastName { get; set; }
+
+    public string? HelpJuiceJobTitle { get; set; }
+
+    public string? HelpJuiceEmail { get; set; }
+
+    public bool? HelpJuiceNotifyAboutDrafts { get; set; }
+
+    public bool? HelpJuiceNotifyAboutArticles { get; set; }
+
+    public bool? HelpJuiceWeeklyAnalyticsSubscribed { get; set; }
+
+    public bool? HelpJuiceWeeklyArticlesSubscribed { get; set; }
+
+    public int? HelpJuiceSignInCount { get; set; }
+
+    public DateTime? HelpJuiceCurrentSignInAt { get; set; }
+
+    public DateTime? HelpJuiceLastSignInAt { get; set; }
+
+    public string? HelpJuiceCurrentSignInIp { get; set; }
+
+    public string? HelpJuiceLastSignInIp { get; set; }
+
+    public DateTime? HelpJuiceCreatedAt { get; set; }
+
+    public DateTime? HelpJuiceUpdatedAt { get; set; }
+
+    public DateTime? HelpJuicePasswordChangedAt { get; set; }
+
+    public DateTime? HelpJuiceDeactivatedAt { get; set; }
+
+    public string? HelpJuiceRoleId { get; set; }
+
     public virtual ICollection<ArticleAuditLog> ArticleAuditLogs { get; set; } = new List<ArticleAuditLog>();
 
     public virtual ICollection<ArticleComment> ArticleCommentCreatedByFkNavigations { get; set; } = new List<ArticleComment>();

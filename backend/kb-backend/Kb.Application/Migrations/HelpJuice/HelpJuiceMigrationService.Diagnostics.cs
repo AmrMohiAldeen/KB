@@ -50,6 +50,7 @@ public sealed partial class HelpJuiceMigrationService
                 var mappedArticleSlugs = await writer.GetMappedArticleSlugsAsync(ct);
                 source = await HelpJuiceSourceParser.ParseAndValidateAsync(
                     diagnosticPackage, limits, timeProvider, destinationSlugs, mappedArticleSlugs, ct);
+                source = await EnrichAuthorsAsync(source, ct);
                 issues.AddRange(source.Issues.Where(issue => issue.ErrorCode != "REQUIRED_FILE_MISSING" ||
                     !package.KnownCsvFiles.ContainsKey(issue.FileName ?? string.Empty)));
             }
@@ -133,7 +134,7 @@ public sealed partial class HelpJuiceMigrationService
         "categories.csv" => "Category",
         "categorizations.csv" => "Categorization",
         "uploads.csv" => "Media",
-        "users.csv" => "HistoricalUser",
+        "users.csv" => "User",
         "passes.csv" => "LegacyPermission",
         _ => "Package"
     };

@@ -35,9 +35,9 @@ public sealed record HelpJuiceMigrationPreviewArticleResponse(
     string? CategoryExternalId,
     string? CategoryLocation,
     string Visibility,
-    string? LegacyAuthorName,
-    string? LegacyAuthorEmail,
-    string? LegacyAuthorExternalId,
+    string? HelpJuiceAuthorId,
+    Guid? AuthorUserId,
+    string? AuthorName,
     string ContentHtml,
     int ContentTextLength,
     IReadOnlyDictionary<string, string> SourceMetadata,
@@ -108,4 +108,17 @@ public sealed record HelpJuiceMigrationResponse(
     HelpJuiceValidationSummaryResponse Validation,
     HelpJuiceMigrationResultResponse? Result,
     IReadOnlyList<HelpJuiceMigrationPhaseResponse> Phases,
+    IReadOnlyList<MigrationIssueResponse> Issues);
+
+public sealed record HelpJuiceUserMigrationResponse(
+    Guid JobId,
+    string Status,
+    string OriginalFileName,
+    DateTime StartedAt,
+    DateTime CompletedAt,
+    int TotalRows,
+    int ImportedUsers,
+    int UpdatedUsers,
+    int SkippedUsers,
+    int FailedUsers,
     IReadOnlyList<MigrationIssueResponse> Issues);

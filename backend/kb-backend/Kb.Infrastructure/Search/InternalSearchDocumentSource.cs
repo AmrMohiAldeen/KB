@@ -20,8 +20,7 @@ internal sealed class InternalSearchDocumentSource(
             .Select(item => new
             {
                 item.ArticleId, item.Title, item.Slug, item.Status, item.CategoryIdFk, item.AuthorIdFk,
-                OwnerName = item.AuthorIdFkNavigation.FullName, item.LegacyAuthorName, item.LegacyAuthorEmail,
-                item.LegacyAuthorExternalId, item.UpdatedAt,
+                OwnerName = item.AuthorIdFkNavigation.FullName, item.UpdatedAt,
                 PlainTextPath = item.Status == ArticleStatuses.Published && item.LastPublishedVersionIdFkNavigation != null
                     ? item.LastPublishedVersionIdFkNavigation.PlainTextStoragePath
                     : item.CurrentDraftIdFkNavigation == null
@@ -54,8 +53,7 @@ internal sealed class InternalSearchDocumentSource(
         return new InternalSearchDocument($"article_{article.ArticleId:N}", "article", article.ArticleId.ToString("D"),
             article.Title, body, article.Slug, article.Status, article.CategoryIdFk?.ToString("D") ?? string.Empty,
             category?.Name ?? string.Empty, BuildCategoryPath(category, categories), article.AuthorIdFk.ToString("D"),
-            DisplayAuthor(article.LegacyAuthorName, article.LegacyAuthorEmail, article.LegacyAuthorExternalId,
-                article.OwnerName), $"{article.AuthorIdFk:D}|{article.OwnerName}", ToUnixTime(article.UpdatedAt));
+            article.OwnerName, $"{article.AuthorIdFk:D}|{article.OwnerName}", ToUnixTime(article.UpdatedAt));
     }
 
     public async Task<InternalSearchDocument?> GetCategoryAsync(Guid id, CancellationToken cancellationToken)
@@ -78,8 +76,7 @@ internal sealed class InternalSearchDocumentSource(
             .Select(item => new
             {
                 item.ArticleId, item.Title, item.Slug, item.Status, item.CategoryIdFk, item.AuthorIdFk,
-                OwnerName = item.AuthorIdFkNavigation.FullName, item.LegacyAuthorName, item.LegacyAuthorEmail,
-                item.LegacyAuthorExternalId, item.UpdatedAt,
+                OwnerName = item.AuthorIdFkNavigation.FullName, item.UpdatedAt,
                 PlainTextPath = item.LastPublishedVersionIdFkNavigation!.PlainTextStoragePath,
                 JsonPath = item.LastPublishedVersionIdFkNavigation.ContentJsonStoragePath
             }).SingleOrDefaultAsync(cancellationToken);
@@ -92,8 +89,7 @@ internal sealed class InternalSearchDocumentSource(
         return new InternalSearchDocument($"article_{article.ArticleId:N}", "article", article.ArticleId.ToString("D"),
             article.Title, body, article.Slug, article.Status, article.CategoryIdFk?.ToString("D") ?? string.Empty,
             category.Name, BuildCategoryPath(category, categories), article.AuthorIdFk.ToString("D"),
-            DisplayAuthor(article.LegacyAuthorName, article.LegacyAuthorEmail, article.LegacyAuthorExternalId,
-                article.OwnerName), $"{article.AuthorIdFk:D}|{article.OwnerName}", ToUnixTime(article.UpdatedAt),
+            article.OwnerName, $"{article.AuthorIdFk:D}|{article.OwnerName}", ToUnixTime(article.UpdatedAt),
             solutionIds, true, true, false, false, CategoryAncestorIds(category, categories));
     }
 
@@ -222,9 +218,6 @@ internal sealed class InternalSearchDocumentSource(
     }
 
     private static long ToUnixTime(DateTime value) => new DateTimeOffset(DateTime.SpecifyKind(value, DateTimeKind.Utc)).ToUnixTimeSeconds();
-    private static string DisplayAuthor(string? legacyName, string? legacyEmail, string? legacyExternalId,
-        string ownerName) => legacyName ?? legacyEmail ??
-        (legacyExternalId is null ? ownerName : $"Unresolved Helpjuice author ({legacyExternalId})");
     private sealed record CategoryRow(Guid Id, Guid? ParentId, string Name, string Slug, string? Description,
         string Status, string Visibility, string? Path);
 }

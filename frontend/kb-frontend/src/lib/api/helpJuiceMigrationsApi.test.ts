@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { previewHelpJuiceMigration, runHelpJuiceDiagnostic, runHelpJuiceMigration, type HelpJuiceMigrationOptions } from './helpJuiceMigrationsApi'
+import { previewHelpJuiceMigration, runHelpJuiceDiagnostic, runHelpJuiceMigration, runHelpJuiceUserMigration, type HelpJuiceMigrationOptions } from './helpJuiceMigrationsApi'
 
 const options:HelpJuiceMigrationOptions={importPublished:true,importUnpublishedAsDrafts:true,importCategories:true,importMedia:false,preserveTimestamps:true,conflictBehavior:'UpdateExisting'}
 
@@ -36,6 +36,24 @@ describe('helpJuiceMigrationsApi',()=>{
     vi.stubGlobal('XMLHttpRequest',FakeRequest)
     const request=runHelpJuiceMigration([new File(['x'],'questions.csv')],options,'token');request.cancel()
     await expect(request.promise).rejects.toMatchObject({name:'AbortError'})
+  })
+
+  it('posts one users.csv file to the users endpoint and reports upload progress',async()=>{
+    let sent:FormData|undefined
+    class FakeRequest {
+      status=200;responseText=JSON.stringify({jobId:'job-1',status:'CompletedWithErrors',originalFileName:'users.csv',startedAt:new Date().toISOString(),completedAt:new Date().toISOString(),totalRows:4,importedUsers:2,updatedUsers:1,skippedUsers:0,failedUsers:1,issues:[]});upload:{onprogress?: (event:ProgressEvent)=>void}={};onload?:()=>void;onerror?:()=>void;onabort?:()=>void
+      open(method:string,url:string){expect(method).toBe('POST');expect(url).toBe('https://kb-api.example.test/api/migrations/helpjuice/users')}
+      setRequestHeader(){}
+      send(body:FormData){sent=body;this.upload.onprogress?.({lengthComputable:true,loaded:3,total:4} as ProgressEvent);this.onload?.()}
+      abort(){this.onabort?.()}
+    }
+    vi.stubGlobal('XMLHttpRequest',FakeRequest)
+    const file=new File(['id,email\n1,a@example.test'],'users.csv')
+    const progress=vi.fn();const request=runHelpJuiceUserMigration(file,'token',progress)
+    await expect(request.promise).resolves.toMatchObject({totalRows:4,importedUsers:2,updatedUsers:1,failedUsers:1})
+    expect(progress).toHaveBeenCalledWith(75)
+    expect(sent?.getAll('files')).toHaveLength(1)
+    expect((sent?.get('files') as File).name).toBe('users.csv')
   })
 
   it('downloads the read-only full diagnostic and reports upload and scan status',async()=>{

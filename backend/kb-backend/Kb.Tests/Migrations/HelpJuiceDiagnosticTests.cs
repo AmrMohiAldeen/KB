@@ -28,7 +28,44 @@ public sealed class HelpJuiceDiagnosticTests
 
         Assert.Contains(Assert.Single(preview.Articles).Issues, issue => issue.ErrorCode == "EXTERNAL_MEDIA_IMPORT_PLANNED");
         Assert.Equal(0, clientFactory.CreateCalls);
-        Assert.Equal(2, writer.ReadCalls);
+        Assert.Equal(3, writer.ReadCalls);
+    }
+
+    [Fact]
+    public async Task Preview_enriches_authors_by_HelpJuice_id_and_warns_without_blocking()
+    {
+        var resolvedUserId=Guid.NewGuid();
+        await using var questionStream = Stream(
+            "id,name,created_by_id\nq1,Resolved,HJ-42\nq2,Unresolved,missing-7\nq3,Missing,\n");
+        await using var answerStream = Stream(
+            "id,question_id,body\na1,q1,One\na2,q2,Two\na3,q3,Three\n");
+        var mappings=new Dictionary<string,HelpJuiceAuthorMapping>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["hj-42"]=new("hj-42",resolvedUserId,"Source Author")
+        };
+        var writer = new ReadOnlyWriter(mappings);
+        var service = new HelpJuiceMigrationService(writer, new UnusedStorage(), new ClientFactory(),
+            new User(), TimeProvider.System, Options.Create(new HelpJuiceMigrationLimits()),
+            Options.Create(new MediaOptions()), Options.Create(new DraftContentOptions()));
+
+        var preview = await service.PreviewAsync([
+            new("questions.csv", "text/csv", questionStream.Length, questionStream),
+            new("answers.csv", "text/csv", answerStream.Length, answerStream)
+        ], 100, default);
+
+        var resolved=preview.Articles.Single(article=>article.ExternalId=="q1");
+        Assert.Equal("HJ-42",resolved.HelpJuiceAuthorId);
+        Assert.Equal(resolvedUserId,resolved.AuthorUserId);
+        Assert.Equal("Source Author",resolved.AuthorName);
+        Assert.DoesNotContain(resolved.Issues,issue=>issue.ErrorCode=="HELPJUICE_AUTHOR_MAPPING_MISSING");
+        var unresolved=preview.Articles.Single(article=>article.ExternalId=="q2");
+        Assert.Null(unresolved.AuthorUserId);
+        Assert.Contains(unresolved.Issues,issue=>issue.ErrorCode=="HELPJUICE_AUTHOR_MAPPING_MISSING"&&
+            issue.Message.Contains("missing-7",StringComparison.Ordinal));
+        var missing=preview.Articles.Single(article=>article.ExternalId=="q3");
+        Assert.Null(missing.HelpJuiceAuthorId);
+        Assert.Contains(missing.Issues,issue=>issue.ErrorCode=="HELPJUICE_AUTHOR_ID_MISSING");
+        Assert.Equal(0,preview.PackageIssues.Count(issue=>issue.Severity=="Error"));
     }
 
     [Fact]
@@ -55,7 +92,7 @@ public sealed class HelpJuiceDiagnosticTests
         try
         {
             Assert.Equal(202, report.TotalRecordsScanned);
-            Assert.Equal(2, writer.ReadCalls);
+            Assert.Equal(3, writer.ReadCalls);
             var csv = await File.ReadAllTextAsync(report.Path);
             Assert.Contains("\"questions.csv\",\"102\",\"q101\",\"Article\",\"Untitled HelpJuice article q101\",\"TITLE_DERIVED\"", csv);
             Assert.Contains("\"End: total records scanned\",\"202\"", csv);
@@ -118,7 +155,8 @@ public sealed class HelpJuiceDiagnosticTests
         public Task DeleteAsync(string containerName, string objectName, CancellationToken cancellationToken) => throw new InvalidOperationException("Diagnostics must not delete.");
     }
 
-    private sealed class ReadOnlyWriter : IHelpJuiceImportWriter
+    private sealed class ReadOnlyWriter(
+        IReadOnlyDictionary<string,HelpJuiceAuthorMapping>? authorMappings=null) : IHelpJuiceImportWriter
     {
         public int ReadCalls { get; private set; }
         public void ResetState() => throw Mutation();
@@ -131,6 +169,14 @@ public sealed class HelpJuiceDiagnosticTests
         {
             ReadCalls++;
             return Task.FromResult<IReadOnlyDictionary<string, string>>(new Dictionary<string,string>());
+        }
+        public Task<IReadOnlyDictionary<string, HelpJuiceAuthorMapping>> ResolveHelpJuiceAuthorsAsync(
+            IReadOnlyCollection<string> helpJuiceUserIds, CancellationToken cancellationToken)
+        {
+            ReadCalls++;
+            return Task.FromResult(authorMappings ??
+                (IReadOnlyDictionary<string,HelpJuiceAuthorMapping>)
+                new Dictionary<string,HelpJuiceAuthorMapping>(StringComparer.OrdinalIgnoreCase));
         }
         public Task WriteOperationAuditAsync(Guid operationId, string action, string status, Guid actorId, CancellationToken cancellationToken) => throw Mutation();
         public Task<Guid> StartOrResumeJobAsync(Guid proposedJobId, string packageHash, string optionsJson, Guid actorId, DateTime startedAt, CancellationToken cancellationToken) => throw Mutation();

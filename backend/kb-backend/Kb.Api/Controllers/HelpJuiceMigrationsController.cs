@@ -11,7 +11,9 @@ namespace Kb.Api.Controllers;
 [ApiController]
 [Authorize(Policy = AdminPolicy.Name)]
 [Route("api/migrations/helpjuice")]
-public sealed class HelpJuiceMigrationsController(HelpJuiceMigrationService migrations) : ControllerBase
+public sealed class HelpJuiceMigrationsController(
+    HelpJuiceMigrationService migrations,
+    HelpJuiceUserMigrationService userMigrations) : ControllerBase
 {
     private const int PreviewArticleLimit = 100;
 
@@ -83,6 +85,27 @@ public sealed class HelpJuiceMigrationsController(HelpJuiceMigrationService migr
         }
     }
 
+    [HttpPost("users")]
+    [Consumes("multipart/form-data")]
+    [RequestFormLimits(ValueCountLimit = 100_000)]
+    [ProducesResponseType<HelpJuiceUserMigrationResponse>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<HelpJuiceUserMigrationResponse>> ImportUsers(CancellationToken ct)
+    {
+        var files = await ReadFilesAsync(ct);
+        try
+        {
+            var result = await userMigrations.ExecuteAsync(files, ct);
+            return Ok(new HelpJuiceUserMigrationResponse(
+                result.JobId, result.Status, result.OriginalFileName, result.StartedAt, result.CompletedAt,
+                result.TotalRows, result.ImportedUsers, result.UpdatedUsers, result.SkippedUsers,
+                result.FailedUsers, result.Issues.Select(ToIssueResponse).ToArray()));
+        }
+        finally
+        {
+            foreach (var file in files) await file.Content.DisposeAsync();
+        }
+    }
+
     private async Task<MigrationUploadFile[]> ReadFilesAsync(CancellationToken ct)
     {
         var form = await Request.ReadFormAsync(ct);
@@ -136,7 +159,7 @@ public sealed class HelpJuiceMigrationsController(HelpJuiceMigrationService migr
             article.ExternalId, article.QuestionRowNumber, article.AnswerExternalId, article.AnswerRowNumber,
             article.Title, article.Slug, article.Description, article.IsPublished, article.IsArchived, article.CreatedAt,
             article.UpdatedAt, article.CategoryExternalId, article.CategoryLocation, article.Visibility,
-            article.LegacyAuthorName, article.LegacyAuthorEmail, article.LegacyAuthorExternalId, article.ContentHtml,
+            article.HelpJuiceAuthorId, article.AuthorUserId, article.AuthorName, article.ContentHtml,
             article.ContentTextLength, article.SourceMetadata, article.Issues.Select(ToIssueResponse).ToArray()))
             .ToArray());
 

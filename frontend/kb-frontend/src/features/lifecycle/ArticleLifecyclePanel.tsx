@@ -54,7 +54,6 @@ import { useArticleLifecycle, type ArticleLifecycleApi } from './useArticleLifec
 import ArticleActivityDrawer from './ArticleActivityDrawer'
 import WorkflowRecipientDialog from './WorkflowRecipientDialog'
 import { getArticleNotificationPreference, setArticleNotificationPreference } from '@/lib/api/notificationsApi'
-import { articleAuthor, historicalHelpJuiceAuthor } from '@/lib/articles/articleAuthor'
 
 type DialogKind = 'requestChanges' | 'publish' | 'override' | 'archive' | null
 
@@ -237,8 +236,8 @@ export default function ArticleLifecyclePanel({
 
   const article = lifecycle.article
   const status = article?.status
-  const ownerName = article ? articleAuthor(article) : 'Article author'
-  const ownerLabel = article && historicalHelpJuiceAuthor(article) ? 'Original author' : 'Author'
+  const ownerName = article?.owner.fullName || 'Article author'
+  const ownerLabel = 'Author'
   const formattedSavedAt = savedAt
     ? new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(savedAt))
     : null

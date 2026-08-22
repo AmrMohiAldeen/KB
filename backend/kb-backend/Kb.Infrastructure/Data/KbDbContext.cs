@@ -108,9 +108,6 @@ public partial class KbDbContext : DbContext
                 .HasDefaultValueSql("(newsequentialid())", "DF_ARTICLES_ArticleID")
                 .HasColumnName("ArticleID");
             entity.Property(e => e.AuthorIdFk).HasColumnName("AuthorID_FK");
-            entity.Property(e => e.LegacyAuthorName).HasMaxLength(300);
-            entity.Property(e => e.LegacyAuthorEmail).HasMaxLength(320);
-            entity.Property(e => e.LegacyAuthorExternalId).HasMaxLength(100);
             entity.Property(e => e.CategoryIdFk).HasColumnName("CategoryID_FK");
             entity.Property(e => e.CreatedAt)
                 .HasPrecision(3)
@@ -844,6 +841,10 @@ public partial class KbDbContext : DbContext
 
             entity.HasIndex(e => e.Email, "UX_USERS_Email").IsUnique();
 
+            entity.HasIndex(e => e.HelpJuiceUserId, "UX_USERS_HelpJuiceUserID")
+                .IsUnique()
+                .HasFilter("([HelpJuiceUserID] IS NOT NULL)");
+
             entity.HasIndex(e => e.SsoId, "UX_USERS_SsoID")
                 .IsUnique()
                 .HasFilter("([SsoID] IS NOT NULL)");
@@ -856,6 +857,16 @@ public partial class KbDbContext : DbContext
                 .HasDefaultValueSql("(sysutcdatetime())", "DF_USERS_CreatedAt");
             entity.Property(e => e.Email).HasMaxLength(320);
             entity.Property(e => e.FullName).HasMaxLength(200);
+            entity.Property(e => e.HelpJuiceCreatedAt).HasPrecision(3);
+            entity.Property(e => e.HelpJuiceCurrentSignInAt).HasPrecision(3);
+            entity.Property(e => e.HelpJuiceCurrentSignInIp).HasMaxLength(45).HasColumnName("HelpJuiceCurrentSignInIP");
+            entity.Property(e => e.HelpJuiceDeactivatedAt).HasPrecision(3);
+            entity.Property(e => e.HelpJuiceLastSignInAt).HasPrecision(3);
+            entity.Property(e => e.HelpJuiceLastSignInIp).HasMaxLength(45).HasColumnName("HelpJuiceLastSignInIP");
+            entity.Property(e => e.HelpJuiceRoleId).HasColumnName("HelpJuiceRoleID");
+            entity.Property(e => e.HelpJuicePasswordChangedAt).HasPrecision(3);
+            entity.Property(e => e.HelpJuiceUpdatedAt).HasPrecision(3);
+            entity.Property(e => e.HelpJuiceUserId).HasMaxLength(450).HasColumnName("HelpJuiceUserID");
             entity.Property(e => e.IsActive).HasDefaultValue(true, "DF_USERS_IsActive");
             entity.Property(e => e.LastLoginAt).HasPrecision(3);
             entity.Property(e => e.SsoId)

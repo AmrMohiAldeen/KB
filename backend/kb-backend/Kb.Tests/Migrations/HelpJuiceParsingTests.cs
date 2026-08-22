@@ -118,7 +118,7 @@ public sealed class HelpJuiceParsingTests
     }
 
     [Fact]
-    public async Task Legacy_states_categories_slugs_empty_bodies_languages_and_users_are_repaired_not_blocked()
+    public async Task Legacy_states_categories_slugs_empty_bodies_and_languages_are_repaired_not_blocked()
     {
         using var package=Package(
             "id,name,codename,is_published,archived,language_id,categories_count,created_by_id,updated_by_id\nq1,Published,same,true,false,1,1,11,12\nq2,Archived,same,true,true,1,0,11,12\nq3,Draft,,false,false,3,1,11,12",
@@ -135,8 +135,7 @@ public sealed class HelpJuiceParsingTests
         Assert.Null(source.Questions.Single(x=>x.Id=="q3").CategoryId);
         Assert.Contains(source.Issues,x=>x.ErrorCode=="EMPTY_SOURCE_BODY"&&x.ExternalId=="q2");
         Assert.Contains(source.Issues,x=>x.ErrorCode=="CATEGORY_COUNT_MISMATCH"&&x.ExternalId=="q3");
-        Assert.DoesNotContain(source.Issues,x=>x.ErrorCode=="HISTORICAL_USER_MAPPED_TO_MIGRATION_USER");
-        Assert.Equal("11",source.Questions.Single(x=>x.Id=="q1").LegacyAuthorExternalId);
+        Assert.Equal("11",source.Questions.Single(x=>x.Id=="q1").HelpJuiceAuthorId);
         Assert.Contains("مرحبا",source.ConvertedAnswersById["a3"].PlainText);
         Assert.Contains("\"dir\":\"rtl\"",source.ConvertedAnswersById["a3"].TiptapJson);
     }
@@ -278,7 +277,7 @@ public sealed class HelpJuiceParsingTests
     }
 
     [Fact]
-    public async Task Historical_authors_and_visibility_are_resolved_without_importing_RBAC()
+    public async Task Content_parser_preserves_author_ids_but_does_not_parse_users_csv()
     {
         using var package=Package(
             "id,name,created_by_id,visibility_id,category_id\nq1,Internal article,u1,0,c1\nq2,Inherited article,u1,,c1",
@@ -290,62 +289,13 @@ public sealed class HelpJuiceParsingTests
 
         Assert.All(source.Questions,question=>Assert.Equal("Internal",question.Visibility));
         Assert.Equal("Internal",Assert.Single(source.Categories).Visibility);
-        Assert.All(source.Questions,question=>Assert.Equal("Ada Lovelace",question.LegacyAuthorName));
-        Assert.All(source.Questions,question=>Assert.Equal("ada@example.test",question.LegacyAuthorEmail));
-        Assert.DoesNotContain(source.Issues,issue=>issue.ErrorCode is "HISTORICAL_USER_MAPPED_TO_MIGRATION_USER" or "LEGACY_PERMISSIONS_NOT_IMPORTED");
+        Assert.All(source.Questions,question=>Assert.Equal("u1",question.HelpJuiceAuthorId));
+        Assert.All(source.Questions,question=>Assert.Null(question.AuthorUserId));
+        Assert.All(source.Questions,question=>Assert.Null(question.AuthorName));
+        Assert.DoesNotContain(source.Issues,issue=>issue.ErrorCode.StartsWith("HELPJUICE_AUTHOR",StringComparison.Ordinal));
         var preview=HelpJuicePreviewBuilder.Build(source,10);
         Assert.All(preview.Articles,article=>Assert.Equal("Internal",article.Visibility));
-        Assert.All(preview.Articles,article=>Assert.Equal("Ada Lovelace",article.LegacyAuthorName));
-    }
-
-    [Fact]
-    public async Task Historical_author_keeps_unresolved_id_and_distinguishes_missing_created_by_id()
-    {
-        using var package=Package(
-            "id,name,created_by_id\nq1,Email author,u1\nq2,Missing account,u2\nq3,Missing attribution,",
-            "id,question_id,body\na1,q1,Body\na2,q2,Body\na3,q3,Body",
-            users:"id,email\nu1,ada@example.test");
-        var source=await HelpJuiceSourceParser.ParseAndValidateAsync(package,new(),TimeProvider.System);
-
-        var emailAuthor=source.Questions.Single(question=>question.Id=="q1");
-        Assert.Null(emailAuthor.LegacyAuthorName);Assert.Equal("ada@example.test",emailAuthor.LegacyAuthorEmail);
-        var missingAccount=source.Questions.Single(question=>question.Id=="q2");
-        Assert.Null(missingAccount.LegacyAuthorName);Assert.Null(missingAccount.LegacyAuthorEmail);
-        Assert.Equal("u2",missingAccount.LegacyAuthorExternalId);
-        Assert.Null(source.Questions.Single(question=>question.Id=="q3").LegacyAuthorExternalId);
-        Assert.Contains(source.Issues,issue=>issue.ErrorCode=="HELPJUICE_AUTHOR_MAPPING_MISSING"&&issue.ExternalId=="q2");
-        Assert.Contains(source.Issues,issue=>issue.ErrorCode=="HELPJUICE_AUTHOR_ID_MISSING"&&issue.ExternalId=="q3");
-        Assert.Contains(source.Issues,issue=>issue.ErrorCode=="HELPJUICE_AUTHOR_RESOLVED"&&issue.ExternalId=="q1");
-    }
-
-    [Fact]
-    public async Task Historical_author_matches_created_by_id_to_users_id_only()
-    {
-        using var package=Package(
-            "id,name,created_by_id\nq1,Account keyed author,account-42",
-            "id,question_id,body\na1,q1,Body",
-            users:"id,account_id,first_name,last_name,email\naccount-42,legacy-account,Grace,Hopper,grace@example.test");
-        var source=await HelpJuiceSourceParser.ParseAndValidateAsync(package,new(),TimeProvider.System);
-
-        var article=Assert.Single(source.Questions);
-        Assert.Equal("account-42",article.LegacyAuthorExternalId);
-        Assert.Equal("Grace Hopper",article.LegacyAuthorName);
-        Assert.Equal("grace@example.test",article.LegacyAuthorEmail);
-        Assert.DoesNotContain(source.Issues,issue=>issue.ErrorCode=="UNSUPPORTED_FILE");
-    }
-
-    [Fact]
-    public async Task Author_resolver_caches_optional_lookup_results_during_an_import()
-    {
-        using var package=Package("id,name,created_by_id\nq1,One,u1\nq2,Two,u1",
-            "id,question_id,body\na1,q1,Body\na2,q2,Body");
-        var lookup=new CountingAuthorLookup(new("u1","Ada API","ada@example.test"));
-
-        var source=await HelpJuiceSourceParser.ParseAndValidateAsync(package,new(),TimeProvider.System,
-            authorLookup:lookup);
-
-        Assert.All(source.Questions,question=>Assert.Equal("Ada API",question.LegacyAuthorName));
-        Assert.Equal(1,lookup.CallCount);
+        Assert.All(preview.Articles,article=>Assert.Equal("u1",article.HelpJuiceAuthorId));
     }
 
     [Fact]
@@ -630,11 +580,5 @@ public sealed class HelpJuiceParsingTests
 
     private static string TempFile(string content){var path=Path.Combine(Path.GetTempPath(),$"hj-{Guid.NewGuid():N}.csv");File.WriteAllText(path,content,new UTF8Encoding(false));return path;}
     private static int Count(string value,string needle){var count=0;for(var index=0;(index=value.IndexOf(needle,index,StringComparison.Ordinal))>=0;index+=needle.Length)count++;return count;}
-    private sealed class CountingAuthorLookup(HelpJuiceLegacyAuthor author):IHelpJuiceAuthorLookup
-    {
-        public int CallCount { get; private set; }
-        public Task<HelpJuiceLegacyAuthor?> FindByIdAsync(string externalId,CancellationToken cancellationToken)
-        { CallCount++;return Task.FromResult<HelpJuiceLegacyAuthor?>(externalId==author.ExternalId?author:null); }
-    }
     private static PackageContents Package(string questions,string answers,string? categories=null,string? categorizations=null,string? uploads=null,IReadOnlyList<string>? mediaNames=null,string? users=null,string? passes=null){var root=Path.Combine(Path.GetTempPath(),$"hj-{Guid.NewGuid():N}");Directory.CreateDirectory(root);var q=Path.Combine(root,"questions.csv");var a=Path.Combine(root,"answers.csv");File.WriteAllText(q,questions);File.WriteAllText(a,answers);var files=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase){{"questions.csv",q},{"answers.csv",a}};if(categories is not null){var c=Path.Combine(root,"categories.csv");File.WriteAllText(c,categories);files["categories.csv"]=c;}if(categorizations is not null){var c=Path.Combine(root,"categorizations.csv");File.WriteAllText(c,categorizations);files["categorizations.csv"]=c;}if(uploads is not null){var u=Path.Combine(root,"uploads.csv");File.WriteAllText(u,uploads);files["uploads.csv"]=u;}if(users is not null){var u=Path.Combine(root,"users.csv");File.WriteAllText(u,users);files["users.csv"]=u;}if(passes is not null){var p=Path.Combine(root,"passes.csv");File.WriteAllText(p,passes);files["passes.csv"]=p;}var media=(mediaNames??[]).Select(name=>{var path=Path.Combine(root,name);File.WriteAllBytes(path,[1,2,3]);return path;}).ToArray();return new(root,files,media,files.Keys.Concat(mediaNames??[]).ToArray(),[]);}
 }

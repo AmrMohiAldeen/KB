@@ -82,44 +82,73 @@ public sealed class HelpJuiceImportWriterTests
     }
 
     [Fact]
-    public async Task Migration_preserves_visibility_and_historical_author_without_creating_a_user()
+    public async Task HelpJuice_author_mapping_is_case_insensitive()
     {
         await using var f=await Fixture.CreateAsync();
-        var source=Article("legacy",true,f.UserId) with
-        {
-            Visibility="Internal",LegacyAuthorName="Ada Lovelace",LegacyAuthorEmail="ada@example.test",
-            LegacyAuthorExternalId="hj-42"
-        };
-        var result=await f.Writer.WriteArticleAsync(f.OperationId,source,MigrationConflictBehaviors.Skip,default);
-        f.Context.ChangeTracker.Clear();
-        var article=await f.Context.Articles.SingleAsync(x=>x.ArticleId==result.InternalId);
-        Assert.Equal("Internal",article.Visibility);Assert.Equal("Ada Lovelace",article.LegacyAuthorName);
-        Assert.Equal("ada@example.test",article.LegacyAuthorEmail);Assert.Equal("hj-42",article.LegacyAuthorExternalId);
-        Assert.Equal(f.UserId,article.AuthorIdFk);Assert.Equal(1,await f.Context.Users.CountAsync());
+        var authorId=await f.AddUserAsync("Source Author","HJ-42");
 
-        var category=await f.Writer.WriteCategoryAsync(f.OperationId,
-            new("legacy-category","Internal","internal",null,0,0,"Internal"),MigrationConflictBehaviors.Skip,f.UserId,default);
-        f.Context.ChangeTracker.Clear();
-        Assert.Equal("Internal",(await f.Context.Categories.SingleAsync(x=>x.CategoryId==category.InternalId)).Visibility);
+        var mappings=await f.Writer.ResolveHelpJuiceAuthorsAsync(["hj-42","missing"],default);
+
+        var mapping=Assert.Single(mappings);
+        Assert.Equal("HJ-42",mapping.Key);
+        Assert.Equal(authorId,mapping.Value.UserId);
+        Assert.Equal("Source Author",mapping.Value.Name);
     }
 
     [Fact]
-    public async Task Update_replaces_an_unresolved_author_with_the_resolved_email()
+    public async Task Source_author_owns_article_and_content_while_migration_actor_owns_audit()
     {
         await using var f=await Fixture.CreateAsync();
-        var original=Article("legacy-email",true,f.UserId) with
-        {
-            LegacyAuthorExternalId="account-42"
-        };
-        _=await f.Writer.WriteArticleAsync(f.OperationId,original,MigrationConflictBehaviors.Skip,default);
-        var resolved=original with { LegacyAuthorName=null,LegacyAuthorEmail="resolved@example.test" };
+        var authorId=await f.AddUserAsync("Source Author","author-1");
+        var source=Article("attributed",true,f.UserId) with { AuthorId=authorId, Visibility="Internal" };
 
-        _=await f.Writer.WriteArticleAsync(Guid.NewGuid(),resolved,MigrationConflictBehaviors.UpdateExisting,default);
+        var result=await f.Writer.WriteArticleAsync(f.OperationId,source,MigrationConflictBehaviors.Skip,default);
 
         f.Context.ChangeTracker.Clear();
-        var article=await f.Context.Articles.SingleAsync(x=>x.LegacyAuthorExternalId=="account-42");
-        Assert.Null(article.LegacyAuthorName);
-        Assert.Equal("resolved@example.test",article.LegacyAuthorEmail);
+        var article=await f.Context.Articles.SingleAsync(x=>x.ArticleId==result.InternalId);
+        var draft=await f.Context.ArticleDrafts.SingleAsync(x=>x.ArticleIdFk==result.InternalId);
+        var version=await f.Context.ArticleVersions.SingleAsync(x=>x.ArticleIdFk==result.InternalId);
+        Assert.Equal(authorId,article.AuthorIdFk);Assert.Equal("Internal",article.Visibility);
+        Assert.Equal(authorId,draft.CreatedByFk);Assert.Equal(authorId,draft.UpdatedByFk);
+        Assert.Equal(authorId,version.CreatedByFk);Assert.Equal(authorId,version.PublishedByFk);
+        Assert.All(await f.Context.ArticleAuditLogs.Where(x=>x.ArticleIdFk==result.InternalId).ToListAsync(),
+            audit=>Assert.Equal(f.UserId,audit.ActorIdFk));
+    }
+
+    [Fact]
+    public async Task Update_changes_article_owner_and_draft_attribution()
+    {
+        await using var f=await Fixture.CreateAsync();
+        var authorId=await f.AddUserAsync("Replacement Author","author-2");
+        var original=Article("owner-update",false,f.UserId);
+        var first=await f.Writer.WriteArticleAsync(f.OperationId,original,MigrationConflictBehaviors.Skip,default);
+
+        _=await f.Writer.WriteArticleAsync(Guid.NewGuid(),original with { AuthorId=authorId },
+            MigrationConflictBehaviors.UpdateExisting,default);
+
+        f.Context.ChangeTracker.Clear();
+        var article=await f.Context.Articles.SingleAsync(x=>x.ArticleId==first.InternalId);
+        var draft=await f.Context.ArticleDrafts.SingleAsync(x=>x.ArticleIdFk==first.InternalId);
+        Assert.Equal(authorId,article.AuthorIdFk);
+        Assert.Equal(authorId,draft.CreatedByFk);
+        Assert.Equal(authorId,draft.UpdatedByFk);
+    }
+
+    [Fact]
+    public async Task Skip_retry_reconciles_an_author_that_resolves_after_users_migration()
+    {
+        await using var f=await Fixture.CreateAsync();
+        var original=Article("late-author",true,f.UserId) with { AuthorResolved=false };
+        var first=await f.Writer.WriteArticleAsync(f.OperationId,original,MigrationConflictBehaviors.Skip,default);
+        var authorId=await f.AddUserAsync("Late Author","late-author-id");
+
+        var retry=await f.Writer.WriteArticleAsync(Guid.NewGuid(),
+            original with { AuthorId=authorId,AuthorResolved=true },MigrationConflictBehaviors.Skip,default);
+
+        Assert.Equal(MigrationWriteDisposition.Updated,retry.Disposition);
+        f.Context.ChangeTracker.Clear();
+        Assert.Equal(authorId,(await f.Context.Articles.SingleAsync(x=>x.ArticleId==first.InternalId)).AuthorIdFk);
+        Assert.Equal(authorId,(await f.Context.ArticleDrafts.SingleAsync(x=>x.ArticleIdFk==first.InternalId)).CreatedByFk);
     }
 
     [Fact]
@@ -139,13 +168,14 @@ public sealed class HelpJuiceImportWriterTests
         Assert.Equal(2,await f.Context.MigrationExternalMappings.CountAsync(mapping=>mapping.ExternalEntityType=="Media"));
     }
 
-    private static ImportedArticleData Article(string id,bool published,Guid user)=>new(id,id,id,null,null,user,published?ArticleStatuses.Published:ArticleStatuses.Draft,published,DateTime.UtcNow.AddDays(-1),DateTime.UtcNow,null,new($"draft/{id}.json",$"draft/{id}.html",$"draft/{id}.txt","a".PadLeft(64,'0'),20,[],published?$"version/{id}.json":null,published?$"version/{id}.html":null,published?$"version/{id}.txt":null));
+    private static ImportedArticleData Article(string id,bool published,Guid actor)=>new(id,id,id,null,null,actor,actor,true,published?ArticleStatuses.Published:ArticleStatuses.Draft,published,DateTime.UtcNow.AddDays(-1),DateTime.UtcNow,null,new($"draft/{id}.json",$"draft/{id}.html",$"draft/{id}.txt","a".PadLeft(64,'0'),20,[],published?$"version/{id}.json":null,published?$"version/{id}.html":null,published?$"version/{id}.txt":null));
 
     private sealed class Fixture : IAsyncDisposable
     {
         private readonly SqliteConnection connection;public KbDbContext Context{get;}public HelpJuiceImportWriter Writer{get;}public Guid UserId{get;}public Guid OperationId{get;}
         private Fixture(SqliteConnection c,KbDbContext db,HelpJuiceImportWriter writer,Guid user,Guid operationId){connection=c;Context=db;Writer=writer;UserId=user;OperationId=operationId;}
         public static async Task<Fixture>CreateAsync(){var c=new SqliteConnection("Data Source=:memory:");await c.OpenAsync();var db=new KbDbContext(new DbContextOptionsBuilder<KbDbContext>().UseSqlite(c).Options);await db.Database.EnsureCreatedAsync();var user=Guid.NewGuid();db.Users.Add(new(){UserId=user,Email=$"{user:N}@test.local",FullName="Admin",IsActive=true,CreatedAt=DateTime.UtcNow});await db.SaveChangesAsync();return new(c,db,new(db,TimeProvider.System),user,Guid.NewGuid());}
+        public async Task<Guid>AddUserAsync(string name,string helpJuiceId){var id=Guid.NewGuid();Context.Users.Add(new(){UserId=id,Email=$"{id:N}@test.local",FullName=name,IsActive=true,CreatedAt=DateTime.UtcNow,HelpJuiceUserId=helpJuiceId});await Context.SaveChangesAsync();Context.ChangeTracker.Clear();return id;}
         public async ValueTask DisposeAsync(){await Context.DisposeAsync();await connection.DisposeAsync();}
     }
 }

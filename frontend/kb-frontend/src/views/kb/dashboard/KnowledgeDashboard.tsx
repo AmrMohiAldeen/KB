@@ -74,7 +74,6 @@ import KbCategoryDialog from '../categories/components/KbCategoryDialog'
 import DashboardCategoryTree from './DashboardCategoryTree'
 import StatusChip from '../shared/components/StatusChip'
 import type { ArticleDetailsResponse, ArticleListItemResponse } from '@/types/apps/articleTypes'
-import { articleAuthor, historicalHelpJuiceAuthor } from '@/lib/articles/articleAuthor'
 import type {
   DashboardArticleFilter,
   DashboardItem,
@@ -230,9 +229,6 @@ const ArticleBadges = ({ article }: { article: ArticleListItemResponse }) => {
     </Stack>
   )
 }
-
-const articleAuthorLabel = (article: ArticleListItemResponse) => articleAuthor(article)
-const articleAuthorPrefix = (article: ArticleListItemResponse) => historicalHelpJuiceAuthor(article) ? 'Original author' : 'By'
 
 const CategoryBadges = ({ status, visibility }: { status?: string; visibility?: string }) => (
   <Stack direction='row' spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap' }}>
@@ -1660,7 +1656,7 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
                                 <Stack spacing={0.5} sx={{ alignItems: 'flex-start' }}>
                                   <ArticleBadges article={item.article} />
                                   <Typography variant='caption' color='text.secondary'>
-                                    {articleAuthorPrefix(item.article)} {articleAuthorLabel(item.article)} · Languages —
+                                    By {item.article.owner.fullName} · Languages —
                                   </Typography>
                                 </Stack>
                               )}
@@ -1676,7 +1672,7 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
                                   <Stack direction='row' spacing={0.5} sx={{ alignItems: 'center' }}>
                                     <UserRound size={13} aria-hidden='true' />
                                     <Typography variant='caption' color='text.secondary'>
-                                      {historicalHelpJuiceAuthor(item.article) ? `Original author: ${articleAuthorLabel(item.article)}` : item.article.owner.fullName}
+                                      {item.article.owner.fullName}
                                     </Typography>
                                   </Stack>
                                   {/* TODO: Replace this placeholder when article localization versions are available. */}
@@ -1777,7 +1773,7 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
                       <Typography variant='caption' color='text.secondary' noWrap sx={{ mt: 1.5 }}>
                         {item.kind === 'category'
                           ? item.category.path || 'Top-level category'
-                          : `${articleAuthorPrefix(item.article)} ${articleAuthorLabel(item.article)}`}
+                          : `By ${item.article.owner.fullName}`}
                       </Typography>
                       {item.kind === 'article' && (
                         // TODO: Replace this placeholder when article localization versions are available.

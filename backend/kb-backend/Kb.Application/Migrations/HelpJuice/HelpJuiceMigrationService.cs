@@ -63,6 +63,7 @@ public sealed partial class HelpJuiceMigrationService(
 
         var startedAt = timeProvider.GetUtcNow().UtcDateTime;
         var operationId = Guid.NewGuid();
+        var stagingAttemptId = Guid.NewGuid();
         var originalName = files.Count == 1 ? SafeLeaf(files[0].FileName) : $"helpjuice-manual-{operationId:N}.zip";
         var temporaryPackage = Path.Combine(Path.GetTempPath(), $"helpjuice-{operationId:N}.zip");
         var migrationStarted = false;
@@ -306,7 +307,7 @@ public sealed partial class HelpJuiceMigrationService(
                     foreach (var warning in converted.Warnings)
                         issues.Add(NewIssue("Warning", "answers.csv", answer?.RowNumber, "Answer", answer?.Id,
                             warning.Code, warning.Message));
-                    var content = await StageContentAsync(operationId, question.Id, converted,
+                    var content = await StageContentAsync(stagingAttemptId, question.Id, converted,
                         question.IsPublished, stagedPaths, ct);
                     var declaredMedia = (question.UploadIds ?? []).Select(id => mediaMap.GetValueOrDefault(id).Id)
                         .Where(id => id != Guid.Empty);
@@ -319,15 +320,16 @@ public sealed partial class HelpJuiceMigrationService(
                     var now = timeProvider.GetUtcNow().UtcDateTime;
                     var created = options.PreserveTimestamps ? question.CreatedAt ?? startedAt : now;
                     var updated = options.PreserveTimestamps ? question.UpdatedAt ?? created : now;
+                    var authorId = question.AuthorUserId ?? currentUser.UserId;
                     var result = await writer.WriteArticleAsync(operationId,
-                        new(question.Id, question.Name, question.Slug, question.Description, categoryId, currentUser.UserId,
+                        new(question.Id, question.Name, question.Slug, question.Description, categoryId, authorId,
+                            currentUser.UserId, question.AuthorUserId.HasValue,
                             question.IsArchived ? Kb.Domain.Constants.ArticleStatuses.Archived : question.IsPublished
                                 ? Kb.Domain.Constants.ArticleStatuses.Published : Kb.Domain.Constants.ArticleStatuses.Draft,
                             question.IsPublished, created, updated, null, content, question.Source, question.Position,
-                            question.Visibility, question.LegacyAuthorName, question.LegacyAuthorEmail,
-                            question.LegacyAuthorExternalId), options.ConflictBehavior, ct);
+                            question.Visibility), options.ConflictBehavior, ct);
                     articlePhase.Record(result.Disposition);
-                    if (result.Disposition == MigrationWriteDisposition.Skipped)
+                    if (!result.StagedContentConsumed)
                         await DeletePaths(stagedPaths);
                     if (result.Disposition != MigrationWriteDisposition.Skipped)
                     { if (question.IsArchived) archived++; else if (question.IsPublished) published++; else drafts++; }
@@ -394,7 +396,7 @@ public sealed partial class HelpJuiceMigrationService(
             throw new InvalidDataException("Converted article content exceeds the configured limit.");
         var articleKey = HelpJuiceSourceParser.NormalizeSlug(externalId);
         var hash = Convert.ToHexString(SHA256.HashData(json)).ToLowerInvariant();
-        var prefix = $"migration-imports/helpjuice/articles/{articleKey}/{hash}";
+        var prefix = $"migration-imports/helpjuice/articles/{articleKey}/{hash}/{operationId:N}";
         var jsonPath = await Upload($"{prefix}/draft/content.json", json, "application/json");
         var htmlPath = await Upload($"{prefix}/draft/content.html", html, "text/html; charset=utf-8");
         var textPath = await Upload($"{prefix}/draft/content.txt", text, "text/plain; charset=utf-8");
@@ -425,11 +427,59 @@ public sealed partial class HelpJuiceMigrationService(
     {
         var source = await HelpJuiceSourceParser.ParseAndValidateAsync(
             package, migrationLimits, clock, destinationSlugs, mappedSlugs, ct);
+        source = await EnrichAuthorsAsync(source, ct);
         var mediaIssues = await ValidateMediaFilesAsync(package.MediaFiles, ct);
         if (mediaIssues.Count == 0) return source;
         var issues = source.Issues.Concat(mediaIssues).ToArray();
         return source with
         {
+            Issues = issues,
+            Summary = source.Summary with
+            {
+                BlockingErrorCount = issues.Count(issue => issue.Severity == "Error"),
+                WarningCount = issues.Count(issue => issue.Severity == "Warning")
+            }
+        };
+    }
+
+    private async Task<HelpJuiceSource> EnrichAuthorsAsync(HelpJuiceSource source, CancellationToken ct)
+    {
+        var authorIds = source.Questions.Select(question => question.HelpJuiceAuthorId)
+            .Where(id => !string.IsNullOrWhiteSpace(id)).Select(id => id!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var mappings = await writer.ResolveHelpJuiceAuthorsAsync(authorIds, ct);
+        var issues = source.Issues.ToList();
+        var questions = new HelpJuiceQuestion[source.Questions.Count];
+
+        for (var index = 0; index < source.Questions.Count; index++)
+        {
+            var question = source.Questions[index];
+            if (question.HelpJuiceAuthorId is null)
+            {
+                issues.Add(NewIssue("Warning", "questions.csv", question.RowNumber, "Question", question.Id,
+                    "HELPJUICE_AUTHOR_ID_MISSING",
+                    $"Article '{question.Id}' has no created_by_id; the authenticated migration actor will be used as its owner.",
+                    $"articleId={question.Id};helpJuiceUserId=missing"));
+                questions[index] = question;
+                continue;
+            }
+
+            if (!mappings.TryGetValue(question.HelpJuiceAuthorId, out var author))
+            {
+                issues.Add(NewIssue("Warning", "questions.csv", question.RowNumber, "Question", question.Id,
+                    "HELPJUICE_AUTHOR_MAPPING_MISSING",
+                    $"Article '{question.Id}' references unresolved HelpJuice user ID '{question.HelpJuiceAuthorId}'; the authenticated migration actor will be used as its owner.",
+                    $"articleId={question.Id};helpJuiceUserId={question.HelpJuiceAuthorId}"));
+                questions[index] = question;
+                continue;
+            }
+
+            questions[index] = question with { AuthorUserId = author.UserId, AuthorName = author.Name };
+        }
+
+        return source with
+        {
+            Questions = questions,
             Issues = issues,
             Summary = source.Summary with
             {
@@ -685,8 +735,8 @@ public sealed partial class HelpJuiceMigrationService(
         Dictionary<string, (Guid, string)> map, IReadOnlyDictionary<string, string> uploads)
     { foreach (var key in MediaKeys(file)) map.TryAdd(key, pair); foreach (var item in uploads.Where(x => Path.GetFileName(x.Value).Equals(Path.GetFileName(file), StringComparison.OrdinalIgnoreCase))) foreach (var key in MediaKeys(item.Key)) map.TryAdd(key, pair); }
     private MigrationIssueData NewIssue(string severity, string? file, int? row, string? type,
-        string? id, string code, string message) => new(Guid.NewGuid(), severity, file, row, type, id, code,
-            message, null, timeProvider.GetUtcNow().UtcDateTime);
+        string? id, string code, string message, string? summary = null) => new(Guid.NewGuid(), severity, file, row, type, id, code,
+            message, summary, timeProvider.GetUtcNow().UtcDateTime);
     private static string MimeFromExtension(string path) => Path.GetExtension(path).ToLowerInvariant() switch
     { ".png" => "image/png", ".jpg" or ".jpeg" => "image/jpeg", ".gif" => "image/gif", ".webp" => "image/webp", ".svg" => "image/svg+xml", ".pdf" => "application/pdf", ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".mp4" => "video/mp4", ".webm" => "video/webm", _ => "application/octet-stream" };
     private static async Task CopyLimited(Stream input, Stream output, long max, CancellationToken ct)

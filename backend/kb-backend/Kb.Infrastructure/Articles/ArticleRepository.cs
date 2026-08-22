@@ -68,10 +68,7 @@ public sealed class ArticleRepository(KbDbContext dbContext) : IArticleRepositor
                     ? null : new UserReference(article.CurrentDraftIdFkNavigation.LockedByFkNavigation.UserId,
                         article.CurrentDraftIdFkNavigation.LockedByFkNavigation.FullName),
                 article.Position,
-                article.Visibility,
-                article.LegacyAuthorName,
-                article.LegacyAuthorEmail,
-                article.LegacyAuthorExternalId))
+                article.Visibility))
             .ToListAsync(cancellationToken);
         return new(items, query.Page, query.PageSize, totalCount);
     }
@@ -139,10 +136,7 @@ public sealed class ArticleRepository(KbDbContext dbContext) : IArticleRepositor
                 .Select(review => (DateTime?)review.CreatedAt).Max(),
             article.LastPublishedVersionIdFkNavigation == null
                 ? null : article.LastPublishedVersionIdFkNavigation.PublishedAt,
-            article.Visibility,
-            article.LegacyAuthorName,
-            article.LegacyAuthorEmail,
-            article.LegacyAuthorExternalId));
+            article.Visibility));
 
     public Task<ArticleMutationData?> GetForMutationAsync(Guid id, CancellationToken cancellationToken) =>
         dbContext.Articles.AsNoTracking().Where(article => article.ArticleId == id)

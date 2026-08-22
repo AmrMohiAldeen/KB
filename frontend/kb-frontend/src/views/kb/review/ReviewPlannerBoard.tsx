@@ -12,7 +12,6 @@ import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import { ClipboardList, FileCheck2, FileClock, RefreshCw, Send } from 'lucide-react'
 import type { ArticleListItemResponse, ArticleStatus } from '@/types/apps/articleTypes'
-import { articleAuthor, historicalHelpJuiceAuthor } from '@/lib/articles/articleAuthor'
 import { getArticles } from '@/lib/api/articlesApi'
 import { describeLifecycleError } from '@/lib/api/articleLifecycleApi'
 import ArticleLifecyclePanel from '@/features/lifecycle/ArticleLifecyclePanel'
@@ -42,10 +41,7 @@ const columns: Array<{
   { id: 'published', title: 'Published', statuses: ['Published'], icon: <FileCheck2 />, tone: 'success' }
 ]
 
-const authorLabel = (article: ArticleListItemResponse) => {
-  const historical = historicalHelpJuiceAuthor(article)
-  return historical ? `Original author: ${historical}` : articleAuthor(article)
-}
+const authorLabel = (article: ArticleListItemResponse) => article.owner.fullName
 
 export default function ReviewPlannerBoard({ accessToken }: ReviewPlannerBoardProps) {
   const [articles, setArticles] = useState<ArticleListItemResponse[]>([])
