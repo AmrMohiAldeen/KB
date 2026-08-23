@@ -653,6 +653,105 @@ public sealed class HelpJuiceParsingTests
     }
 
     [Fact]
+    public void Legacy_direction_font_face_color_and_size_attributes_use_canonical_text_formatting()
+    {
+        var result=HelpJuiceHtmlConverter.Convert("""
+            <p dir='LTR'><span dir='auto' face='Calibri, Calibri_EmbeddedFont, Calibri_MSFontService, sans-serif' color='#1f497d' size='3'>Text</span></p>
+            <h2 dir='RTL' color='#313131'>Heading</h2>
+            """);
+
+        Assert.Contains("\"dir\":\"ltr\"",result.TiptapJson);
+        Assert.Contains("\"dir\":\"auto\"",result.TiptapJson);
+        Assert.Contains("\"fontFamily\":\"Calibri, sans-serif\"",result.TiptapJson);
+        Assert.Contains("\"fontSize\":\"16px\"",result.TiptapJson);
+        Assert.Contains("\"color\":\"#1f497d\"",result.TiptapJson);
+        Assert.Contains("<span dir=\"auto\"",result.RenderedHtml);
+        Assert.DoesNotContain(result.Warnings,warning=>warning.Code=="UNSUPPORTED_ATTRIBUTE_REMOVED");
+    }
+
+    [Fact]
+    public void Legacy_list_item_start_values_split_and_restart_ordered_lists()
+    {
+        var result=HelpJuiceHtmlConverter.Convert("<ol start='2'><li>Two</li><li start='5'>Five</li><li>Six</li><li start='8'>Eight</li></ol>");
+
+        Assert.Equal(3,Count(result.TiptapJson,"\"type\":\"orderedList\""));
+        Assert.Contains("\"start\":2",result.TiptapJson);
+        Assert.Contains("\"start\":5",result.TiptapJson);
+        Assert.Contains("\"start\":8",result.TiptapJson);
+        Assert.Contains("<ol start=\"5\">",result.RenderedHtml);
+        Assert.DoesNotContain(result.Warnings,warning=>warning.Code=="UNSUPPORTED_ATTRIBUTE_REMOVED");
+    }
+
+    [Fact]
+    public void Legacy_alignment_table_wrappers_dimensions_and_column_sizes_are_normalized()
+    {
+        var result=HelpJuiceHtmlConverter.Convert("""
+            <div align='center'>Centered text</div>
+            <figure class='table align-c _tableWrapper_1rjym_13'><table height='200'><tr><td height='40' data-col-size='sm'>A</td><td data-col-size='md'>B</td></tr></table></figure>
+            <hr align='center' width='50%'>
+            """);
+
+        Assert.Contains("\"textAlign\":\"center\"",result.TiptapJson);
+        Assert.Contains("\"type\":\"table\"",result.TiptapJson);
+        Assert.Contains("\"alignment\":\"center\"",result.TiptapJson);
+        Assert.Contains("\"minHeight\":\"200px\"",result.TiptapJson);
+        Assert.Contains("\"rowHeight\":40",result.TiptapJson);
+        Assert.Contains("\"cellWidth\":\"33.333%\"",result.TiptapJson);
+        Assert.Contains("\"width\":\"50%\"",result.TiptapJson);
+        Assert.DoesNotContain(result.Warnings,warning=>warning.Code is "UNSUPPORTED_ATTRIBUTE_REMOVED" or "MEANINGFUL_CLASS_NOT_PRESERVED");
+    }
+
+    [Fact]
+    public void Image_alignment_classes_and_unrecoverable_temporary_sources_are_handled_semantically()
+    {
+        var result=HelpJuiceHtmlConverter.Convert("""
+            <figure class='image-style-align-left'><img src='https://cdn.example.test/a.png' width='320'></figure>
+            <figure class='image-style-side'><img src='https://cdn.example.test/b.png'></figure>
+            <img target-src='blob:https://teams.microsoft.com/temporary' alt='Teams image'>
+            """);
+
+        Assert.Equal(2,Count(result.TiptapJson,"\"type\":\"image\""));
+        Assert.Contains("\"alignment\":\"left\"",result.TiptapJson);
+        Assert.Contains("\"imageOffsetPct\":0",result.TiptapJson);
+        Assert.DoesNotContain("blob:",result.TiptapJson);
+        Assert.Contains(result.Warnings,warning=>warning.Code=="UNRESOLVED_TEMPORARY_MEDIA");
+        Assert.DoesNotContain(result.Warnings,warning=>warning.Code=="MEANINGFUL_CLASS_NOT_PRESERVED");
+    }
+
+    [Fact]
+    public void Oembed_and_safe_iframe_metadata_become_allowlisted_media_nodes()
+    {
+        var result=HelpJuiceHtmlConverter.Convert("""
+            <div class='video-player-pre' data-oembed-url='https://static.helpjuice.com/demo.mp4' data-poster='https://static.helpjuice.com/poster.jpg'></div>
+            <iframe src='https://www.youtube.com/embed/dQw4w9WgXcQ' allowfullscreen allow='accelerometer; autoplay; geolocation; picture-in-picture' frameborder='0' tabindex='0' title='Tutorial'></iframe>
+            <iframe src='https://evil.example.test/widget' allow='camera'></iframe>
+            """);
+
+        Assert.Contains("\"type\":\"video\"",result.TiptapJson);
+        Assert.Contains("\"poster\":\"https://static.helpjuice.com/poster.jpg\"",result.TiptapJson);
+        Assert.Contains("\"type\":\"youtube\"",result.TiptapJson);
+        Assert.Contains("\"allowFullscreen\":true",result.TiptapJson);
+        Assert.Contains("\"allowedPermissions\":\"accelerometer; autoplay; picture-in-picture\"",result.TiptapJson);
+        Assert.DoesNotContain("geolocation",result.TiptapJson);
+        Assert.Contains(result.Warnings,warning=>warning.Code=="UNSAFE_IFRAME_PERMISSION_REMOVED");
+        Assert.Contains(result.Warnings,warning=>warning.Code=="EMBED_CONVERTED_TO_LINK");
+    }
+
+    [Fact]
+    public void Runtime_classes_metadata_and_malformed_font_tokens_are_discarded_without_loss_warnings()
+    {
+        var result=HelpJuiceHtmlConverter.Convert("""
+            <p class='fui-Primitive BCX0 fyvcxda flex gap-2 a bdc' data-testid='copied' data-turn-id='1' arial helvetica>Readable</p>
+            <a href='https://example.test/file.pdf' download='guide.pdf' class='link-button'>Download</a>
+            """);
+
+        Assert.Contains("Readable",result.PlainText);
+        Assert.Contains("\"download\":\"guide.pdf\"",result.TiptapJson);
+        Assert.Contains("download=\"guide.pdf\"",result.RenderedHtml);
+        Assert.DoesNotContain(result.Warnings,warning=>warning.Code is "UNSUPPORTED_ATTRIBUTE_REMOVED" or "MEANINGFUL_CLASS_NOT_PRESERVED");
+    }
+
+    [Fact]
     public async Task Zip_slip_and_decompression_limits_are_rejected()
     {
         await using var slip=new MemoryStream();using(var zip=new ZipArchive(slip,ZipArchiveMode.Create,true)){var e=zip.CreateEntry("../questions.csv");await using var w=new StreamWriter(e.Open(),leaveOpen:false);await w.WriteAsync("id,name\n1,A");}slip.Position=0;

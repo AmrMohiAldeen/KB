@@ -86,15 +86,24 @@ describe('TextDirectionExtension', () => {
     expect(editor.getHTML()).toContain('<p dir="ltr">Hello direction</p>');
   });
 
-  it('parses safe HTML dir attributes and ignores unsupported values', () => {
+  it('parses safe HTML dir attributes including auto and ignores unsupported values', () => {
     const editor = createEditor(
       '<p dir="rtl">Arabic</p><p dir="auto">Auto</p><p dir="sideways">Bad</p>',
     );
     const paragraphs = nodesByName(editor, 'paragraph');
 
     expect(paragraphs[0].node.attrs.dir).toBe('rtl');
-    expect(paragraphs[1].node.attrs.dir).toBeNull();
+    expect(paragraphs[1].node.attrs.dir).toBe('auto');
     expect(paragraphs[2].node.attrs.dir).toBeNull();
+  });
+
+  it('round-trips inline auto direction through the text-style mark', () => {
+    const editor = createEditor('<p><span dir="auto" style="color: #1f497d">Mixed text</span></p>');
+    const text = editor.getJSON().content?.[0]?.content?.[0];
+    const textStyle = text?.marks?.find(mark => mark.type === 'textStyle');
+
+    expect(textStyle?.attrs?.dir).toBe('auto');
+    expect(editor.getHTML()).toContain('dir="auto"');
   });
 
   it('applies direction to multiple selected supported blocks', () => {

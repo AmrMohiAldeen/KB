@@ -30,7 +30,7 @@ export const TEXT_DIRECTION_NODE_TYPES = [
   'accordionItem',
 ] as const;
 
-export const TEXT_DIRECTION_VALUES = ['ltr', 'rtl'] as const;
+export const TEXT_DIRECTION_VALUES = ['ltr', 'rtl', 'auto'] as const;
 
 export type TextDirection = (typeof TEXT_DIRECTION_VALUES)[number];
 export type TextDirectionSelectionValue = TextDirection | '' | null;

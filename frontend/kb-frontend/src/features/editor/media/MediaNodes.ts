@@ -36,6 +36,27 @@ function persistentMediaAttributes() {
   }
 }
 
+const SAFE_IFRAME_PERMISSIONS = new Set([
+  'accelerometer', 'autoplay', 'clipboard-write', 'encrypted-media',
+  'gyroscope', 'picture-in-picture', 'web-share', 'fullscreen'
+])
+
+function safeIframePermissions(value: unknown): string | null {
+  const permissions = String(value ?? '').split(';')
+    .map(permission => permission.trim().split(/\s+/)[0]?.toLowerCase())
+    .filter((permission): permission is string => Boolean(permission) && SAFE_IFRAME_PERMISSIONS.has(permission))
+  return permissions.length ? [...new Set(permissions)].join('; ') : null
+}
+
+function persistentEmbedAttributes() {
+  return {
+    allowFullscreen: { default: false },
+    allowedPermissions: { default: null },
+    borderless: { default: false },
+    tabIndex: { default: null }
+  }
+}
+
 function safeDimension(value: unknown): string | null {
   const normalized = String(value ?? '').trim().toLowerCase()
   return /^(?:auto|0|\d+(?:\.\d+)?(?:%|px|pt|in|cm|mm|em|rem))$/.test(normalized)
@@ -90,7 +111,9 @@ export const VideoNode = Node.create<MediaNodeOptions>({
   addAttributes() {
     return {
       ...persistentMediaAttributes(),
-      title: { default: null }
+      ...persistentEmbedAttributes(),
+      title: { default: null },
+      poster: { default: null }
     }
   },
 
@@ -99,6 +122,8 @@ export const VideoNode = Node.create<MediaNodeOptions>({
   },
 
   renderHTML({ HTMLAttributes }) {
+    const permissions = safeIframePermissions(HTMLAttributes.allowedPermissions)
+    const tabIndex = HTMLAttributes.tabIndex === 0 || HTMLAttributes.tabIndex === -1 ? HTMLAttributes.tabIndex : null
     return [
       'video',
       mergeAttributes(this.options.HTMLAttributes, HTMLAttributes, {
@@ -106,6 +131,9 @@ export const VideoNode = Node.create<MediaNodeOptions>({
         preload: 'metadata',
         'data-media-id': HTMLAttributes.mediaId,
         'data-kb-video': 'true',
+        ...(permissions ? { 'data-iframe-permissions': permissions } : {}),
+        ...(HTMLAttributes.allowFullscreen ? { 'data-allow-fullscreen': 'true' } : {}),
+        ...(tabIndex == null ? {} : { tabindex: String(tabIndex) }),
         style: mediaStyle(HTMLAttributes)
       })
     ] satisfies DOMOutputSpec
@@ -119,7 +147,7 @@ export const DocumentEmbedNode = Node.create<MediaNodeOptions>({
   draggable: true,
   selectable: true,
   addOptions() { return { HTMLAttributes: {} } },
-  addAttributes() { return { ...persistentMediaAttributes(), title: { default: null } } },
+  addAttributes() { return { ...persistentMediaAttributes(), ...persistentEmbedAttributes(), title: { default: null } } },
   parseHTML() {
     return [{ tag: '[data-kb-document-embed]', getAttrs: element => {
       const source = element instanceof HTMLElement
@@ -155,6 +183,8 @@ export const ExternalEmbedNode = Node.create<MediaNodeOptions>({
   renderHTML({ HTMLAttributes }) {
     if (!isWizardshotEmbed(HTMLAttributes.src))
       return ['p', {}, 'Unsupported external embed'] satisfies DOMOutputSpec
+    const permissions = safeIframePermissions(HTMLAttributes.allowedPermissions)
+    const tabIndex = HTMLAttributes.tabIndex === 0 || HTMLAttributes.tabIndex === -1 ? HTMLAttributes.tabIndex : null
     return ['iframe', mergeAttributes(this.options.HTMLAttributes, {
       src: HTMLAttributes.src,
       title: HTMLAttributes.title || 'Embedded tutorial',
@@ -162,8 +192,10 @@ export const ExternalEmbedNode = Node.create<MediaNodeOptions>({
       sandbox: 'allow-scripts allow-forms allow-popups',
       loading: 'lazy',
       referrerpolicy: 'no-referrer',
-      allow: 'fullscreen',
-      style: mediaStyle(HTMLAttributes)
+      allow: permissions ?? 'fullscreen',
+      ...(HTMLAttributes.allowFullscreen ? { allowfullscreen: '' } : {}),
+      ...(tabIndex == null ? {} : { tabindex: String(tabIndex) }),
+      style: [mediaStyle(HTMLAttributes), HTMLAttributes.borderless ? 'border: 0' : ''].filter(Boolean).join('; ')
     })] satisfies DOMOutputSpec
   }
 })
