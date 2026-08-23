@@ -168,8 +168,38 @@ const SUPPORTED_STYLE_PROPERTIES = new Set([
   'border',
   'border-color',
   'border-style',
-  'border-width'
+  'border-width',
+  'min-width', 'max-width', 'min-height', 'max-height', 'object-fit', 'object-position',
+  'text-indent', 'unicode-bidi', 'float', 'margin', 'margin-top', 'margin-right',
+  'margin-bottom', 'margin-left', 'padding', 'padding-top', 'padding-right',
+  'padding-bottom', 'padding-left', 'letter-spacing', 'word-spacing', 'text-transform',
+  'text-decoration', 'text-decoration-line', 'text-decoration-style', 'text-decoration-color',
+  'white-space', 'overflow-wrap', 'word-break', 'list-style', 'list-style-position',
+  'border-top', 'border-right', 'border-bottom', 'border-left', 'border-collapse',
+  'border-spacing', 'table-layout', 'background-image'
 ])
+
+const HELPJUICE_COLOR_VARIABLES = new Map([
+  ['--link-default', '#0067b8'],
+  ['--communication-foreground', '#005a9e'],
+  ['--communication-primary', '#005a9e'],
+  ['--text-primary', '#242424'],
+  ['--foreground', '#242424']
+])
+
+function normalizeHelpJuiceColor(value: string): string | null {
+  const normalized = value.trim().replace(/\s*!important\s*$/i, '')
+  const variable = normalized.match(/^var\(\s*(--[a-z0-9_-]+)\s*(?:,\s*([\s\S]+))?\)$/i)
+  if (variable) return variable[2]
+    ? normalizeHelpJuiceColor(variable[2])
+    : HELPJUICE_COLOR_VARIABLES.get(variable[1].toLowerCase()) ?? null
+  if (/^windowtext$/i.test(normalized)) return '#000000'
+  if (/^currentcolor$/i.test(normalized)) return 'currentColor'
+  if (/^inherit$/i.test(normalized)) return 'inherit'
+  const probe = document.createElement('span')
+  probe.style.color = normalized
+  return probe.style.color ? normalized : null
+}
 
 const FONT_ALIASES = new Map<string, string>([
   ['arial', 'Arial'],
@@ -263,8 +293,22 @@ function normalizeStyle(element: HTMLElement): void {
       if (!element.hasAttribute('dir')) element.setAttribute('dir', value)
     }
 
+    if (normalizedProperty === 'color' || normalizedProperty === 'border-color') {
+      const color = normalizeHelpJuiceColor(value)
+      if (!color) continue
+      value = color
+    }
+
+    if (normalizedProperty === 'background-image') {
+      const match = value.match(/^url\(["']?(.*?)["']?\)$/i)
+      if (!match || !/^(?:https:\/\/|\/)/i.test(match[1]) || /^\/\//.test(match[1])) continue
+      value = `url("${match[1].replace(/"/g, '%22')}")`
+    }
+
     if (normalizedProperty === 'width' && ['table', 'col', 'td', 'th'].includes(element.tagName.toLowerCase())) {
       value = normalizeCssDimension(value) ?? value
+      if (element.tagName.toLowerCase() === 'table' && value === '0') value = 'auto'
+      if (element.tagName.toLowerCase() === 'table' && value === 'auto') element.setAttribute('data-table-width', 'auto')
     }
 
     declarations.push(`${normalizedProperty}: ${value}`)
@@ -275,11 +319,14 @@ function normalizeStyle(element: HTMLElement): void {
 }
 
 function normalizeCssDimension(value: string): string | null {
-  const match = value.trim().replace(/\s*!important\s*$/i, '').match(/^(\d+(?:\.\d+)?)(%|px|in|cm|mm|pt|pc|em|rem)?$/i)
+  const normalized = value.trim().replace(/\s*!important\s*$/i, '')
+  if (/^auto$/i.test(normalized)) return 'auto'
+  const match = normalized.match(/^(\d+(?:\.\d+)?)(%|px|in|cm|mm|pt|pc|em|rem)?$/i)
   if (!match) return null
   const amount = Number(match[1])
   const unit = (match[2] ?? 'px').toLowerCase()
-  if (!Number.isFinite(amount) || amount <= 0) return null
+  if (!Number.isFinite(amount) || amount < 0) return null
+  if (amount === 0) return '0'
   if (unit === '%') return `${amount}%`
   const factors: Record<string, number> = { px: 1, in: 96, cm: 96 / 2.54, mm: 96 / 25.4, pt: 96 / 72, pc: 16, em: 16, rem: 16 }
   const pixels = amount * factors[unit]
@@ -287,6 +334,7 @@ function normalizeCssDimension(value: string): string | null {
 }
 
 function validDimension(value: string, kind: 'table' | 'column'): boolean {
+  if (/^auto$/i.test(value.trim()) || /^0(?:%|px|in|cm|mm|pt|pc|em|rem)?$/i.test(value.trim())) return true
   const match = normalizeCssDimension(value)?.match(/^(\d+(?:\.\d+)?)(%|px)$/i)
   if (!match) return false
   const amount = Number(match[1])
@@ -305,9 +353,7 @@ function diagnoseFormatting(element: HTMLElement, warnings: MigrationWarning[]):
     const value = declaration.slice(separator + 1).trim().replace(/\s*!important\s*$/i, '')
     if (property === 'width') rawWidth = value
     if (property === 'color' && value) {
-      const probe = element.ownerDocument.createElement('span')
-      probe.style.color = value
-      if (!probe.style.color || /(?:expression\s*\(|javascript\s*:|vbscript\s*:|var\s*\(|url\s*\()/i.test(value)) {
+      if (!normalizeHelpJuiceColor(value) || /(?:expression\s*\(|javascript\s*:|vbscript\s*:|url\s*\()/i.test(value)) {
         warnings.push(warning('UNSUPPORTED_TEXT_COLOR', 'warning', `Unsupported text color "${value}" was omitted.`, element.tagName.toLowerCase()))
       }
     }

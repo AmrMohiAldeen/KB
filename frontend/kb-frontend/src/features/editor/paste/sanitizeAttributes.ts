@@ -439,7 +439,10 @@ function collectSafeAttributes(element: HTMLElement): Map<string, string> {
     if (href.ok) {
       attributes.set('href', href.url);
 
-      if ((element.getAttribute('target') ?? '').trim().toLowerCase() === '_blank') {
+      const target = (element.getAttribute('target') ?? '').trim().toLowerCase();
+      if (target === '_self') {
+        attributes.set('target', '_self');
+      } else if (target === '_blank') {
         attributes.set('target', '_blank');
 
         // Required when opening new tabs to prevent reverse-tabnabbing.
@@ -496,7 +499,9 @@ function collectSafeAttributes(element: HTMLElement): Map<string, string> {
     const pixelWidth = readTableWidthPixels(element);
     const offset = readTableOffsetPercent(element);
 
-    if (pixelWidth != null) attributes.set('data-table-width-px', String(pixelWidth));
+    if (element.getAttribute('data-table-width')?.trim().toLowerCase() === 'auto') {
+      attributes.set('data-table-width', 'auto');
+    } else if (pixelWidth != null) attributes.set('data-table-width-px', String(pixelWidth));
     else if (width != null) attributes.set('data-table-width-pct', String(width));
     if (offset != null) attributes.set('data-table-offset-pct', String(offset));
 

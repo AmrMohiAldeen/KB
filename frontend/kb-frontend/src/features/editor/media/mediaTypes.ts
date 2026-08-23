@@ -11,6 +11,8 @@ import type {
 export const MEDIA_UPLOAD_NODE_NAME = 'mediaUpload'
 export const VIDEO_NODE_NAME = 'video'
 export const ATTACHMENT_NODE_NAME = 'attachment'
+export const DOCUMENT_EMBED_NODE_NAME = 'documentEmbed'
+export const EXTERNAL_EMBED_NODE_NAME = 'externalEmbed'
 
 export type EditorMediaItem = MediaUploadResponse | MediaListItemResponse
 export type EditorMediaPickerKind = 'image' | 'video' | 'attachment' | 'library'

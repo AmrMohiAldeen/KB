@@ -36,6 +36,9 @@ export type SetKnowledgeBaseImageOptions = {
   title?: string;
   width?: number | null;
   height?: number | null;
+  cssWidth?: string | null;
+  cssHeight?: string | null;
+  alignment?: 'left' | 'center' | 'right' | null;
   imageOffsetPct?: number | null;
 };
 
@@ -78,6 +81,13 @@ function appendStyle(
   return [style.replace(/;$/, ''), suffix].filter(Boolean).join('; ');
 }
 
+function normalizeCssDimension(value: unknown): string | null {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  return /^(?:auto|0|\d+(?:\.\d+)?(?:%|px|pt|in|cm|mm|em|rem))$/.test(normalized)
+    ? normalized
+    : null;
+}
+
 function parseImageOffset(element: HTMLElement): number | null {
   const datasetValue = element.dataset.imageOffsetPct;
   if (datasetValue != null) {
@@ -106,6 +116,11 @@ function parseImageAttributes(element: HTMLElement): SetKnowledgeBaseImageOption
     height: normalizeImageHeight(
       element.getAttribute('height') ?? element.style.height,
     ),
+    cssWidth: normalizeCssDimension(element.style.width),
+    cssHeight: normalizeCssDimension(element.style.height),
+    alignment: /^(?:left|center|right)$/.test(element.getAttribute('align') ?? '')
+      ? element.getAttribute('align') as 'left' | 'center' | 'right'
+      : null,
     imageOffsetPct: parseImageOffset(element),
   };
 }
@@ -119,11 +134,16 @@ function renderImageAttributes(
     style,
     width: rawWidth,
     height: rawHeight,
+    cssWidth: rawCssWidth,
+    cssHeight: rawCssHeight,
+    alignment,
     ...remainingAttributes
   } = HTMLAttributes;
 
   const width = normalizeImageWidth(rawWidth);
   const height = normalizeImageHeight(rawHeight);
+  const cssWidth = normalizeCssDimension(rawCssWidth);
+  const cssHeight = normalizeCssDimension(rawCssHeight);
   const offset =
     display === 'block' && imageOffsetPct != null
       ? Number(imageOffsetPct)
@@ -137,16 +157,27 @@ function renderImageAttributes(
     'data-image-width': width,
   });
 
+  if (cssWidth || cssHeight) {
+    rendered.style = appendStyle(rendered.style ?? style, {
+      ...(cssWidth ? { width: cssWidth } : {}),
+      ...(cssHeight ? { height: cssHeight } : {}),
+      'max-width': '100%',
+    });
+  }
+  if (alignment === 'center') rendered.style = appendStyle(rendered.style, { display: 'block', 'margin-left': 'auto', 'margin-right': 'auto' });
+  else if (alignment === 'right') rendered.style = appendStyle(rendered.style, { display: 'block', 'margin-left': 'auto' });
+  else if (alignment === 'left') rendered.style = appendStyle(rendered.style, { display: 'block', 'margin-right': 'auto' });
+
   if (display === 'block' && offset != null && Number.isFinite(offset)) {
     const normalizedOffset = Math.max(0, Math.min(100, Math.round(offset * 10) / 10));
     const cssOffset = `${normalizedOffset}%`;
 
     rendered['data-image-offset-pct'] = String(normalizedOffset);
-    rendered.style = appendStyle(style, {
+    rendered.style = appendStyle(rendered.style ?? style, {
       '--image-offset-pct': cssOffset,
       'margin-left': cssOffset,
     });
-  } else if (typeof style === 'string' && style.trim()) {
+  } else if (!rendered.style && typeof style === 'string' && style.trim()) {
     rendered.style = style;
   }
 
@@ -166,6 +197,9 @@ function copyImageAttributes(
     title: node.attrs.title ?? undefined,
     width: normalizeImageWidth(node.attrs.width),
     height: normalizeImageHeight(node.attrs.height),
+    cssWidth: normalizeCssDimension(node.attrs.cssWidth),
+    cssHeight: normalizeCssDimension(node.attrs.cssHeight),
+    alignment: node.attrs.alignment ?? null,
     imageOffsetPct:
       node.attrs.imageOffsetPct == null
         ? null
@@ -330,6 +364,15 @@ function createImageNodeExtension({
           default: null,
         },
         height: {
+          default: null,
+        },
+        cssWidth: {
+          default: null,
+        },
+        cssHeight: {
+          default: null,
+        },
+        alignment: {
           default: null,
         },
         imageOffsetPct: {

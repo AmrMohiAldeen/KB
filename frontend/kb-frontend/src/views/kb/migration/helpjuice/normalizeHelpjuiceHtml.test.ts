@@ -109,7 +109,9 @@ describe('normalizeHelpjuiceHtml', () => {
     expect(paragraph?.style.direction).toBe('rtl')
     expect(paragraph?.style.textAlign).toBe('right')
     expect(paragraph?.style.fontFamily).toBe('Tahoma')
-    expect(paragraph?.getAttribute('style')).not.toMatch(/margin|padding|mso-|background-image/)
+    expect(paragraph?.style.margin).toBe('20px')
+    expect(paragraph?.style.padding).toBe('5px')
+    expect(paragraph?.getAttribute('style')).not.toMatch(/mso-|background-image/)
 
     const directionOnly = parseBody(normalizeHelpjuiceHtml('<p style="direction: rtl">اتجاه</p>').html).querySelector('p')
     expect(directionOnly?.getAttribute('dir')).toBe('rtl')

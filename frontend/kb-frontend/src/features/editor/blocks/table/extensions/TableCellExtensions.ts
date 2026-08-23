@@ -65,11 +65,11 @@ const cellWidthAttribute: Attribute = {
   default: null,
   parseHTML: (element) => {
     const value = (element.getAttribute('data-cell-width') ?? element.style.width).trim().toLowerCase();
-    return /^\d+(?:\.\d+)?(?:px|%)$/.test(value) ? value : null;
+    return /^(?:auto|0|\d+(?:\.\d+)?(?:px|%|pt|in|cm|mm|em|rem))$/.test(value) ? value : null;
   },
   renderHTML: (attributes) => {
     const value = typeof attributes.cellWidth === 'string' ? attributes.cellWidth.trim().toLowerCase() : '';
-    return /^\d+(?:\.\d+)?(?:px|%)$/.test(value)
+    return /^(?:auto|0|\d+(?:\.\d+)?(?:px|%|pt|in|cm|mm|em|rem))$/.test(value)
       ? { 'data-cell-width': value, style: `width: ${value};` }
       : {};
   },

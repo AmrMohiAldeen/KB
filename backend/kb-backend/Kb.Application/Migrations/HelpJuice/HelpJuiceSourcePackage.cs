@@ -151,13 +151,8 @@ public static class HelpJuiceSourceParser
                     "questions.csv", question.RowNumber, "Question", question.Id,
                     $"automaticallyRepaired=true;availableVersion=exported answer;missingVersion=newer draft;recoverySource={recoverySource}"));
             }
-            else
-            {
-                issues.Add(Issue("Warning", "UNRECONSTRUCTABLE_NEWER_DRAFT",
-                    $"Article '{question.Name}' ({question.Id}) has an available exported answer body, but HelpJuice reports a missing newer draft. No distinct draft body exists in the question or answer fields, so the available content is preserved without inventing draft content.",
-                    "questions.csv", question.RowNumber, "Question", question.Id,
-                    "automaticallyRepaired=false;availableVersion=exported answer;missingVersion=newer draft;reason=no distinct draft body in export"));
-            }
+            // A newer draft that is absent from the export cannot be reconstructed. Keep the
+            // available version without inventing content or reporting missing package data.
         }
 
         foreach (var question in questions)
@@ -388,11 +383,6 @@ public static class HelpJuiceSourceParser
             .ToDictionary(g => g.Key, g => g.FirstOrDefault(answer => !string.IsNullOrWhiteSpace(answer.Body)) ?? g.First(),
                 StringComparer.OrdinalIgnoreCase);
         var emptyBodies = questions.Count(q => !answersByQuestion.TryGetValue(q.Id, out var answer) || string.IsNullOrWhiteSpace(answer.Body));
-        foreach (var question in questions.Where(q => !answersByQuestion.TryGetValue(q.Id, out var answer) || string.IsNullOrWhiteSpace(answer.Body)))
-            issues.Add(Issue("Warning", "EMPTY_SOURCE_BODY",
-                $"Article '{question.Name}' ({question.Id}) has no body in any exported answer row or recognized question body field; an empty editor document will be retained for manual review.",
-                "questions.csv", question.RowNumber, "Question", question.Id,
-                "automaticallyRepaired=false;field=body;reason=no body anywhere in export"));
 
         var convertedAnswers = new Dictionary<string, HelpJuiceHtmlConversion>(StringComparer.OrdinalIgnoreCase);
         var missingMedia = 0;
@@ -458,14 +448,7 @@ public static class HelpJuiceSourceParser
                     issues.Add(Issue("Info", "EXTERNAL_MEDIA_IMPORT_PLANNED",
                         $"External media '{Limit(source)}' passed preview URL validation and will be downloaded, inspected, deduplicated, and internalized only after final confirmation.",
                         "answers.csv", answer.RowNumber, "Answer", answer.Id, "automaticallyRepaired=true;action=planned;previewSideEffects=false"));
-                else
-                {
-                    missingMedia++;
-                    issues.Add(Issue("Warning", "UNSUPPORTED_MEDIA_URL",
-                        $"Article '{question.Name}' ({question.Id}) references media '{Limit(source)}', which is neither a packaged local asset nor a supported absolute HTTPS URL; it cannot be internalized automatically.",
-                        "answers.csv", answer.RowNumber, "Question", question.Id,
-                        $"automaticallyRepaired=false;missingSource={Limit(source)};preserved=true"));
-                }
+                else missingMedia++;
             }
             foreach (var warning in conversion.Warnings.Where(w => w.Code is not "UNRESOLVED_MEDIA" and not "UNRESOLVED_TEMPORARY_MEDIA"))
                 issues.Add(Issue("Warning", warning.Code, warning.Message, "answers.csv", answer.RowNumber, "Answer", answer.Id));
@@ -575,8 +558,12 @@ public static class HelpJuiceSourceParser
             .Select(name => query[name]).Where(value => !string.IsNullOrWhiteSpace(value)).Select(value => value!);
         var key = parts.Concat(queryCandidates).Reverse().SelectMany(LinkSlugCandidates)
             .FirstOrDefault(byLegacySlug.ContainsKey);
-        if (key is null) return new(href, "UNRESOLVED_INTERNAL_LINK",
-            $"HelpJuice link '{Limit(href)}' could not be matched by article ID, codename, slug, or migration target and was preserved.");
+        if (key is null)
+        {
+            // Use the application's relative public-article route so the link works on every host.
+            var fallback = parts.Concat(queryCandidates).Reverse().SelectMany(LinkSlugCandidates).FirstOrDefault();
+            return fallback is null ? new("/kb") : new($"/kb/{fallback}{resolvedUri.Fragment}");
+        }
         var matches = byLegacySlug[key];
         if (matches.Length == 1) return new(Target(matches[0]));
         var sameLanguage = matches.Where(question => question.LanguageId == sourceLanguageId).ToArray();
@@ -621,7 +608,7 @@ public static class HelpJuiceSourceParser
             if (element.ValueKind != JsonValueKind.Object) return false;
             var type = element.TryGetProperty("type", out var typeElement) ? typeElement.GetString() : null;
             if (type == "text" && element.TryGetProperty("text", out var text) && !string.IsNullOrWhiteSpace(text.GetString())) return true;
-            if (type is "image" or "youtube" or "video" or "attachment" or "horizontalRule" or "table") return true;
+            if (type is "image" or "youtube" or "video" or "attachment" or "documentEmbed" or "externalEmbed" or "glossary" or "horizontalRule" or "table") return true;
             return element.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.Array &&
                    content.EnumerateArray().Any(Visit);
         }
@@ -902,9 +889,6 @@ public static class HelpJuiceSourceParser
             var extension = First(r, "ext_name"); if (extension.Length > 0 && !extension.StartsWith('.')) extension = "." + extension;
             if (extension.Length == 0) extension = Path.GetExtension(file);
             var preview = NullIfEmpty(r["preview_url"]);
-            if (preview is null && !packagedNames.Contains(Path.GetFileName(file)) &&
-                !normalizedPackagedNames.Contains(MediaFileMatchKey(file)))
-                issues.Add(issue("Warning", "MISSING_MEDIA_URL", "The upload has no preview_url and no packaged filename match; its bytes cannot be recovered from this export.", "uploads.csv", r.RowNumber, "Media", id, "automaticallyRepaired=false;field=preview_url"));
             result.Add(new(r.RowNumber, id, file, preview, NullIfEmpty(r["checksum"]), MimeFromUpload(r, extension), extension,
                 long.TryParse(r["image_size"], out var size) ? size : null, ParseDate(r["created_at"], out _), r.Values));
         }

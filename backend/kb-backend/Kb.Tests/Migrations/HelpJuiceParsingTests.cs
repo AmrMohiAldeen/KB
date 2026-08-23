@@ -39,7 +39,7 @@ public sealed class HelpJuiceParsingTests
         Assert.Equal(191, source.Categories.Count);
         Assert.Equal(4728, source.Uploads?.Count);
         Assert.Equal(0, source.Summary.BlockingErrorCount);
-        Assert.Equal(14, source.Issues.Count(x => x.ErrorCode == "EMPTY_SOURCE_BODY"));
+        Assert.DoesNotContain(source.Issues, x => x.ErrorCode == "EMPTY_SOURCE_BODY");
         Assert.DoesNotContain(source.Issues, issue => issue.ErrorCode == "UNCATEGORIZED_ARTICLE" &&
             source.Questions.Any(question => question.Id == issue.ExternalId && question.Source.GetValueOrDefault("categories_count") == "0"));
         Assert.DoesNotContain(source.Issues, issue => issue.ErrorCode is "UNCATEGORIZED_ARTICLE" or "CATEGORY_COUNT_MISMATCH" &&
@@ -80,7 +80,7 @@ public sealed class HelpJuiceParsingTests
         using var package=Package("id,codename,name,is_published\nq1,one,One,TRUE",
             "id,question_id,body\na1,q1,\"<p>Body</p><img src='images/missing.png'>\"");
         var source=await HelpJuiceSourceParser.ParseAndValidateAsync(package,new(),TimeProvider.System);
-        Assert.Equal(1,source.Summary.MissingMedia);Assert.Contains(source.Issues,x=>x.ErrorCode=="UNSUPPORTED_MEDIA_URL");
+        Assert.Equal(1,source.Summary.MissingMedia);Assert.DoesNotContain(source.Issues,x=>x.ErrorCode=="UNSUPPORTED_MEDIA_URL");
     }
 
     [Fact]
@@ -97,7 +97,7 @@ public sealed class HelpJuiceParsingTests
         Assert.True(preview.IsLimited);Assert.Equal(2,preview.SourceArticleCount);
         Assert.Equal("One",article.Title);Assert.Equal("Guides / Setup",article.CategoryLocation);
         Assert.Contains("First body",article.ContentHtml);Assert.Equal("u1",article.SourceMetadata["question.user_id"]);
-        Assert.Contains(article.Issues,issue=>issue.ErrorCode=="UNSUPPORTED_MEDIA_URL"&&issue.ExternalId=="q1");
+        Assert.DoesNotContain(article.Issues,issue=>issue.ErrorCode=="UNSUPPORTED_MEDIA_URL");
         Assert.DoesNotContain(article.Issues,issue=>issue.ExternalId is "q2" or "a2");
     }
 
@@ -134,7 +134,7 @@ public sealed class HelpJuiceParsingTests
         Assert.True(source.Questions.Single(x=>x.Id=="q2").IsArchived);
         Assert.Equal(HelpJuiceSourceParser.FallbackCategoryExternalId,
             source.Questions.Single(x=>x.Id=="q3").CategoryId);
-        Assert.Contains(source.Issues,x=>x.ErrorCode=="EMPTY_SOURCE_BODY"&&x.ExternalId=="q2");
+        Assert.DoesNotContain(source.Issues,x=>x.ErrorCode=="EMPTY_SOURCE_BODY");
         Assert.Contains(source.Issues,x=>x.ErrorCode=="CATEGORY_COUNT_MISMATCH"&&x.ExternalId=="q3");
         Assert.Equal("11",source.Questions.Single(x=>x.Id=="q1").HelpJuiceAuthorId);
         Assert.Contains("مرحبا",source.ConvertedAnswersById["a3"].PlainText);
@@ -365,10 +365,27 @@ public sealed class HelpJuiceParsingTests
     [Fact]
     public void Hsl_and_hsla_text_colors_survive_as_Tiptap_supported_color_values()
     {
-        var result=HelpJuiceHtmlConverter.Convert("<p><span style='color:hsl(6,59%,50%)'>one</span><font color='hsla(210, 50%, 40%, .25)'>two</font></p>");
+        var result=HelpJuiceHtmlConverter.Convert("<p><span style='color:hsl(6,59%,50%)'>one</span><font color='hsla(210, 50%, 40%, .25)'>two</font><span style='color:rgb(0 90 158 / 50%)'>three</span></p>");
 
         Assert.Contains("hsl(6,59%,50%)",result.TiptapJson);
         Assert.Contains("hsla(210, 50%, 40%, .25)",result.TiptapJson);
+        Assert.Contains("rgb(0 90 158 / 50%)",result.TiptapJson);
+        Assert.DoesNotContain(result.Warnings,warning=>warning.Code=="UNSUPPORTED_TEXT_COLOR");
+    }
+
+    [Fact]
+    public void HelpJuice_system_and_variable_colors_resolve_to_safe_visible_colors()
+    {
+        var result=HelpJuiceHtmlConverter.Convert("""
+            <p><span style='color:inherit'>a</span><span style='color:windowtext'>b</span>
+            <span style='color:var(--link-default)'>c</span>
+            <span style='color:var(--communication-foreground,rgba(0, 90, 158, 1))'>d</span></p>
+            """);
+
+        Assert.Contains("\"color\":\"inherit\"",result.TiptapJson);
+        Assert.Contains("\"color\":\"#000000\"",result.TiptapJson);
+        Assert.Contains("\"color\":\"#0067b8\"",result.TiptapJson);
+        Assert.Contains("\"color\":\"rgba(0, 90, 158, 1)\"",result.TiptapJson);
         Assert.DoesNotContain(result.Warnings,warning=>warning.Code=="UNSUPPORTED_TEXT_COLOR");
     }
 
@@ -385,13 +402,71 @@ public sealed class HelpJuiceParsingTests
     }
 
     [Fact]
+    public void Zero_percent_table_width_is_the_HelpJuice_auto_layout_sentinel()
+    {
+        var result=HelpJuiceHtmlConverter.Convert("<table style='width:0%'><tr><td>A</td></tr></table>");
+
+        Assert.Contains("\"tableWidth\":\"auto\"",result.TiptapJson);
+        Assert.Contains("data-table-width=\"auto\"",result.RenderedHtml);
+        Assert.DoesNotContain(result.Warnings,warning=>warning.Code=="UNSUPPORTED_TABLE_WIDTH");
+    }
+
+    [Fact]
+    public void Pdf_mp4_and_allowlisted_Wizardshot_embeds_use_lossless_editor_nodes()
+    {
+        var result=HelpJuiceHtmlConverter.Convert("""
+            <iframe src='https://static.helpjuice.com/a/Guide%2B_1_.pdf'></iframe>
+            <iframe src='https://www.wizardshot.com/embed/tutorials/36587'></iframe>
+            <video src='https://static.helpjuice.com/a/demo.mp4' width='75%'></video>
+            """);
+
+        Assert.Contains("\"type\":\"documentEmbed\"",result.TiptapJson);
+        Assert.Contains("\"type\":\"externalEmbed\"",result.TiptapJson);
+        Assert.Contains("\"type\":\"video\"",result.TiptapJson);
+        Assert.Contains("\"width\":\"75%\"",result.TiptapJson);
+        Assert.DoesNotContain(result.Warnings,warning=>warning.Code=="EMBED_CONVERTED_TO_LINK");
+    }
+
+    [Fact]
+    public void Unknown_HelpJuice_article_paths_fall_back_to_local_KB_routes()
+    {
+        var resolver=HelpJuiceSourceParser.CreateLinkResolver([]);
+
+        var resolution=resolver("https://gamalearn.helpjuice.com/en_US/assessment-authoring");
+        Assert.Equal("/kb/assessment-authoring",resolution?.Url);
+        Assert.Null(resolution?.WarningCode);
+    }
+
+    [Fact]
     public void Unsupported_styles_attributes_and_meaningful_classes_are_never_silently_dropped()
     {
         var result=HelpJuiceHtmlConverter.Convert("<p class='customer-widget' data-behavior='rotate' style='filter:blur(2px); margin-left:20px'>Text</p>");
 
         Assert.Contains(result.Warnings,warning=>warning.Code=="MEANINGFUL_CLASS_NOT_PRESERVED"&&warning.Message.Contains("customer-widget"));
         Assert.Contains(result.Warnings,warning=>warning.Code=="UNSUPPORTED_ATTRIBUTE_REMOVED"&&warning.Message.Contains("data-behavior"));
-        Assert.Equal(2,result.Warnings.Count(warning=>warning.Code=="UNSUPPORTED_STYLE_REMOVED"));
+        Assert.Single(result.Warnings,warning=>warning.Code=="UNSUPPORTED_STYLE_REMOVED");
+        Assert.Contains("margin-left:20px",result.TiptapJson);
+    }
+
+    [Fact]
+    public void Meaningful_legacy_attributes_styles_anchors_and_glossary_semantics_survive()
+    {
+        var result=HelpJuiceHtmlConverter.Convert("""
+            <p lang='ar' xml:lang='ar-AE' dir='rtl' id='bad anchor' style='margin:12pt; padding-left:1cm; text-indent:2em; letter-spacing:1px'>
+              <font face='Tahoma' color='windowtext' size='4'>Styled</font>
+              <span data-term='SOP' data-definition='Standard operating procedure' data-id='sop_1'>SOP</span>
+            </p><ol start='7'><li>Seven</li></ol>
+            """);
+
+        Assert.Contains("\"lang\":\"ar\"",result.TiptapJson);
+        Assert.Contains("\"id\":\"bad-anchor\"",result.TiptapJson);
+        Assert.Contains("margin:12pt",result.TiptapJson);
+        Assert.Contains("padding-left:1cm",result.TiptapJson);
+        Assert.Contains("\"fontFamily\":\"Tahoma\"",result.TiptapJson);
+        Assert.Contains("\"fontSize\":\"18px\"",result.TiptapJson);
+        Assert.Contains("\"type\":\"glossary\"",result.TiptapJson);
+        Assert.Contains("\"start\":7",result.TiptapJson);
+        Assert.DoesNotContain(result.Warnings,warning=>warning.Code=="UNSUPPORTED_ATTRIBUTE_REMOVED");
     }
 
     [Fact]
@@ -536,9 +611,9 @@ public sealed class HelpJuiceParsingTests
             passes:"id,passable_type,passable_id\np1,Question,not-in-export");
         var source=await HelpJuiceSourceParser.ParseAndValidateAsync(package,new(),TimeProvider.System);
 
-        Assert.Contains(source.Issues,issue=>issue.ErrorCode=="UNRECONSTRUCTABLE_NEWER_DRAFT");
+        Assert.DoesNotContain(source.Issues,issue=>issue.ErrorCode=="UNRECONSTRUCTABLE_NEWER_DRAFT");
         Assert.Contains(source.Issues,issue=>issue.ErrorCode=="UNSUPPORTED_ELEMENT");
-        Assert.Contains(source.Issues,issue=>issue.ErrorCode=="UNRESOLVED_INTERNAL_LINK");
+        Assert.DoesNotContain(source.Issues,issue=>issue.ErrorCode=="UNRESOLVED_INTERNAL_LINK");
         Assert.Contains(source.Issues,issue=>issue.ErrorCode=="LEGACY_PERMISSIONS_NOT_IMPORTED");
     }
 

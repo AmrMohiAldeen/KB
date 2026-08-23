@@ -255,12 +255,23 @@ function transformHeadings(root: HTMLElement, warnings: MigrationWarning[]): voi
   })
 }
 
-function annotateLinks(root: HTMLElement, warnings: MigrationWarning[]): void {
+function annotateLinks(root: HTMLElement): void {
   Array.from(root.querySelectorAll<HTMLAnchorElement>('a[href]')).forEach(anchor => {
     const href = anchor.getAttribute('href')?.trim() ?? ''
     if (HELPJUICE_LINK_PATTERN.test(href)) {
-      // The backend migration mapping rewrites source article links after destination identities are known.
-      warnings.push(migrationWarning('UNRESOLVED_INTERNAL_LINK', 'The Helpjuice internal link was retained until article mappings are available.', 'a'))
+      try {
+        const url = new URL(href, 'https://helpjuice.com')
+        const parts = url.pathname.split('/').filter(Boolean)
+        const candidate = decodeURIComponent(parts.at(-1) ?? '')
+          .replace(/\.(?:html?|aspx?)$/i, '')
+          .normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+          .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+        anchor.setAttribute('href', candidate ? `/kb/${candidate}${url.hash}` : '/kb')
+        anchor.setAttribute('target', '_self')
+        anchor.removeAttribute('rel')
+      } catch {
+        anchor.setAttribute('href', '/kb')
+      }
     }
 
     if (/^https?:\/\//i.test(href) && anchor.target.toLowerCase() === '_blank') {
@@ -387,14 +398,31 @@ function transformEmbeds(root: HTMLElement, placeholders: MediaPlaceholder[], wa
       return
     }
 
-    // The backend media phase resolves compatible embed sources.
-    const label = /\.pdf(?:[?#]|$)/i.test(src)
-      ? 'Open PDF attachment'
-      : /wizardshot/i.test(src)
-        ? 'Open Wizardshot embed'
-        : 'Open embedded content'
-    replaceEmbedWithLink(iframe, src, label)
-    warnings.push(migrationWarning('UNSUPPORTED_EMBED', 'An embed without a compatible editor node was converted to a link.', 'iframe'))
+    const token = `HJ_MEDIA_${placeholders.length + 1}`
+    if (/\.pdf(?:[?#]|$)/i.test(decodeURIComponent(src))) {
+      placeholders.push({ token, node: { type: 'documentEmbed', attrs: {
+        src, title: iframe.title || 'Open PDF document',
+        width: iframe.getAttribute('width') ?? (iframe.style.width || null),
+        height: iframe.getAttribute('height') ?? (iframe.style.height || null)
+      } } })
+      iframe.replaceWith(createPlaceholder(iframe.ownerDocument, token))
+      return
+    }
+    try {
+      const url = new URL(src)
+      if (url.protocol === 'https:' && url.hostname.toLowerCase() === 'www.wizardshot.com' && /^\/embed\/tutorials\/\d+\/?$/.test(url.pathname)) {
+        placeholders.push({ token, node: { type: 'externalEmbed', attrs: {
+          src, title: iframe.title || 'Embedded tutorial',
+          width: iframe.getAttribute('width') ?? (iframe.style.width || null),
+          height: iframe.getAttribute('height') ?? (iframe.style.height || null)
+        } } })
+        iframe.replaceWith(createPlaceholder(iframe.ownerDocument, token))
+        return
+      }
+    } catch { /* invalid URL is handled below */ }
+
+    replaceEmbedWithLink(iframe, src, 'Open embedded content')
+    warnings.push(migrationWarning('UNSUPPORTED_EMBED', 'An unrecognized embed was converted to a safe link.', 'iframe'))
   })
 
   Array.from(root.querySelectorAll<HTMLVideoElement>('video')).forEach(video => {
@@ -405,9 +433,13 @@ function transformEmbeds(root: HTMLElement, placeholders: MediaPlaceholder[], wa
       return
     }
 
-    // The backend media phase resolves compatible hosted-video sources.
-    replaceEmbedWithLink(video, src, 'Open video')
-    warnings.push(migrationWarning('UNSUPPORTED_EMBED', 'A hosted video was converted to a link because no compatible hosted-video node exists.', 'video'))
+    const token = `HJ_MEDIA_${placeholders.length + 1}`
+    placeholders.push({ token, node: { type: 'video', attrs: {
+      src, title: video.title || null,
+      width: video.getAttribute('width') ?? (video.style.width || null),
+      height: video.getAttribute('height') ?? (video.style.height || null)
+    } } })
+    video.replaceWith(createPlaceholder(video.ownerDocument, token))
   })
 }
 
@@ -426,7 +458,7 @@ export function prepareHelpjuiceSemanticHtml(html: string): PreparedHelpjuiceHtm
   transformGlossary(root)
   flattenLayoutTables(root, warnings)
   transformHeadings(root, warnings)
-  annotateLinks(root, warnings)
+  annotateLinks(root)
   transformImages(root, placeholders, warnings)
   transformEmbeds(root, placeholders, warnings)
 

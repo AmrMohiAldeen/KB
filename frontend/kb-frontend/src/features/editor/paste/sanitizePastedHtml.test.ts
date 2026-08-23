@@ -267,7 +267,7 @@ describe('sanitizePastedHTML', () => {
     expect(html.match(/<a /g)).toHaveLength(1);
   });
 
-  it('keeps link title text safe and only preserves target on safe blank links', () => {
+  it('keeps link title text safe and preserves only safe link targets', () => {
     const html = sanitizePastedHTML([
       '<p>',
       '<a href="https://example.com" target="_blank" title="Safe <bad> title">Blank safe</a>',
@@ -281,7 +281,7 @@ describe('sanitizePastedHTML', () => {
     expect(html).toContain('rel="noopener noreferrer"');
     expect(html).toContain('title="Safe bad title"');
     expect(html).toContain('href="https://example.org/"');
-    expect(html).not.toContain('target="_self"');
+    expect(html).toContain('target="_self"');
     expect(html).toContain('Bad href');
     expect(html).not.toContain('Bad title');
     expect(html).not.toContain('javascript:');

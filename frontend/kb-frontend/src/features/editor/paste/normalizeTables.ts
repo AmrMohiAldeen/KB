@@ -345,7 +345,11 @@ export function normalizePastedTables(root: ParentNode): void {
     const offset = readTableOffsetPercent(table) ?? 0;
     const clampedOffset = Math.max(0, Math.min(100 - width, offset));
 
-    if (pixelWidth == null) table.setAttribute('data-table-width-pct', String(width));
+    const autoWidth = table.getAttribute('data-table-width')?.trim().toLowerCase() === 'auto';
+    if (autoWidth) {
+      table.removeAttribute('data-table-width-pct');
+      table.removeAttribute('data-table-width-px');
+    } else if (pixelWidth == null) table.setAttribute('data-table-width-pct', String(width));
     else {
       table.removeAttribute('data-table-width-pct');
       table.setAttribute('data-table-width-px', String(pixelWidth));
@@ -354,7 +358,7 @@ export function normalizePastedTables(root: ParentNode): void {
     table.setAttribute(
       'style',
       [
-        `width: ${pixelWidth == null ? `${width}%` : `${pixelWidth}px`}`,
+        `width: ${autoWidth ? 'auto' : pixelWidth == null ? `${width}%` : `${pixelWidth}px`}`,
         ...(pixelWidth == null ? [] : ['max-width: 100%']),
         `margin-left: ${clampedOffset}%`,
         `margin-inline-start: ${clampedOffset}%`,

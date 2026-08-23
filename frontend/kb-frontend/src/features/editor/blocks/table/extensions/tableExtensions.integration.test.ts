@@ -1,4 +1,4 @@
-import { Editor } from '@tiptap/core';
+import { Editor, type JSONContent } from '@tiptap/core';
 import { closeHistory } from '@tiptap/pm/history';
 import type { Plugin } from '@tiptap/pm/state';
 import { CellSelection, selectionCell, TableMap } from '@tiptap/pm/tables';
@@ -145,7 +145,8 @@ describe('table extensions integration', () => {
 
     const restoredElement = document.createElement('div');
     const restored = new Editor({ element: restoredElement, extensions: getEditorExtensions(), content: html });
-    const cells = restored.getJSON().content?.[0]?.content?.[0]?.content ?? [];
+    const restoredJson = restored.getJSON() as JSONContent;
+    const cells = restoredJson.content?.[0]?.content?.[0]?.content ?? [];
     expect(cells.map(cell => cell.attrs?.cellWidth)).toEqual(['25%', '96px']);
     restored.destroy();
   });

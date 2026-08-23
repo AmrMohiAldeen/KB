@@ -107,24 +107,30 @@ describe('Helpjuice semantic HTML conversion', () => {
     expect(JSON.stringify(result.tiptapJson)).not.toContain('base64')
   })
 
-  it('maps YouTube and converts MP4, PDF and Wizardshot embeds to safe linked fallbacks', () => {
+  it('maps YouTube, MP4, PDF and allowlisted Wizardshot embeds to editor nodes', () => {
     const result = convertHelpJuiceHtml(`
       <iframe src="https://www.youtube.com/embed/abc123" width="800" height="450"></iframe>
       <video><source src="https://cdn.example.com/movie.mp4" type="video/mp4"></video>
       <iframe src="https://cdn.example.com/guide.pdf"></iframe>
-      <iframe src="https://app.wizardshot.com/embed/demo"></iframe>
+      <iframe src="https://www.wizardshot.com/embed/tutorials/36587"></iframe>
     `)
     const youtube = nodesByType(result.tiptapJson, 'youtube')[0]
-    const links = nodesByType(result.tiptapJson, 'text').flatMap(node => node.marks ?? []).filter(mark => mark.type === 'link')
+    const video = nodesByType(result.tiptapJson, 'video')[0]
+    const document = nodesByType(result.tiptapJson, 'documentEmbed')[0]
+    const external = nodesByType(result.tiptapJson, 'externalEmbed')[0]
 
     expect(youtube.attrs).toMatchObject({ src: 'https://www.youtube.com/embed/abc123', width: 800, height: 450 })
-    expect(links.map(link => link.attrs?.href)).toEqual(expect.arrayContaining([
-      'https://cdn.example.com/movie.mp4', 'https://cdn.example.com/guide.pdf', 'https://app.wizardshot.com/embed/demo'
-    ]))
-    expect(result.migrationWarnings.filter(warning => warning.code === 'UNSUPPORTED_EMBED')).toHaveLength(3)
+    expect(video.attrs?.src).toBe('https://cdn.example.com/movie.mp4')
+    expect(document.attrs?.src).toBe('https://cdn.example.com/guide.pdf')
+    expect(external.attrs?.src).toBe('https://www.wizardshot.com/embed/tutorials/36587')
+    expect(result.migrationWarnings.filter(warning => warning.code === 'UNSUPPORTED_EMBED')).toHaveLength(0)
+    const rendered = generateHTML(result.tiptapJson as JSONContent, getEditorExtensions())
+    expect(rendered).toContain('data-kb-document-embed="true"')
+    expect(rendered).toContain('sandbox="allow-scripts allow-forms allow-popups"')
+    expect(rendered).not.toContain('allow-same-origin')
   })
 
-  it('preserves Helpjuice, bookmark and company links safely', () => {
+  it('rewrites Helpjuice links locally and preserves bookmark and company links safely', () => {
     const result = convertHelpJuiceHtml(`
       <p><a href="/_questions/3815855">Question</a>
       <a href="https://team.helpjuice.com/articles/test" target="_blank">Helpjuice</a>
@@ -134,11 +140,9 @@ describe('Helpjuice semantic HTML conversion', () => {
     const links = nodesByType(result.tiptapJson, 'text').flatMap(node => node.marks ?? []).filter(mark => mark.type === 'link')
 
     expect(links.map(link => link.attrs?.href)).toEqual(expect.arrayContaining([
-      '/_questions/3815855', 'https://team.helpjuice.com/articles/test', '#_bmk40_88', 'https://contoso.sharepoint.com/site'
+      '/kb/3815855', '/kb/test', '#_bmk40_88', 'https://contoso.sharepoint.com/site'
     ]))
-    expect(links.find(link => link.attrs?.href === 'https://team.helpjuice.com/articles/test')?.attrs).toMatchObject({
-      target: '_blank', rel: 'noopener noreferrer'
-    })
+    expect(links.find(link => link.attrs?.href === '/kb/test')?.attrs?.target).toBe('_self')
   })
 
   it('preserves semantic tables and flattens screenshot layout tables', () => {
@@ -177,6 +181,19 @@ describe('Helpjuice semantic HTML conversion', () => {
     expect(rendered).toContain('color: rgba(1, 2, 3, 0.5)')
   })
 
+  it('resolves Helpjuice system and CSS-variable colors without visual loss', () => {
+    const result = convertHelpJuiceHtml(`
+      <p><span style="color: inherit">a</span><span style="color: windowtext">b</span>
+      <span style="color: var(--link-default)">c</span>
+      <span style="color: var(--communication-foreground,rgba(0, 90, 158, 1))">d</span></p>
+    `)
+    const colors = nodesByType(result.tiptapJson, 'text').flatMap(node => node.marks ?? [])
+      .filter(mark => mark.type === 'textStyle').map(mark => mark.attrs?.color)
+
+    expect(colors).toEqual(expect.arrayContaining(['rgb(0, 0, 0)', 'rgb(0, 103, 184)', 'rgb(0, 90, 158)']))
+    expect(result.migrationWarnings).not.toContainEqual(expect.objectContaining({ code: 'UNSUPPORTED_TEXT_COLOR' }))
+  })
+
   it('preserves percentage, pixel, colgroup, and uneven table widths', () => {
     const percentage = convertHelpJuiceHtml(`
       <table style="width:75%"><colgroup><col width="25%"><col style="width:75%"></colgroup>
@@ -198,6 +215,14 @@ describe('Helpjuice semantic HTML conversion', () => {
     const rendered = generateHTML(pixels.tiptapJson as JSONContent, getEditorExtensions())
     expect(rendered).toContain('data-table-width-px="640"')
     expect(rendered).toContain('colwidth="180"')
+  })
+
+  it('normalizes the Helpjuice zero-percent table sentinel to auto', () => {
+    const result = convertHelpJuiceHtml('<table style="width: 0%"><tr><td>A</td></tr></table>')
+    const table = nodesByType(result.tiptapJson, 'table')[0]
+
+    expect(table.attrs?.tableWidth).toBe('auto')
+    expect(result.migrationWarnings).not.toContainEqual(expect.objectContaining({ code: 'UNSUPPORTED_TABLE_WIDTH' }))
   })
 
   it('reports unsupported colors and table widths instead of silently dropping them', () => {

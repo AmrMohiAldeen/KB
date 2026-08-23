@@ -368,8 +368,8 @@ public sealed partial class ExportDocumentBuilder(
         return type switch
         {
             "doc" => content,
-            "paragraph" => $"<p>{content}</p>",
-            "heading" => $"<h{Math.Clamp(IntProperty(attrs, "level") ?? 2, 1, 6)}>{content}</h{Math.Clamp(IntProperty(attrs, "level") ?? 2, 1, 6)}>",
+            "paragraph" => $"<p{RenderLegacyAttributes(attrs)}>{content}</p>",
+            "heading" => $"<h{Math.Clamp(IntProperty(attrs, "level") ?? 2, 1, 6)}{RenderLegacyAttributes(attrs)}>{content}</h{Math.Clamp(IntProperty(attrs, "level") ?? 2, 1, 6)}>",
             "hardBreak" => "<br>",
             "horizontalRule" => "<hr>",
             "blockquote" => $"<blockquote>{content}</blockquote>",
@@ -389,6 +389,9 @@ public sealed partial class ExportDocumentBuilder(
             "accordionItem" => $"<details open><summary>{E(StringProperty(attrs, "title") ?? "Section")}</summary>{content}</details>",
             "image" or "blockImage" or "inlineImage" => RenderJsonImage(attrs),
             "video" => RenderJsonVideo(attrs),
+            "documentEmbed" => RenderJsonDocumentEmbed(attrs),
+            "externalEmbed" => RenderJsonExternalEmbed(attrs),
+            "glossary" => $"<span class=\"kb-glossary\" title=\"{E(StringProperty(attrs, "definition") ?? string.Empty)}\">{E(StringProperty(attrs, "term") ?? string.Empty)}</span>",
             "attachment" => RenderJsonAttachment(attrs),
             "youtube" => RenderJsonYoutube(attrs),
             _ => content
@@ -401,6 +404,8 @@ public sealed partial class ExportDocumentBuilder(
             return $" style=\"width:{pixels}px;max-width:100%;\"";
         if (NumberProperty(attrs, "tableWidthPct") is { } percentage and >= 10 and <= 100)
             return $" style=\"width:{percentage.ToString(System.Globalization.CultureInfo.InvariantCulture)}%;\"";
+        if (SafeCssDimension(StringProperty(attrs, "tableWidth")) is { } width)
+            return $" style=\"width:{E(width)};\"";
         return string.Empty;
     }
 
@@ -426,8 +431,8 @@ public sealed partial class ExportDocumentBuilder(
     private static string? SafeCssColor(string? value)
     {
         var color = value?.Trim() ?? string.Empty;
-        return color.Length is > 0 and <= 80 &&
-               Regex.IsMatch(color, @"^(?:#[0-9a-f]{3,8}|[a-z]+|rgba?\([0-9.%\s,]+\))$",
+        return color.Length is > 0 and <= 120 &&
+               Regex.IsMatch(color, @"^(?:#[0-9a-f]{3,8}|[a-z]+|rgba?\([0-9.%\s,/]+\)|hsla?\([-0-9.%\s,/]+\))$",
                    RegexOptions.IgnoreCase)
             ? color
             : null;
@@ -457,7 +462,7 @@ public sealed partial class ExportDocumentBuilder(
         var alt = E(StringProperty(attrs, "alt") ?? string.Empty);
         var mediaId = StringProperty(attrs, "mediaId");
         var media = Guid.TryParse(mediaId, out var id) ? $" data-media-id=\"{id:D}\"" : string.Empty;
-        return $"<img src=\"{src}\" alt=\"{alt}\"{media}>";
+        return $"<img src=\"{src}\" alt=\"{alt}\"{media}{RenderMediaDimensions(attrs)}>";
     }
 
     private static string RenderJsonVideo(JsonElement? attrs)
@@ -465,7 +470,50 @@ public sealed partial class ExportDocumentBuilder(
         var src = E(StringProperty(attrs, "src") ?? string.Empty);
         var mediaId = StringProperty(attrs, "mediaId");
         var media = Guid.TryParse(mediaId, out var id) ? $" data-media-id=\"{id:D}\"" : string.Empty;
-        return $"<video controls preload=\"metadata\" src=\"{src}\"{media}></video>";
+        return $"<video controls preload=\"metadata\" src=\"{src}\"{media}{RenderMediaDimensions(attrs)}></video>";
+    }
+
+    private static string RenderJsonDocumentEmbed(JsonElement? attrs)
+    {
+        var src = E(StringProperty(attrs, "src") ?? string.Empty);
+        return $"<div class=\"kb-document-embed\"{RenderMediaDimensions(attrs)}><a href=\"{src}\">Open PDF document</a></div>";
+    }
+
+    private static string RenderJsonExternalEmbed(JsonElement? attrs)
+    {
+        var src = StringProperty(attrs, "src") ?? string.Empty;
+        if (!Uri.TryCreate(src, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps ||
+            !uri.Host.Equals("www.wizardshot.com", StringComparison.OrdinalIgnoreCase)) return string.Empty;
+        return $"<div class=\"kb-external-embed\"{RenderMediaDimensions(attrs)}><a href=\"{E(src)}\">Open embedded tutorial</a></div>";
+    }
+
+    private static string RenderMediaDimensions(JsonElement? attrs)
+    {
+        var styles = new List<string>();
+        foreach (var (attribute, property) in new[] { ("cssWidth", "width"), ("cssHeight", "height"),
+                     ("width", "width"), ("height", "height"), ("minwidth", "min-width"),
+                     ("maxwidth", "max-width"), ("minheight", "min-height"), ("maxheight", "max-height") })
+            if (SafeCssDimension(StringProperty(attrs, attribute)) is { } value) styles.Add($"{property}:{value}");
+        return styles.Count == 0 ? string.Empty : $" style=\"{E(string.Join(';', styles))}\"";
+    }
+
+    private static string? SafeCssDimension(string? value)
+    {
+        var dimension = value?.Trim().ToLowerInvariant() ?? string.Empty;
+        return Regex.IsMatch(dimension, @"^(?:auto|0|\d+(?:\.\d+)?(?:%|px|pt|in|cm|mm|em|rem))$") ? dimension : null;
+    }
+
+    private static string RenderLegacyAttributes(JsonElement? attrs)
+    {
+        var result = new StringBuilder();
+        if (StringProperty(attrs, "lang") is { } language && Regex.IsMatch(language, @"^[A-Za-z]{1,8}(?:-[A-Za-z0-9]{1,8})*$"))
+            result.Append(" lang=\"").Append(E(language)).Append('"');
+        if (StringProperty(attrs, "id") is { } id && Regex.IsMatch(id, @"^[A-Za-z][A-Za-z0-9_.:-]{0,127}$"))
+            result.Append(" id=\"").Append(E(id)).Append('"');
+        if (StringProperty(attrs, "legacyStyle") is { } style && style.Length <= 2000 &&
+            !Regex.IsMatch(style, @"(?:expression|javascript:|vbscript:|@import|behavior|-moz-binding)", RegexOptions.IgnoreCase))
+            result.Append(" style=\"").Append(E(style)).Append('"');
+        return result.ToString();
     }
 
     private static string RenderJsonAttachment(JsonElement? attrs)

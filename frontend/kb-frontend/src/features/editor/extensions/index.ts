@@ -19,6 +19,7 @@ import { TextDirectionExtension } from './TextDirection';
 import { Glossary } from './Glossary';
 import { FontSizeShortcuts } from './FontSizeShortcuts';
 import { HeadingIds } from './HeadingIds';
+import { LegacyHelpJuiceFormatting } from './LegacyHelpJuiceFormatting';
 
 import { Youtube } from '@tiptap/extension-youtube';
 import { imageExtensions } from '../blocks/image';
@@ -124,6 +125,7 @@ export const getEditorExtensions = (options: EditorExtensionOptions = {}) => {
       types: ['paragraph', 'heading'],
     }),
     TextDirectionExtension,
+    LegacyHelpJuiceFormatting,
     HeadingIds,
     Glossary,
     FontSizeShortcuts,

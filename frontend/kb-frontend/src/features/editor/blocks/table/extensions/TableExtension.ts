@@ -48,6 +48,14 @@ function readPixelStyle(element: HTMLElement, property: 'width'): string | null 
   return match?.[1] ?? null;
 }
 
+function normalizeLegacyTableWidth(value: unknown): string | null {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  if (normalized === '0%' || normalized === '0') return 'auto';
+  return /^(?:auto|\d+(?:\.\d+)?(?:%|px|pt|in|cm|mm|em|rem))$/.test(normalized)
+    ? normalized
+    : null;
+}
+
 function activeTableIsRtl(state: Parameters<typeof getActiveTable>[0]): boolean {
   return normalizeTextDirection(getActiveTable(state)?.node.attrs.dir) === 'rtl';
 }
@@ -285,6 +293,13 @@ class KnowledgeBaseTableView extends TableView {
       ? applyTableWidthPct(this.table, normalizeTableWidthPct(node.attrs.tableWidthPct))
       : normalizeTableWidthPct(node.attrs.tableWidthPct);
     if (storedPixels != null) applyTableWidthPx(this.table, storedPixels);
+    const legacyWidth = normalizeLegacyTableWidth(node.attrs.tableWidth);
+    if (legacyWidth) {
+      this.table.dataset.tableWidth = legacyWidth;
+      this.table.style.width = legacyWidth;
+    } else {
+      delete this.table.dataset.tableWidth;
+    }
 
     applyTableOffsetPct(
       this.table,
@@ -435,6 +450,17 @@ export const KnowledgeBaseTable = Table.extend({
                 'data-table-width-px': String(width),
                 style: `--table-width: ${width}px; width: ${width}px; max-width: 100%;`,
               };
+        },
+      },
+
+      tableWidth: {
+        default: null,
+        parseHTML: element => normalizeLegacyTableWidth(
+          element.getAttribute('data-table-width') ?? element.style.width,
+        ),
+        renderHTML: attributes => {
+          const width = normalizeLegacyTableWidth(attributes.tableWidth);
+          return width ? { 'data-table-width': width, style: `width: ${width};` } : {};
         },
       },
 

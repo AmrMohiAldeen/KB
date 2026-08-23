@@ -7,6 +7,8 @@ import type { DOMOutputSpec } from '@tiptap/pm/model'
 import type { NodeView } from '@tiptap/pm/view'
 import {
   ATTACHMENT_NODE_NAME,
+  DOCUMENT_EMBED_NODE_NAME,
+  EXTERNAL_EMBED_NODE_NAME,
   MEDIA_UPLOAD_NODE_NAME,
   VIDEO_NODE_NAME,
   type EditorMediaUploadController
@@ -22,8 +24,56 @@ function persistentMediaAttributes() {
     src: { default: null },
     mimeType: { default: null },
     fileName: { default: null },
-    fileSize: { default: null }
+    fileSize: { default: null },
+    width: { default: null },
+    height: { default: null },
+    minwidth: { default: null },
+    maxwidth: { default: null },
+    minheight: { default: null },
+    maxheight: { default: null },
+    alignment: { default: null },
+    legacyStyle: { default: null }
   }
+}
+
+function safeDimension(value: unknown): string | null {
+  const normalized = String(value ?? '').trim().toLowerCase()
+  return /^(?:auto|0|\d+(?:\.\d+)?(?:%|px|pt|in|cm|mm|em|rem))$/.test(normalized)
+    ? normalized
+    : null
+}
+
+function mediaStyle(attributes: Record<string, unknown>): string {
+  const dimensions = [
+    ['width', 'width'], ['height', 'height'], ['minwidth', 'min-width'],
+    ['maxwidth', 'max-width'], ['minheight', 'min-height'], ['maxheight', 'max-height']
+  ] as const
+  const dimensionStyle = dimensions
+    .map(([attribute, property]) => {
+      const value = safeDimension(attributes[attribute])
+      return value ? `${property}: ${value}` : ''
+    })
+    .filter(Boolean)
+    .join('; ')
+  const alignment = String(attributes.alignment ?? '').toLowerCase()
+  const alignmentStyle = alignment === 'center'
+    ? 'display: block; margin-left: auto; margin-right: auto'
+    : alignment === 'right'
+      ? 'display: block; margin-left: auto'
+      : alignment === 'left'
+        ? 'display: block; margin-right: auto'
+        : ''
+  return [dimensionStyle, alignmentStyle].filter(Boolean).join('; ')
+}
+
+function isSafeHttpsUrl(value: unknown): boolean {
+  try { return new URL(String(value)).protocol === 'https:' } catch { return false }
+}
+
+function isWizardshotEmbed(value: unknown): boolean {
+  if (!isSafeHttpsUrl(value)) return false
+  const url = new URL(String(value))
+  return url.hostname.toLowerCase() === 'www.wizardshot.com' && /^\/embed\/tutorials\/\d+\/?$/.test(url.pathname)
 }
 
 export const VideoNode = Node.create<MediaNodeOptions>({
@@ -45,7 +95,7 @@ export const VideoNode = Node.create<MediaNodeOptions>({
   },
 
   parseHTML() {
-    return [{ tag: 'video[data-media-id]' }]
+    return [{ tag: 'video[src]' }]
   },
 
   renderHTML({ HTMLAttributes }) {
@@ -55,9 +105,66 @@ export const VideoNode = Node.create<MediaNodeOptions>({
         controls: 'true',
         preload: 'metadata',
         'data-media-id': HTMLAttributes.mediaId,
-        'data-kb-video': 'true'
+        'data-kb-video': 'true',
+        style: mediaStyle(HTMLAttributes)
       })
     ] satisfies DOMOutputSpec
+  }
+})
+
+export const DocumentEmbedNode = Node.create<MediaNodeOptions>({
+  name: DOCUMENT_EMBED_NODE_NAME,
+  group: 'block',
+  atom: true,
+  draggable: true,
+  selectable: true,
+  addOptions() { return { HTMLAttributes: {} } },
+  addAttributes() { return { ...persistentMediaAttributes(), title: { default: null } } },
+  parseHTML() {
+    return [{ tag: '[data-kb-document-embed]', getAttrs: element => {
+      const source = element instanceof HTMLElement
+        ? element.getAttribute('data-src') ?? element.querySelector('a')?.getAttribute('href')
+        : null
+      return isSafeHttpsUrl(source) && /\.pdf(?:[?#]|$)/i.test(String(source)) ? { src: source } : false
+    }}]
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ['div', mergeAttributes(this.options.HTMLAttributes, {
+      'data-kb-document-embed': 'true',
+      'data-src': HTMLAttributes.src,
+      style: mediaStyle(HTMLAttributes)
+    }), ['a', { href: HTMLAttributes.src, target: '_blank', rel: 'noopener noreferrer' },
+      String(HTMLAttributes.title || 'Open PDF document')]] satisfies DOMOutputSpec
+  }
+})
+
+export const ExternalEmbedNode = Node.create<MediaNodeOptions>({
+  name: EXTERNAL_EMBED_NODE_NAME,
+  group: 'block',
+  atom: true,
+  draggable: true,
+  selectable: true,
+  addOptions() { return { HTMLAttributes: {} } },
+  addAttributes() { return { ...persistentMediaAttributes(), title: { default: null } } },
+  parseHTML() {
+    return [{ tag: 'iframe[data-kb-external-embed]', getAttrs: element => {
+      const source = element instanceof HTMLElement ? element.getAttribute('src') : null
+      return isWizardshotEmbed(source) ? { src: source, title: element.getAttribute('title') } : false
+    }}]
+  },
+  renderHTML({ HTMLAttributes }) {
+    if (!isWizardshotEmbed(HTMLAttributes.src))
+      return ['p', {}, 'Unsupported external embed'] satisfies DOMOutputSpec
+    return ['iframe', mergeAttributes(this.options.HTMLAttributes, {
+      src: HTMLAttributes.src,
+      title: HTMLAttributes.title || 'Embedded tutorial',
+      'data-kb-external-embed': 'true',
+      sandbox: 'allow-scripts allow-forms allow-popups',
+      loading: 'lazy',
+      referrerpolicy: 'no-referrer',
+      allow: 'fullscreen',
+      style: mediaStyle(HTMLAttributes)
+    })] satisfies DOMOutputSpec
   }
 })
 
@@ -202,5 +309,7 @@ export const MediaUploadNode = Node.create({
 export const mediaNodeExtensions = [
   VideoNode,
   AttachmentNode,
+  DocumentEmbedNode,
+  ExternalEmbedNode,
   MediaUploadNode
 ]
