@@ -14,6 +14,47 @@ namespace Kb.Tests.Migrations;
 public sealed class HelpJuiceUserMigrationTests
 {
     [Fact]
+    public void Parser_accepts_helpjuice_utc_timestamps_for_all_user_timestamp_fields()
+    {
+        const string timestamp = "2026-08-18 10:06:24 UTC";
+        var values = HelpJuiceUserCsvParser.ExpectedHeaders.ToDictionary(
+            header => header,
+            _ => string.Empty,
+            StringComparer.OrdinalIgnoreCase);
+        values["id"] = "u1";
+        values["current_sign_in_at"] = timestamp;
+        values["last_sign_in_at"] = timestamp;
+        values["created_at"] = timestamp;
+        values["updated_at"] = timestamp;
+        values["password_changed_at"] = timestamp;
+        var csv = new ParsedCsv("users.csv", HelpJuiceUserCsvParser.ExpectedHeaders,
+            [new CsvRow(2, values)]);
+
+        var result = HelpJuiceUserCsvParser.Parse(csv,
+            new DateTime(2026, 8, 19, 11, 0, 0, DateTimeKind.Utc));
+
+        var user = Assert.Single(result.Rows).User!;
+        var expected = new DateTime(2026, 8, 18, 10, 6, 24, DateTimeKind.Utc);
+        Assert.Equal(expected, user.HelpJuiceCurrentSignInAt);
+        Assert.Equal(expected, user.HelpJuiceLastSignInAt);
+        Assert.Equal(expected, user.HelpJuiceCreatedAt);
+        Assert.Equal(expected, user.HelpJuiceUpdatedAt);
+        Assert.Equal(expected, user.HelpJuicePasswordChangedAt);
+        Assert.All(
+            new[]
+            {
+                user.HelpJuiceCurrentSignInAt,
+                user.HelpJuiceLastSignInAt,
+                user.HelpJuiceCreatedAt,
+                user.HelpJuiceUpdatedAt,
+                user.HelpJuicePasswordChangedAt
+            },
+            value => Assert.Equal(DateTimeKind.Utc, value!.Value.Kind));
+        Assert.DoesNotContain(result.Rows[0].Diagnostics,
+            diagnostic => diagnostic.ErrorCode == "HELPJUICE_USER_TIMESTAMP_INVALID");
+    }
+
+    [Fact]
     public void Parser_preserves_supported_metadata_and_diagnoses_malformed_values_and_duplicates()
     {
         var headers = new[]
@@ -40,10 +81,15 @@ public sealed class HelpJuiceUserMigrationTests
         Assert.Equal(true, first.HelpJuiceNotifyAboutDrafts);
         Assert.Equal(false, first.HelpJuiceNotifyAboutArticles);
         Assert.Equal(12, first.HelpJuiceSignInCount);
+        Assert.Equal(new DateTime(2026, 8, 1, 12, 30, 0, DateTimeKind.Utc),
+            first.HelpJuiceCurrentSignInAt);
+        Assert.Null(first.HelpJuiceLastSignInAt);
         Assert.Equal("192.0.2.4", first.HelpJuiceCurrentSignInIp);
         Assert.Null(first.HelpJuiceLastSignInIp);
         Assert.Equal("role-7", first.HelpJuiceRoleId);
         Assert.Contains(parsed.Rows[0].Diagnostics, item => item.ErrorCode == "HELPJUICE_USER_IP_INVALID");
+        Assert.DoesNotContain(parsed.Rows[0].Diagnostics,
+            item => item.ErrorCode == "HELPJUICE_USER_TIMESTAMP_INVALID");
         Assert.True(parsed.Rows[0].CanWrite);
         Assert.False(parsed.Rows[1].CanWrite);
         Assert.Contains(parsed.Rows[1].Diagnostics, item => item.ErrorCode == "HELPJUICE_USER_EMAIL_DUPLICATE");

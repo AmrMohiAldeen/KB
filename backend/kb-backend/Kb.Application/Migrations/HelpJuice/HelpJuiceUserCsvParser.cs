@@ -8,6 +8,7 @@ public static class HelpJuiceUserCsvParser
 {
     private const int MaximumHelpJuiceIdLength = 450;
     private const int MaximumNativeEmailLength = 320;
+    private const string HelpJuiceUtcTimestampFormat = "yyyy-MM-dd HH:mm:ss 'UTC'";
     public static readonly IReadOnlyList<string> ExpectedHeaders =
     [
         "id", "first_name", "last_name", "job_title", "email", "notify_about_drafts",
@@ -132,6 +133,11 @@ public static class HelpJuiceUserCsvParser
     {
         var value = Text(row[field]);
         if (value is null) return null;
+        if (DateTimeOffset.TryParseExact(value, HelpJuiceUtcTimestampFormat,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                out var helpJuiceTimestamp))
+            return helpJuiceTimestamp.UtcDateTime;
         if (DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture,
                 DateTimeStyles.AllowWhiteSpaces | DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
                 out var parsed))
