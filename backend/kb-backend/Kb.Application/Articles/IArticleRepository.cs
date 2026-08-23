@@ -13,6 +13,7 @@ public interface IArticleRepository
     Task<ArticleData> InsertWithInitialDraftAndAuditAsync(NewArticleData article, ArticleAuditData audit,
         CancellationToken cancellationToken);
     Task<ArticleData> UpdateMetadataAndAuditAsync(Guid id, string title, string slug, Guid categoryId, string visibility,
-        byte[] rowVersion, ArticleAuditData audit, CancellationToken cancellationToken);
+        byte[] rowVersion, ArticleAuditData audit, CancellationToken cancellationToken,
+        IReadOnlyList<Guid>? categoryIds = null);
     Task SoftDeleteAndAuditAsync(Guid id, ArticleAuditData audit, CancellationToken cancellationToken);
 }

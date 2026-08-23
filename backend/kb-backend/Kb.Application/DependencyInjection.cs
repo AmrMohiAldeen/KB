@@ -39,6 +39,7 @@ public static class DependencyInjection
         services.AddScoped<InternalSearchService>();
         services.AddScoped<PublicKnowledgeBaseService>();
         services.AddScoped<ViewerService>();
+        services.AddScoped<ViewerDashboardSettingsService>();
         services.AddScoped<UserService>();
         return services;
     }

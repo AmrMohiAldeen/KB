@@ -114,6 +114,9 @@ const VerticalMenu = ({ dictionary, scrollMenu }: Props) => {
           <MenuItem href={href('/roles')} icon={<i className='tabler-shield-lock' />}>
             {navigation.roles}
           </MenuItem>
+          <MenuItem href={href('/viewer-dashboard-settings')} icon={<i className='tabler-palette' />}>
+            User Dashboard
+          </MenuItem>
           <MenuItem href={href('/settings')} icon={<i className='tabler-settings' />}>
             {navigation.settings}
           </MenuItem>

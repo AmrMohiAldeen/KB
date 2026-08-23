@@ -1,7 +1,18 @@
 import type { Content } from '@tiptap/core'
 import { apiBlobRequest, apiRequest, viewerApiRequest, viewerBlobRequest } from './http'
 
-export type ViewerPortal = { solutionId: string; slug: string; name: string; description: string | null }
+export type ViewerPortal = {
+  solutionId: string
+  slug: string
+  name: string
+  description: string | null
+  appearance: {
+    primaryColor: string
+    pageBackgroundColor: string
+    categoryCardBackgroundColor: string
+    textColor: string
+  }
+}
 export type ViewerCategoryNode = {
   categoryId: string
   parentCategoryId: string | null

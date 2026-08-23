@@ -58,7 +58,8 @@ public sealed class ArticlesController(ArticleService articles) : ControllerBase
     public async Task<ActionResult<ArticleDetailsResponse>> Create(CreateArticleRequest request,
         CancellationToken cancellationToken)
     {
-        var created = await articles.CreateAsync(new(request.Title, request.CategoryId, request.Slug, request.Visibility), cancellationToken);
+        var created = await articles.CreateAsync(
+            new(request.Title, request.CategoryId, request.Slug, request.Visibility, request.CategoryIds), cancellationToken);
         return CreatedAtAction(nameof(GetById), new { id = created.Id }, ToDetailsResponse(created));
     }
 
@@ -74,7 +75,7 @@ public sealed class ArticlesController(ArticleService articles) : ControllerBase
     {
         var updated = await articles.UpdateAsync(id,
             new(request.Title, request.CategoryId, request.Slug, Convert.FromBase64String(request.RowVersion),
-                request.Visibility),
+                request.Visibility, request.CategoryIds),
             cancellationToken);
         return Ok(ToDetailsResponse(updated));
     }

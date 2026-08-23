@@ -19,6 +19,8 @@ public partial class KbDbContext : DbContext
 
     public virtual DbSet<ArticleCategory> ArticleCategories { get; set; }
 
+    public virtual DbSet<ViewerDashboardSettings> ViewerDashboardSettings { get; set; }
+
     public virtual DbSet<ArticleComment> ArticleComments { get; set; }
 
     public virtual DbSet<ArticleNotificationPreference> ArticleNotificationPreferences { get; set; }
@@ -470,6 +472,19 @@ public partial class KbDbContext : DbContext
             entity.HasOne(value => value.Category).WithMany(value => value.ArticleCategories)
                 .HasForeignKey(value => value.CategoryIdFk).OnDelete(DeleteBehavior.Restrict)
                 .HasConstraintName("FK_ARTICLE_CATEGORIES_CATEGORIES");
+        });
+
+        modelBuilder.Entity<ViewerDashboardSettings>(entity =>
+        {
+            entity.ToTable("VIEWER_DASHBOARD_SETTINGS", table => table.HasCheckConstraint(
+                "CK_VIEWER_DASHBOARD_SETTINGS_Singleton", "[SettingsID] = 1"));
+            entity.HasKey(item => item.SettingsId);
+            entity.Property(item => item.SettingsId).HasColumnName("SettingsID").ValueGeneratedNever();
+            entity.Property(item => item.PrimaryColor).HasMaxLength(7);
+            entity.Property(item => item.PageBackgroundColor).HasMaxLength(7);
+            entity.Property(item => item.CategoryCardBackgroundColor).HasMaxLength(7);
+            entity.Property(item => item.TextColor).HasMaxLength(7);
+            entity.Property(item => item.UpdatedAt).HasPrecision(3);
         });
 
         modelBuilder.Entity<ContentBlock>(entity =>

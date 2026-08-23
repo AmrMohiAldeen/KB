@@ -18,7 +18,13 @@ public sealed record ViewerSessionData(Guid SessionId, Guid CustomerId, string E
     string ExternalUserEmail, DateTime ExpiresAt, IReadOnlyList<ViewerSolutionReference> Solutions);
 public sealed record ViewerSolutionReference(Guid SolutionId, string Slug);
 public sealed record ViewerSessionValidation(bool IsValid, ViewerSessionData? Session);
-public sealed record ViewerPortalData(Guid SolutionId, string Slug, string Name, string? Description)
+public sealed record ViewerDashboardAppearanceData(string PrimaryColor, string PageBackgroundColor,
+    string CategoryCardBackgroundColor, string TextColor)
+{
+    public static readonly ViewerDashboardAppearanceData Default = new("#1976D2", "#F8FAFC", "#FFFFFF", "#1E293B");
+}
+public sealed record ViewerPortalData(Guid SolutionId, string Slug, string Name, string? Description,
+    ViewerDashboardAppearanceData? Appearance = null)
 {
     // In preview mode this value is the selected category ID; Viewer rendering only needs the resolved root ID.
     public Guid RootId => SolutionId;
@@ -55,6 +61,9 @@ public interface IViewerRepository
         CancellationToken cancellationToken);
     Task RevokeSessionAsync(Guid sessionId, DateTime now, string reason, CancellationToken cancellationToken);
     Task<ViewerPortalData> GetPortalAsync(Guid sessionId, string solutionSlug, CancellationToken cancellationToken);
+    Task<ViewerDashboardAppearanceData> GetAppearanceAsync(CancellationToken cancellationToken);
+    Task<ViewerDashboardAppearanceData> SaveAppearanceAsync(ViewerDashboardAppearanceData appearance, DateTime updatedAt,
+        CancellationToken cancellationToken);
     Task<IReadOnlyList<ViewerCategoryData>> GetCategoriesAsync(Guid sessionId, string solutionSlug,
         CancellationToken cancellationToken);
     Task<IReadOnlyList<ViewerArticleSummary>> GetArticlesAsync(Guid sessionId, string solutionSlug, string? search,

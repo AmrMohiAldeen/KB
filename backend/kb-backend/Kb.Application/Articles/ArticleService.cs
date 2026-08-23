@@ -73,13 +73,15 @@ public sealed class ArticleService(
         var title = NormalizeTitle(command.Title);
         var visibility = NormalizeVisibility(command.Visibility);
         EnsureId(command.CategoryId, "Category");
+        var categoryIds = NormalizeCategoryIds(command.CategoryId, command.CategoryIds);
         var ownerId = currentUser.UserId;
         EnsureId(ownerId, "Authenticated user");
 
         return await repository.ExecuteSerializableAsync(async token =>
         {
-            if (!await repository.CategoryExistsAsync(command.CategoryId, token))
-                throw new NotFoundException("The category was not found.");
+            foreach (var categoryId in categoryIds)
+                if (!await repository.CategoryExistsAsync(categoryId, token))
+                    throw new NotFoundException("One or more categories were not found.");
             if (!await repository.ActiveUserExistsAsync(ownerId, token))
                 throw new NotFoundException("The authenticated internal user was not found or is inactive.");
 
@@ -87,10 +89,10 @@ public sealed class ArticleService(
             var now = timeProvider.GetUtcNow().UtcDateTime;
             var audit = Audit(ownerId, ArticleAuditActions.Created, new
             {
-                title, slug, categoryId = command.CategoryId, ownerId, visibility
+                title, slug, categoryId = command.CategoryId, categoryIds, ownerId, visibility
             }, now);
             return await repository.InsertWithInitialDraftAndAuditAsync(
-                new(title, slug, command.CategoryId, ownerId, now, visibility), audit, token);
+                new(title, slug, command.CategoryId, ownerId, now, visibility, categoryIds), audit, token);
         }, cancellationToken);
     }
 
@@ -99,6 +101,7 @@ public sealed class ArticleService(
     {
         EnsureId(id, "Article");
         EnsureId(command.CategoryId, "Category");
+        var categoryIds = NormalizeCategoryIds(command.CategoryId, command.CategoryIds);
         if (command.RowVersion.Length == 0)
             throw new BusinessRuleException("Row version is required.");
         var title = NormalizeTitle(command.Title);
@@ -115,8 +118,9 @@ public sealed class ArticleService(
                 throw new ConflictException(
                     $"Article metadata cannot be edited while the draft is in the {existing.Status} state.");
             await RequireEditPermissionAsync(existing.OwnerId, actorId, token);
-            if (!await repository.CategoryExistsAsync(command.CategoryId, token))
-                throw new NotFoundException("The category was not found.");
+            foreach (var categoryId in categoryIds)
+                if (!await repository.CategoryExistsAsync(categoryId, token))
+                    throw new NotFoundException("One or more categories were not found.");
 
             var slug = command.Slug is null ? existing.Slug : NormalizeSlug(command.Slug);
             if (!string.Equals(slug, existing.Slug, StringComparison.OrdinalIgnoreCase) &&
@@ -132,11 +136,11 @@ public sealed class ArticleService(
                 existing.Visibility == visibility ? ArticleAuditActions.Updated : ArticleAuditActions.VisibilityChanged, new
             {
                 before = new { existing.Title, existing.Slug, existing.Visibility },
-                after = new { title, slug, categoryId = command.CategoryId, visibility },
+                after = new { title, slug, categoryId = command.CategoryId, categoryIds, visibility },
                 visibilityChange = existing.Visibility == visibility ? null : new { oldValue = existing.Visibility, newValue = visibility }
             }, now);
             return await repository.UpdateMetadataAndAuditAsync(id, title, slug, command.CategoryId, visibility,
-                command.RowVersion, audit, token);
+                command.RowVersion, audit, token, categoryIds);
         }, cancellationToken);
     }
 
@@ -226,6 +230,14 @@ public sealed class ArticleService(
     {
         if (id == Guid.Empty)
             throw new BusinessRuleException($"{name} ID must not be an empty GUID.");
+    }
+
+    private static IReadOnlyList<Guid> NormalizeCategoryIds(Guid primaryCategoryId, IReadOnlyList<Guid>? categoryIds)
+    {
+        var normalized = new[] { primaryCategoryId }.Concat(categoryIds ?? []).Distinct().ToArray();
+        if (normalized.Any(id => id == Guid.Empty))
+            throw new BusinessRuleException("Category IDs must not be empty GUIDs.");
+        return normalized;
     }
 
     private static string NormalizeVisibility(string visibility)

@@ -11,6 +11,8 @@ public sealed class CreateArticleRequest
     [NonEmptyGuid]
     public Guid CategoryId { get; init; }
 
+    public IReadOnlyList<Guid>? CategoryIds { get; init; }
+
     [NonWhiteSpace, StringLength(350)]
     public string? Slug { get; init; }
 
@@ -25,6 +27,8 @@ public sealed class UpdateArticleMetadataRequest
 
     [NonEmptyGuid]
     public Guid CategoryId { get; init; }
+
+    public IReadOnlyList<Guid>? CategoryIds { get; init; }
 
     [NonWhiteSpace, StringLength(350)]
     public string? Slug { get; init; }

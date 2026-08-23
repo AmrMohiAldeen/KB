@@ -31,8 +31,10 @@ public sealed record PublishedVersionData(Guid Id, int Number, string ContentJso
 public sealed record ArticleMutationData(Guid Id, Guid OwnerId, Guid? CategoryId, string Title, string Slug,
     int Position, Guid? CurrentDraftId,
     byte[]? CurrentDraftRowVersion, string Status, bool IsDeleted, string Visibility = "Public");
-public sealed record CreateArticleCommand(string Title, Guid CategoryId, string? Slug, string Visibility = "Public");
-public sealed record UpdateArticleCommand(string Title, Guid CategoryId, string? Slug, byte[] RowVersion, string? Visibility = null);
+public sealed record CreateArticleCommand(string Title, Guid CategoryId, string? Slug, string Visibility = "Public",
+    IReadOnlyList<Guid>? CategoryIds = null);
+public sealed record UpdateArticleCommand(string Title, Guid CategoryId, string? Slug, byte[] RowVersion,
+    string? Visibility = null, IReadOnlyList<Guid>? CategoryIds = null);
 public sealed record NewArticleData(string Title, string Slug, Guid CategoryId, Guid OwnerId, DateTime CreatedAt,
-    string Visibility = "Public");
+    string Visibility = "Public", IReadOnlyList<Guid>? CategoryIds = null);
 public sealed record ArticleAuditData(Guid ActorId, string Action, string MetadataJson, DateTime CreatedAt);

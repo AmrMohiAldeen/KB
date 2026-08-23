@@ -18,17 +18,14 @@ import KbTableToolbar from '@/views/shared/tables/KbTableToolbar'
 import KbTableFilter from '@/views/shared/tables/KbTableFilter'
 import { describeUsersApiError, getUserRoles, getUsers } from '@/lib/api/usersApi'
 import { hasAccessToken, isAuthenticationError } from '@/lib/api/http'
-import { useAccessToken } from '@/lib/auth/accessTokenContext'
 import PageHeader from '../shared/components/PageHeader'
 import StatusChip from '../shared/components/StatusChip'
 import { formatDate } from '../shared/utils/formatDate'
 
-type UsersManagementPageProps = { accessToken?: string }
+type UsersManagementPageProps = { accessToken: string }
 const missingTokenMessage = 'Sign in through the company authentication provider before loading users.'
 
-const UsersManagementPage = ({ accessToken: accessTokenOverride }: UsersManagementPageProps) => {
-  const contextAccessToken = useAccessToken()
-  const accessToken = accessTokenOverride ?? contextAccessToken
+const UsersManagementPage = ({ accessToken }: UsersManagementPageProps) => {
   const authenticated = hasAccessToken(accessToken)
   const [users, setUsers] = useState<UsersType[]>([])
   const [roles, setRoles] = useState<UserRoleSummary[]>([])

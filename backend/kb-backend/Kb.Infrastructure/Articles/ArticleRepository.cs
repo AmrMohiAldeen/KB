@@ -174,19 +174,22 @@ public sealed class ArticleRepository(KbDbContext dbContext) : IArticleRepositor
             .MaxAsync(cancellationToken) ?? -1) + 1;
         var entity = new Article
         {
-            ArticleId = NewId(), Title = article.Title, Slug = article.Slug, CategoryIdFk = article.CategoryId,
+            // IDs are assigned before dependent entities are tracked, including SQL Server providers.
+            ArticleId = Guid.NewGuid(), Title = article.Title, Slug = article.Slug, CategoryIdFk = article.CategoryId,
             AuthorIdFk = article.OwnerId, Status = ArticleStatuses.Draft, CreatedAt = article.CreatedAt,
             UpdatedAt = article.CreatedAt, Position = position, Visibility = article.Visibility
         };
         dbContext.Articles.Add(entity);
-        dbContext.ArticleCategories.Add(new ArticleCategory
+        var categoryIds = new[] { article.CategoryId }.Concat(article.CategoryIds ?? []).Distinct().ToArray();
+        dbContext.ArticleCategories.AddRange(categoryIds.Select((categoryId, sortOrder) => new ArticleCategory
         {
-            ArticleIdFk = entity.ArticleId, CategoryIdFk = article.CategoryId, IsPrimary = true, SortOrder = 0
-        });
+            ArticleIdFk = entity.ArticleId, CategoryIdFk = categoryId, IsPrimary = categoryId == article.CategoryId,
+            SortOrder = sortOrder
+        }));
         try
         {
             await dbContext.SaveChangesAsync(cancellationToken);
-            var draftId = NewId();
+            var draftId = Guid.NewGuid();
             if (dbContext.Database.IsSqlServer())
             {
                 dbContext.ArticleDrafts.Add(new ArticleDraft
@@ -226,7 +229,8 @@ public sealed class ArticleRepository(KbDbContext dbContext) : IArticleRepositor
     }
 
     public async Task<ArticleData> UpdateMetadataAndAuditAsync(Guid id, string title, string slug, Guid categoryId,
-        string visibility, byte[] rowVersion, ArticleAuditData audit, CancellationToken cancellationToken)
+        string visibility, byte[] rowVersion, ArticleAuditData audit, CancellationToken cancellationToken,
+        IReadOnlyList<Guid>? categoryIds = null)
     {
         var entity = await dbContext.Articles.SingleAsync(article => article.ArticleId == id &&
             article.DeletedAt == null && article.Status != ArticleStatuses.Deleted &&
@@ -250,10 +254,12 @@ public sealed class ArticleRepository(KbDbContext dbContext) : IArticleRepositor
         var categoryLinks = await dbContext.ArticleCategories
             .Where(link => link.ArticleIdFk == id).ToListAsync(cancellationToken);
         dbContext.ArticleCategories.RemoveRange(categoryLinks);
-        dbContext.ArticleCategories.Add(new ArticleCategory
+        var allCategoryIds = new[] { categoryId }.Concat(categoryIds ?? []).Distinct().ToArray();
+        dbContext.ArticleCategories.AddRange(allCategoryIds.Select((mappedCategoryId, sortOrder) => new ArticleCategory
         {
-            ArticleIdFk = id, CategoryIdFk = categoryId, IsPrimary = true, SortOrder = 0
-        });
+            ArticleIdFk = id, CategoryIdFk = mappedCategoryId, IsPrimary = mappedCategoryId == categoryId,
+            SortOrder = sortOrder
+        }));
         entity.UpdatedAt = audit.CreatedAt;
         AddAudit(id, audit);
         await SearchIndexJobQueue.EnqueueArticleAsync(dbContext, id, SearchIndexJobTypes.Upsert,
@@ -333,7 +339,7 @@ public sealed class ArticleRepository(KbDbContext dbContext) : IArticleRepositor
         CreatedAt = audit.CreatedAt
     });
 
-    private Guid NewId() => dbContext.Database.IsSqlServer() ? Guid.Empty : Guid.NewGuid();
+    private Guid NewId() => Guid.NewGuid();
 
     private static bool IsSlugUniquenessViolation(DbUpdateException exception)
     {

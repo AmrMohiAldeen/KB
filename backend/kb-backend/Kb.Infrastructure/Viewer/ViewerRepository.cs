@@ -91,7 +91,34 @@ public sealed class ViewerRepository(KbDbContext db, TimeProvider timeProvider) 
     public async Task<ViewerPortalData> GetPortalAsync(Guid sessionId, string solutionSlug, CancellationToken token)
     {
         var solution = await ResolveAuthorizedSolutionAsync(sessionId, solutionSlug, token);
-        return new(solution.SolutionId, solution.Slug, solution.RootCategory.Name, solution.RootCategory.Description);
+        return new(solution.SolutionId, solution.Slug, solution.RootCategory.Name, solution.RootCategory.Description,
+            await GetAppearanceAsync(token));
+    }
+
+    public async Task<ViewerDashboardAppearanceData> GetAppearanceAsync(CancellationToken token)
+    {
+        var settings = await db.ViewerDashboardSettings.AsNoTracking()
+            .SingleOrDefaultAsync(item => item.SettingsId == 1, token);
+        return settings is null ? ViewerDashboardAppearanceData.Default : new(settings.PrimaryColor,
+            settings.PageBackgroundColor, settings.CategoryCardBackgroundColor, settings.TextColor);
+    }
+
+    public async Task<ViewerDashboardAppearanceData> SaveAppearanceAsync(ViewerDashboardAppearanceData appearance,
+        DateTime updatedAt, CancellationToken token)
+    {
+        var settings = await db.ViewerDashboardSettings.SingleOrDefaultAsync(item => item.SettingsId == 1, token);
+        if (settings is null)
+        {
+            settings = new ViewerDashboardSettings { SettingsId = 1 };
+            db.ViewerDashboardSettings.Add(settings);
+        }
+        settings.PrimaryColor = appearance.PrimaryColor;
+        settings.PageBackgroundColor = appearance.PageBackgroundColor;
+        settings.CategoryCardBackgroundColor = appearance.CategoryCardBackgroundColor;
+        settings.TextColor = appearance.TextColor;
+        settings.UpdatedAt = updatedAt;
+        await db.SaveChangesAsync(token);
+        return appearance;
     }
 
     public async Task<IReadOnlyList<ViewerCategoryData>> GetCategoriesAsync(Guid sessionId, string solutionSlug,
@@ -125,7 +152,7 @@ public sealed class ViewerRepository(KbDbContext db, TimeProvider timeProvider) 
     public async Task<ViewerPortalData> GetPreviewPortalAsync(string rootCategorySlug, CancellationToken token)
     {
         var root = await ResolvePreviewRootAsync(rootCategorySlug, token);
-        return new(root.CategoryId, root.Slug, root.Name, root.Description);
+        return new(root.CategoryId, root.Slug, root.Name, root.Description, await GetAppearanceAsync(token));
     }
 
     public async Task<IReadOnlyList<ViewerCategoryData>> GetPreviewCategoriesAsync(string rootCategorySlug,

@@ -55,6 +55,22 @@ public sealed class ArticleSliceTests
     }
 
     [Fact]
+    public async Task Creation_supports_multiple_categories_without_duplicate_join_rows()
+    {
+        await using var f = await Fixture.CreateAsync();
+        f.Grant(f.AuthorId, PermissionCodes.ArticlesCreate);
+
+        var article = await f.Service.CreateAsync(new("Multi-category", f.CategoryId, null,
+            CategoryIds: [f.OtherCategoryId, f.OtherCategoryId, f.CategoryId]), default);
+
+        var links = await f.Context.ArticleCategories.Where(link => link.ArticleIdFk == article.Id)
+            .OrderBy(link => link.SortOrder).ToListAsync();
+        Assert.Equal(new[] { f.CategoryId, f.OtherCategoryId }, links.Select(link => link.CategoryIdFk));
+        var primary = Assert.Single(links, link => link.IsPrimary);
+        Assert.Equal(f.CategoryId, primary.CategoryIdFk);
+    }
+
+    [Fact]
     public async Task Viewer_cannot_create_or_update_and_author_cannot_update_another_authors_article()
     {
         await using var f = await Fixture.CreateAsync();

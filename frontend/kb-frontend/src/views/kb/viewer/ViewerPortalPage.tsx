@@ -199,8 +199,18 @@ export default function ViewerPortalPage({ solutionSlug, categorySlug, preview }
   const directArticles = articles.filter(article => article.categoryId === currentCategory.categoryId)
   const showingSearch = Boolean(query.trim())
   const resultRows = searchResults ?? []
+  const appearance = portal.appearance ?? {
+    primaryColor: '#1976D2', pageBackgroundColor: '#F8FAFC', categoryCardBackgroundColor: '#FFFFFF', textColor: '#1E293B'
+  }
 
-  return <Stack spacing={{ xs: 4, md: 6 }} sx={{ maxInlineSize: 1240, mx: 'auto' }}>
+  return <Stack spacing={{ xs: 4, md: 6 }} sx={{
+    maxInlineSize: 1240,
+    mx: 'auto',
+    p: { xs: 2, md: 4 },
+    borderRadius: 3,
+    bgcolor: appearance.pageBackgroundColor,
+    color: appearance.textColor
+  }}>
     {preview && <Alert
       severity='info'
       action={<Button component={Link} href='/dashboard' color='inherit' size='small'>Return to dashboard</Button>}
@@ -219,7 +229,7 @@ export default function ViewerPortalPage({ solutionSlug, categorySlug, preview }
     <Box component='header' sx={{ textAlign: 'center', pt: { xs: 2, md: 5 } }}>
       <Stack spacing={3} sx={{ alignItems: 'center' }}>
         <Box>
-          <Typography component='h1' variant='h2' sx={{ fontSize: { xs: '2rem', md: '2.75rem' }, letterSpacing: '-0.03em' }}>
+          <Typography component='h1' variant='h2' sx={{ color: appearance.textColor, fontSize: { xs: '2rem', md: '2.75rem' }, letterSpacing: '-0.03em' }}>
             {currentCategory.name}
           </Typography>
           <Typography color='text.secondary' sx={{ mt: 1, fontSize: { xs: '1rem', md: '1.125rem' } }}>
@@ -293,12 +303,13 @@ export default function ViewerPortalPage({ solutionSlug, categorySlug, preview }
               p: 3,
               display: 'flex',
               flexDirection: 'column',
-              color: 'text.primary',
+              color: appearance.textColor,
+              bgcolor: appearance.categoryCardBackgroundColor,
               textDecoration: 'none',
               borderRadius: 3,
               transition: 'border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease',
-              '&:hover': { borderColor: 'primary.main', boxShadow: 4, transform: 'translateY(-3px)' },
-              '&:focus-visible': { outline: theme => `3px solid ${theme.palette.primary.main}`, outlineOffset: 3 }
+              '&:hover': { borderColor: appearance.primaryColor, boxShadow: 4, transform: 'translateY(-3px)' },
+              '&:focus-visible': { outline: `3px solid ${appearance.primaryColor}`, outlineOffset: 3 }
             }}
           >
             <CategoryArtwork category={category} solutionSlug={solutionSlug} preview={preview} />
@@ -308,7 +319,7 @@ export default function ViewerPortalPage({ solutionSlug, categorySlug, preview }
                 {category.description}
               </Typography>}
             </Box>
-            <Stack direction='row' spacing={1} sx={{ alignItems: 'center', mt: 2, color: 'primary.main' }}>
+            <Stack direction='row' spacing={1} sx={{ alignItems: 'center', mt: 2, color: appearance.primaryColor }}>
               <Typography variant='body2' sx={{ fontWeight: 600 }}>Explore</Typography><ArrowRight size={16} />
             </Stack>
           </Card>)}
@@ -317,16 +328,16 @@ export default function ViewerPortalPage({ solutionSlug, categorySlug, preview }
 
       {directArticles.length > 0 && <Box component='section' aria-labelledby='articles-title'>
         <Typography id='articles-title' variant='h5' sx={{ mb: 2 }}>Articles</Typography>
-        <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 3, bgcolor: 'background.paper', overflow: 'hidden' }}>
+        <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 3, bgcolor: appearance.categoryCardBackgroundColor, overflow: 'hidden' }}>
           {directArticles.map((article, index) => <Box
             key={article.articleId}
             component={Link}
             href={`${rootPath}/articles/${article.slug}`}
             sx={{
               px: { xs: 2.5, md: 3 }, py: 2.25, display: 'flex', alignItems: 'center', gap: 2,
-              color: 'text.primary', textDecoration: 'none', borderBlockStart: index ? 1 : 0, borderColor: 'divider',
-              '&:hover': { bgcolor: 'action.hover', color: 'primary.main' },
-              '&:focus-visible': { outline: theme => `2px solid ${theme.palette.primary.main}`, outlineOffset: -2 }
+              color: appearance.textColor, textDecoration: 'none', borderBlockStart: index ? 1 : 0, borderColor: 'divider',
+              '&:hover': { bgcolor: 'action.hover', color: appearance.primaryColor },
+              '&:focus-visible': { outline: `2px solid ${appearance.primaryColor}`, outlineOffset: -2 }
             }}
           ><FileText size={19} /><Typography sx={{ flex: 1, fontWeight: 500 }}>{article.title}</Typography><ChevronRight size={18} /></Box>)}
         </Box>

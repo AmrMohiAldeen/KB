@@ -15,7 +15,8 @@ public sealed class ViewerKnowledgeBaseController(ViewerService viewers) : Contr
     public async Task<ActionResult<ViewerPortalResponse>> Portal(string solutionSlug, CancellationToken token)
     {
         var portal = await viewers.GetPortalAsync(solutionSlug, token);
-        return Ok(new ViewerPortalResponse(portal.RootId, portal.Slug, portal.Name, portal.Description));
+        return Ok(new ViewerPortalResponse(portal.RootId, portal.Slug, portal.Name, portal.Description,
+            MapAppearance(portal.Appearance)));
     }
 
     [HttpGet("categories/tree")]
@@ -57,4 +58,9 @@ public sealed class ViewerKnowledgeBaseController(ViewerService viewers) : Contr
         item.Slug, item.CategoryId, item.CategoryName, item.CategoryPath, item.UpdatedAt);
     private static ViewerArticleResponse Map(ViewerArticle item) => new(item.Id, item.Title, item.Slug,
         item.CategoryId, item.CategoryName, item.CategoryPath, item.UpdatedAt, item.Content);
+    private static ViewerDashboardAppearanceResponse MapAppearance(ViewerDashboardAppearanceData? appearance)
+    {
+        var value = appearance ?? ViewerDashboardAppearanceData.Default;
+        return new(value.PrimaryColor, value.PageBackgroundColor, value.CategoryCardBackgroundColor, value.TextColor);
+    }
 }
