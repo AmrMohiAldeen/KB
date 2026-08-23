@@ -112,7 +112,10 @@ public sealed partial class HelpJuiceMigrationService(
             writer.ResetState();
             await writer.WriteOperationAuditAsync(operationId, "MigrationStarted", "Running", currentUser.UserId, ct);
             migrationStarted = true;
-            var categoryPhase = new PhaseCounter("Categories", options.ImportCategories ? source.Categories.Count : 0);
+            var categoriesToImport = options.ImportCategories
+                ? source.Categories
+                : source.Categories.Where(category => category.Id == HelpJuiceSourceParser.FallbackCategoryExternalId).ToArray();
+            var categoryPhase = new PhaseCounter("Categories", categoriesToImport.Count);
             var inlineMedia = BuildInlineMedia(source);
             var externalMedia = BuildExternalMedia(source);
             var uploadCount = source.Uploads?.Count ?? 0;
@@ -122,9 +125,9 @@ public sealed partial class HelpJuiceMigrationService(
 
             var categoryMap = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
             var categoryImported = 0; var categoryUpdated = 0; var categorySkipped = 0;
-            if (options.ImportCategories)
+            if (categoriesToImport.Count > 0)
             {
-                foreach (var category in HelpJuiceSourceParser.OrderCategories(source.Categories, out _))
+                foreach (var category in HelpJuiceSourceParser.OrderCategories(categoriesToImport, out _))
                 {
                     ct.ThrowIfCancellationRequested();
                     try
@@ -157,9 +160,15 @@ public sealed partial class HelpJuiceMigrationService(
             var mediaImported = 0; var mediaReused = 0;
             if (options.ImportMedia)
             {
+                var packagedByRelativePath = source.MediaFiles
+                    .Select(file => (File: file, Relative: source.PackageRootPath is null ? Path.GetFileName(file) :
+                        Path.GetRelativePath(source.PackageRootPath, file).Replace('\\', '/')))
+                    .ToDictionary(item => item.Relative.TrimStart('/'), item => item.File,
+                        StringComparer.OrdinalIgnoreCase);
                 var packagedByName = source.MediaFiles.Select(file => (File: file, Name: Path.GetFileName(file)))
                     .Where(x => !string.IsNullOrWhiteSpace(x.Name)).GroupBy(x => x.Name!, StringComparer.OrdinalIgnoreCase)
-                    .ToDictionary(g => g.Key, g => g.First().File, StringComparer.OrdinalIgnoreCase);
+                    .Where(group => group.Count() == 1)
+                    .ToDictionary(g => g.Key, g => g.Single().File, StringComparer.OrdinalIgnoreCase);
                 var packagedByNormalizedName = source.MediaFiles
                     .GroupBy(HelpJuiceSourceParser.MediaFileMatchKey, StringComparer.OrdinalIgnoreCase)
                     .Where(group => group.Key.Length > 0 && group.Count() == 1)
@@ -178,7 +187,9 @@ public sealed partial class HelpJuiceMigrationService(
                     try
                     {
                         byte[] bytes;
-                        if (packagedByName.TryGetValue(Path.GetFileName(upload.FileName), out var packaged) ||
+                        var uploadPath = upload.FileName.Replace('\\', '/').TrimStart('/');
+                        if (packagedByRelativePath.TryGetValue(uploadPath, out var packaged) ||
+                            packagedByName.TryGetValue(Path.GetFileName(upload.FileName), out packaged) ||
                             packagedByNormalizedName.TryGetValue(HelpJuiceSourceParser.MediaFileMatchKey(upload.FileName), out packaged))
                         {
                             consumedPackageFiles.Add(packaged);
@@ -281,7 +292,8 @@ public sealed partial class HelpJuiceMigrationService(
             mediaPhase.Complete();
 
             var answers = source.Answers.GroupBy(x => x.QuestionId, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+                .ToDictionary(g => g.Key, g => g.FirstOrDefault(answer => !string.IsNullOrWhiteSpace(answer.Body)) ?? g.First(),
+                    StringComparer.OrdinalIgnoreCase);
             var linkResolvers = new Dictionary<int, Func<string, HelpJuiceLinkResolution?>>();
             var published = 0; var drafts = 0; var archived = 0;
             foreach (var question in source.Questions)
@@ -305,17 +317,28 @@ public sealed partial class HelpJuiceMigrationService(
                     if (!linkResolvers.TryGetValue(languageKey, out var linkResolver))
                         linkResolvers[languageKey] = linkResolver = HelpJuiceSourceParser.CreateLinkResolver(
                             source.Questions, question, mappedArticleSlugs);
-                    var converted = HelpJuiceHtmlConverter.Convert(answer?.Body, Resolve, linkResolver);
-                    foreach (var warning in converted.Warnings)
+                    var publishedConversion = HelpJuiceHtmlConverter.Convert(answer?.Body, Resolve, linkResolver);
+                    var converted = question.ReconstructedNewerDraftBody is { } recoveredDraft
+                        ? HelpJuiceHtmlConverter.Convert(recoveredDraft, Resolve, linkResolver)
+                        : publishedConversion;
+                    foreach (var warning in publishedConversion.Warnings.Concat(converted.Warnings).Distinct())
                         issues.Add(NewIssue("Warning", "answers.csv", answer?.RowNumber, "Answer", answer?.Id,
                             warning.Code, warning.Message));
                     var content = await StageContentAsync(stagingAttemptId, question.Id, converted,
-                        question.IsPublished, stagedPaths, ct);
+                        question.IsPublished ? publishedConversion : null, stagedPaths, ct);
                     var declaredMedia = (question.UploadIds ?? []).Select(id => mediaMap.GetValueOrDefault(id).Id)
                         .Where(id => id != Guid.Empty);
-                    content = content with { MediaIds = content.MediaIds.Concat(declaredMedia).Distinct().ToArray() };
-                    var externalCategory = question.CategoryId;
-                    Guid? categoryId = externalCategory is null ? null : categoryMap.GetValueOrDefault(externalCategory);
+                    var declaredMediaIds = declaredMedia.Distinct().ToArray();
+                    content = content with
+                    {
+                        MediaIds = content.MediaIds.Concat(declaredMediaIds).Distinct().ToArray(),
+                        VersionMediaIds = (content.VersionMediaIds ?? []).Concat(declaredMediaIds).Distinct().ToArray()
+                    };
+                    var externalCategories = question.CategoryIds ?? (question.CategoryId is null ? [] : [question.CategoryId]);
+                    var categoryIds = externalCategories.Where(categoryMap.ContainsKey)
+                        .Select(category => categoryMap[category]).Where(id => id != Guid.Empty).Distinct().ToArray();
+                    var externalCategory = externalCategories.FirstOrDefault();
+                    Guid? categoryId = categoryIds.FirstOrDefault() is { } first && first != Guid.Empty ? first : null;
                     if (options.ImportCategories && externalCategory is not null && categoryId is null)
                         issues.Add(NewIssue("Warning", "questions.csv", question.RowNumber, "Question", question.Id,
                             "CATEGORY_NOT_IMPORTED", $"Category '{externalCategory}' failed earlier; the article was preserved uncategorized and can be reassigned on retry."));
@@ -329,7 +352,7 @@ public sealed partial class HelpJuiceMigrationService(
                             question.IsArchived ? Kb.Domain.Constants.ArticleStatuses.Archived : question.IsPublished
                                 ? Kb.Domain.Constants.ArticleStatuses.Published : Kb.Domain.Constants.ArticleStatuses.Draft,
                             question.IsPublished, created, updated, null, content, question.Source, question.Position,
-                            question.Visibility), options.ConflictBehavior, ct);
+                            question.Visibility, categoryIds), options.ConflictBehavior, ct);
                     articlePhase.Record(result.Disposition);
                     if (!result.StagedContentConsumed)
                         await DeletePaths(stagedPaths);
@@ -389,7 +412,8 @@ public sealed partial class HelpJuiceMigrationService(
     }
 
     private async Task<StagedArticleContent> StageContentAsync(Guid operationId, string externalId,
-        HelpJuiceHtmlConversion converted, bool published, List<string> paths, CancellationToken ct)
+        HelpJuiceHtmlConversion converted, HelpJuiceHtmlConversion? published, List<string> paths,
+        CancellationToken ct)
     {
         var json = Encoding.UTF8.GetBytes(converted.TiptapJson);
         var html = Encoding.UTF8.GetBytes(converted.RenderedHtml);
@@ -403,17 +427,27 @@ public sealed partial class HelpJuiceMigrationService(
         var htmlPath = await Upload($"{prefix}/draft/content.html", html, "text/html; charset=utf-8");
         var textPath = await Upload($"{prefix}/draft/content.txt", text, "text/plain; charset=utf-8");
         string? versionJson = null; string? versionHtml = null; string? versionText = null;
-        if (published)
+        string? versionHash = null;
+        long? versionSize = null;
+        IReadOnlyCollection<Guid>? versionMediaIds = null;
+        if (published is not null)
         {
-            versionJson = await Upload($"{prefix}/version/content.json", json, "application/json");
-            versionHtml = await Upload($"{prefix}/version/content.html", html, "text/html; charset=utf-8");
-            versionText = await Upload($"{prefix}/version/content.txt", text, "text/plain; charset=utf-8");
+            var publishedJson = Encoding.UTF8.GetBytes(published.TiptapJson);
+            var publishedHtml = Encoding.UTF8.GetBytes(published.RenderedHtml);
+            var publishedText = Encoding.UTF8.GetBytes(published.PlainText);
+            versionHash = Convert.ToHexString(SHA256.HashData(publishedJson)).ToLowerInvariant();
+            versionSize = publishedJson.LongLength;
+            versionJson = await Upload($"{prefix}/version/content.json", publishedJson, "application/json");
+            versionHtml = await Upload($"{prefix}/version/content.html", publishedHtml, "text/html; charset=utf-8");
+            versionText = await Upload($"{prefix}/version/content.txt", publishedText, "text/plain; charset=utf-8");
+            versionMediaIds = MediaIdRegex().Matches(published.TiptapJson)
+                .Select(match => Guid.Parse(match.Groups[1].Value)).ToHashSet();
         }
         var mediaIds = MediaIdRegex().Matches(converted.TiptapJson)
             .Select(match => Guid.Parse(match.Groups[1].Value)).ToHashSet();
         return new(jsonPath, htmlPath, textPath,
             hash, json.LongLength, mediaIds,
-            versionJson, versionHtml, versionText);
+            versionJson, versionHtml, versionText, versionHash, versionSize, versionMediaIds);
 
         async Task<string> Upload(string name, byte[] bytes, string type)
         {

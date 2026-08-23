@@ -73,7 +73,8 @@ public sealed record HelpJuiceMigrationPreviewArticle(string ExternalId, int Que
     bool IsPublished, bool IsArchived, DateTime? CreatedAt, DateTime? UpdatedAt, string? CategoryExternalId,
     string? CategoryLocation, string Visibility, string? HelpJuiceAuthorId, Guid? AuthorUserId,
     string? AuthorName, string ContentHtml, int ContentTextLength,
-    IReadOnlyDictionary<string, string> SourceMetadata, IReadOnlyList<MigrationIssueData> Issues);
+    IReadOnlyDictionary<string, string> SourceMetadata, IReadOnlyList<MigrationIssueData> Issues,
+    IReadOnlyList<string>? CategoryExternalIds = null);
 public sealed record HelpJuiceMigrationPreview(int PreviewLimit, int SourceArticleCount, int SourceCategoryCount,
     bool IsLimited, IReadOnlyList<string> AvailableFiles, IReadOnlyList<string> MissingRequiredFiles,
     IReadOnlyList<string> UnsupportedFiles, IReadOnlyList<MigrationIssueData> PackageIssues,
@@ -101,12 +102,14 @@ public sealed record ImportedMediaData(string ExternalId, Guid Id, string Origin
     string Extension, long Size, string StoragePath, string Hash, Guid UserId, DateTime UploadedAt);
 public sealed record StagedArticleContent(string JsonPath, string HtmlPath, string TextPath, string Hash, long Size,
     IReadOnlyCollection<Guid> MediaIds, string? VersionJsonPath = null, string? VersionHtmlPath = null,
-    string? VersionTextPath = null);
+    string? VersionTextPath = null, string? VersionHash = null, long? VersionSize = null,
+    IReadOnlyCollection<Guid>? VersionMediaIds = null);
 public sealed record ImportedArticleData(string ExternalId, string Title, string Slug, string? Description,
     Guid? CategoryId, Guid AuthorId, Guid ActorId, bool AuthorResolved, string Status,
     bool CreatePublishedVersion, DateTime CreatedAt,
     DateTime UpdatedAt, DateTime? PublishedAt, StagedArticleContent Content,
-    IReadOnlyDictionary<string, string>? SourceMetadata = null, int Position = 0, string Visibility = "Public");
+    IReadOnlyDictionary<string, string>? SourceMetadata = null, int Position = 0, string Visibility = "Public",
+    IReadOnlyList<Guid>? CategoryIds = null);
 
 public sealed record HelpJuiceAuthorMapping(string HelpJuiceUserId, Guid UserId, string Name);
 

@@ -21,7 +21,9 @@ public static class HelpJuicePackageReader
     {
         "readme.md", "readme.txt", "manifest.json", "metadata.json", ".ds_store",
         "tags.csv", "taggings.csv", "activities.csv", "article_activities.csv", "redirects.csv",
-        "comments.csv", "revisions.csv", "searches.csv", "views.csv"
+        "comments.csv", "revisions.csv", "searches.csv", "views.csv",
+        "decision_trees.csv", "decision_tree_nodes.csv", "decision_tree_answers.csv",
+        "decision-tree.csv", "decision-trees.csv"
     };
 
     public static bool IsSupportedManualFile(string fileName) =>

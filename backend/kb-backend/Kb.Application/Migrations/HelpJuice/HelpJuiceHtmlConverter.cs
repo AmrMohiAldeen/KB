@@ -26,8 +26,9 @@ public static partial class HelpJuiceHtmlConverter
         { "meta", "link" };
     private static readonly HashSet<string> RecognizedClasses = new(StringComparer.OrdinalIgnoreCase)
     {
-        "helpjuice-callout", "callout", "helpjuice-callout-body", "warning", "success", "danger", "error", "tip",
-        "callout-warning", "callout-success", "callout-danger", "callout-error", "callout-tip",
+        "helpjuice-callout", "hj-callout", "callout", "notice", "helpjuice-notice", "helpjuice-callout-body",
+        "info", "warning", "success", "danger", "error", "tip", "alert", "alert-info", "alert-warning",
+        "callout-info", "callout-warning", "callout-success", "callout-danger", "callout-error", "callout-tip",
         "helpjuice-accordion", "f-accordion-panel", "helpjuice-accordion-title", "helpjuice-accordion-body",
         "panel-title", "panel-content", "helpjuice-tab", "f-tab-panel", "f-tabs-panel", "helpjuice-tab-title",
         "f-tab-title", "helpjuice-tab-body", "f-tab-content", "helpjuice-callout-delete", "helpjuice-accordion-delete",
@@ -230,8 +231,11 @@ public static partial class HelpJuiceHtmlConverter
         Action<string, string> warning)
     {
         var classes = Classes(attrs);
-        if (classes.Contains("helpjuice-callout") || classes.Contains("callout") || attrs.ContainsKey("data-kb-callout"))
-            return new("callout", tag) { Attributes = new() { ["variant"] = CalloutVariant(classes, attrs) } };
+        if (classes.Overlaps(["helpjuice-callout", "hj-callout", "callout", "notice", "helpjuice-notice",
+                "callout-info", "callout-warning", "callout-success", "callout-danger", "callout-error",
+                "callout-tip", "alert-info", "alert-warning"]) || attrs.ContainsKey("data-kb-callout"))
+            return WithDirection(new("callout", tag)
+                { Attributes = new() { ["variant"] = CalloutVariant(classes, attrs) } }, attrs);
         if (classes.Contains("helpjuice-callout-body")) return new("fragment", tag);
 
         if (classes.Contains("helpjuice-accordion-title") ||
@@ -257,7 +261,7 @@ public static partial class HelpJuiceHtmlConverter
         if (classes.Contains("helpjuice-tab") || classes.Contains("f-tab-panel") || classes.Contains("f-tabs-panel"))
             return new("legacyTabItem", tag);
 
-        return tag.ToLowerInvariant() switch
+        var created = tag.ToLowerInvariant() switch
         {
             "p" => WithDirection(new("paragraph", tag), attrs),
             "h1" or "h2" or "h3" or "h4" or "h5" or "h6" => WithDirection(new("heading", tag) { Attributes = new() { ["level"] = int.Parse(tag[1..]) } }, attrs),
@@ -271,9 +275,14 @@ public static partial class HelpJuiceHtmlConverter
             "th" => WithDirection(new("tableHeader", tag) { Attributes = CellAttrs(attrs, warning) }, attrs),
             "td" => WithDirection(new("tableCell", tag) { Attributes = CellAttrs(attrs, warning) }, attrs),
             "div" or "span" or "button" or "figure" or "figcaption" or "thead" or "tbody" or "tfoot" or "colgroup" or "col" or "article" or "section" or
-                "o:p" or "o:lock" or "v:stroke" or "v:path" or "v:f" or "v:formulas" or "v:shape" or "v:shapetype" or "w:wrap" => new("fragment", tag),
+                "o:p" or "o:lock" or "v:stroke" or "v:path" or "v:f" or "v:formulas" or "v:shape" or "v:shapetype" or "w:wrap" => WithDirection(new("fragment", tag), attrs),
             _ => null
         };
+        if (created is not null && created.Attributes?.ContainsKey("dir") != true &&
+            stack.FirstOrDefault(parent => parent.Attributes?.GetValueOrDefault("dir") is "rtl" or "ltr")
+                ?.Attributes?.GetValueOrDefault("dir") is string inheritedDirection)
+            (created.Attributes ??= [])["dir"] = inheritedDirection;
+        return created;
     }
 
     private static Mark LegacyFontMark(IReadOnlyDictionary<string, string> attrs,
@@ -435,7 +444,8 @@ public static partial class HelpJuiceHtmlConverter
             (node.Attributes ??= [])["listStyle"] = listStyle.ToLowerInvariant();
         return node;
     }
-    private static int ParsePositive(string? value, int fallback) => int.TryParse(value, out var number) && number > 0 ? Math.Min(number, 100) : fallback;
+    private static int ParsePositive(string? value, int fallback) =>
+        int.TryParse(value, out var number) && number > 0 ? number : fallback;
 
     private static HashSet<string> Classes(IReadOnlyDictionary<string, string> attrs) =>
         (attrs.GetValueOrDefault("class") ?? string.Empty)
@@ -454,7 +464,8 @@ public static partial class HelpJuiceHtmlConverter
     {
         var explicitVariant = attrs.GetValueOrDefault("data-kb-callout-variant")?.ToLowerInvariant();
         if (explicitVariant is "info" or "warning" or "success" or "danger" or "tip") return explicitVariant;
-        if (classes.Contains("warning")) return "warning";
+        if (classes.Contains("info") || classes.Contains("callout-info") || classes.Contains("alert-info")) return "info";
+        if (classes.Contains("warning") || classes.Contains("alert-warning")) return "warning";
         if (classes.Contains("callout-warning")) return "warning";
         if (classes.Contains("success") || classes.Contains("callout-success")) return "success";
         if (classes.Contains("danger") || classes.Contains("error") || classes.Contains("callout-danger") || classes.Contains("callout-error")) return "danger";
@@ -652,7 +663,8 @@ public static partial class HelpJuiceHtmlConverter
             var handled = property is "color" or "font-family" or "font-size" or "line-height" or
                               "background-color" or "font-weight" or "font-style" or "text-decoration" ||
                           property == "direction" && tag is "p" or "h1" or "h2" or "h3" or "h4" or "h5" or "h6" or
-                              "ul" or "ol" or "li" or "blockquote" or "table" or "td" or "th" ||
+                              "ul" or "ol" or "li" or "blockquote" or "table" or "td" or "th" or "div" or
+                              "section" or "article" ||
                           property == "text-align" && tag is "p" or "h1" or "h2" or "h3" or "h4" or "h5" or "h6" ||
                           property == "list-style-type" && tag is "ul" or "ol" ||
                           property == "width" && tag is "table" or "col" or "td" or "th" ||
@@ -686,7 +698,7 @@ public static partial class HelpJuiceHtmlConverter
                 name.StartsWith("aria-", StringComparison.OrdinalIgnoreCase) || name.StartsWith("data-mce-", StringComparison.OrdinalIgnoreCase) ||
                 name.StartsWith("data-ccp-", StringComparison.OrdinalIgnoreCase)) continue;
             var handled = name == "id" && tag.StartsWith('h') ||
-                          name == "dir" && tag is "p" or "h1" or "h2" or "h3" or "h4" or "h5" or "h6" or "ul" or "ol" or "li" or "blockquote" or "table" or "td" or "th" ||
+                          name == "dir" && tag is "p" or "h1" or "h2" or "h3" or "h4" or "h5" or "h6" or "ul" or "ol" or "li" or "blockquote" or "table" or "td" or "th" or "div" or "section" or "article" ||
                           name == "align" && tag is "p" or "h1" or "h2" or "h3" or "h4" or "h5" or "h6" ||
                           name is "href" or "target" or "rel" && tag == "a" ||
                           name is "src" or "data-src" or "data-lazy-src" or "data-original" or "data-url" && tag is "img" or "iframe" or "video" or "audio" or "source" or "embed" ||
@@ -696,6 +708,7 @@ public static partial class HelpJuiceHtmlConverter
                           name is "width" or "span" && tag == "col" ||
                           name is "width" or "colspan" or "rowspan" or "valign" or "bgcolor" && tag is "td" or "th" ||
                           name is "start" or "type" && tag == "ol" || name == "type" && tag == "ul" ||
+                          name is "data-kb-callout" or "data-kb-callout-variant" or "data-kb-callout-content" ||
                           name == "open" && tag == "details" || name is "color" or "face" or "size" && tag == "font" ||
                           name is "data-color" or "data-text-color" or "data-font-color" ||
                           name is "controls" or "preload" or "autoplay" or "loop" or "muted" or "poster" && tag is "video" or "audio";
@@ -957,9 +970,13 @@ public static partial class HelpJuiceHtmlConverter
         if (node.Type == "text") { var text = WebUtility.HtmlEncode(node.Text); foreach (var mark in node.Marks) b.Append(mark.OpenHtml()); b.Append(text); foreach (var mark in node.Marks.AsEnumerable().Reverse()) b.Append(mark.CloseHtml()); return; }
         var (open, close) = node.Type switch
         {
-            "paragraph" => ("<p>", "</p>"), "heading" => ($"<h{node.Attributes?["level"]}>", $"</h{node.Attributes?["level"]}>"),
-            "bulletList" => ("<ul>", "</ul>"), "orderedList" => ("<ol>", "</ol>"), "listItem" => ("<li>", "</li>"),
-            "blockquote" => ("<blockquote>", "</blockquote>"), "codeBlock" => ("<pre><code>", "</code></pre>"),
+            "paragraph" => (OpenBlock(node, "p"), "</p>"),
+            "heading" => (OpenBlock(node, $"h{node.Attributes?["level"]}"), $"</h{node.Attributes?["level"]}>"),
+            "bulletList" => (OpenBlock(node, "ul"), "</ul>"),
+            "orderedList" => (OpenBlock(node, "ol", AttributeInt(node, "start", 1) is > 1 and var start
+                ? $" start=\"{start}\"" : null), "</ol>"),
+            "listItem" => (OpenBlock(node, "li"), "</li>"),
+            "blockquote" => (OpenBlock(node, "blockquote"), "</blockquote>"), "codeBlock" => ("<pre><code>", "</code></pre>"),
             "table" => (RenderTableOpen(node), "</table>"), "tableRow" => ("<tr>", "</tr>"),
             "tableHeader" => (RenderCellOpen(node, "th"), "</th>"), "tableCell" => (RenderCellOpen(node, "td"), "</td>"),
             "hardBreak" => ("<br>", ""), "horizontalRule" => ("<hr>", ""),
@@ -967,7 +984,7 @@ public static partial class HelpJuiceHtmlConverter
             "youtube" => ($"<div data-youtube-video><iframe src=\"{WebUtility.HtmlEncode(node.Attributes?["src"]?.ToString())}\" allowfullscreen></iframe></div>", ""),
             "video" => ($"<video src=\"{WebUtility.HtmlEncode(node.Attributes?["src"]?.ToString())}\" data-media-id=\"{WebUtility.HtmlEncode(node.Attributes?["mediaId"]?.ToString())}\" controls preload=\"metadata\"></video>", ""),
             "attachment" => ($"<a href=\"{WebUtility.HtmlEncode(node.Attributes?["src"]?.ToString())}\" data-kb-attachment=\"true\" data-media-id=\"{WebUtility.HtmlEncode(node.Attributes?["mediaId"]?.ToString())}\" download=\"{WebUtility.HtmlEncode(node.Attributes?["fileName"]?.ToString())}\">{WebUtility.HtmlEncode(node.Attributes?["fileName"]?.ToString() ?? "Download attachment")}</a>", ""),
-            "callout" => ($"<aside data-kb-callout data-kb-callout-variant=\"{WebUtility.HtmlEncode(node.Attributes?["variant"]?.ToString())}\"><div data-kb-callout-content>", "</div></aside>"),
+            "callout" => ($"<aside{(node.Attributes?.GetValueOrDefault("dir") is string calloutDirection && calloutDirection is "rtl" or "ltr" ? $" dir=\"{calloutDirection}\"" : string.Empty)} data-kb-callout data-kb-callout-variant=\"{WebUtility.HtmlEncode(node.Attributes?["variant"]?.ToString())}\"><div data-kb-callout-content>", "</div></aside>"),
             "tabs" => ("<div data-kb-tabs>", "</div>"),
             "tabItem" => ($"<section data-kb-tab-item data-kb-tab-id=\"{WebUtility.HtmlEncode(node.Attributes?["itemId"]?.ToString())}\" data-kb-tab-label=\"{WebUtility.HtmlEncode(node.Attributes?["label"]?.ToString())}\"><div data-kb-tab-panel>", "</div></section>"),
             "accordion" => ("<div data-kb-accordion>", "</div>"),
@@ -977,9 +994,17 @@ public static partial class HelpJuiceHtmlConverter
         b.Append(open); foreach (var child in node.Children) RenderNode(child, b); b.Append(close);
     }
 
+    private static string OpenBlock(Node node, string tag, string? additionalAttributes = null)
+    {
+        var direction = node.Attributes?.GetValueOrDefault("dir") as string;
+        return $"<{tag}{(direction is "rtl" or "ltr" ? $" dir=\"{direction}\"" : string.Empty)}{additionalAttributes}>";
+    }
+
     private static string RenderTableOpen(Node node)
     {
         var attributes = new StringBuilder("<table");
+        if (node.Attributes?.GetValueOrDefault("dir") is string direction && direction is "rtl" or "ltr")
+            attributes.Append(" dir=\"").Append(direction).Append('"');
         if (AttributeInt(node, "tableWidthPx", 0) is > 0 and var pixels)
             attributes.Append(" data-table-width-px=\"").Append(pixels).Append("\" style=\"width:")
                 .Append(pixels).Append("px; max-width:100%;\"");
@@ -1004,6 +1029,8 @@ public static partial class HelpJuiceHtmlConverter
     private static string RenderCellOpen(Node node, string tag)
     {
         var result = new StringBuilder("<").Append(tag);
+        if (node.Attributes?.GetValueOrDefault("dir") is string direction && direction is "rtl" or "ltr")
+            result.Append(" dir=\"").Append(direction).Append('"');
         var colspan = AttributeInt(node, "colspan", 1);
         var rowspan = AttributeInt(node, "rowspan", 1);
         var widths = AttributeWidths(node);

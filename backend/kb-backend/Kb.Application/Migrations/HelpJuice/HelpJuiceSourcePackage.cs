@@ -13,7 +13,9 @@ public sealed record HelpJuiceQuestion(
     string? TranslationId = null, string? HelpJuiceAuthorId = null, string? UpdatedById = null, int Position = 0,
     IReadOnlyList<string>? RelatedQuestionIds = null, IReadOnlyList<string>? UploadIds = null,
     string Visibility = "Public", bool VisibilityWasExplicit = false,
-    Guid? AuthorUserId = null, string? AuthorName = null);
+    Guid? AuthorUserId = null, string? AuthorName = null,
+    IReadOnlyList<string>? CategoryIds = null, string? ReconstructedNewerDraftBody = null,
+    string? NewerDraftRecoverySource = null);
 public sealed record HelpJuiceAnswer(int RowNumber, string Id, string QuestionId, string Body,
     IReadOnlyDictionary<string, string> Source);
 public sealed record HelpJuiceCategory(int RowNumber, string Id, string? ParentId, string Name, int Depth = 0,
@@ -34,10 +36,13 @@ public sealed record HelpJuiceSource(
     IReadOnlyDictionary<string, HelpJuiceHtmlConversion> ConvertedAnswersById,
     IReadOnlyList<MigrationIssueData> Issues,
     HelpJuiceValidationSummary Summary,
-    IReadOnlyList<HelpJuiceUpload>? Uploads = null);
+    IReadOnlyList<HelpJuiceUpload>? Uploads = null,
+    string? PackageRootPath = null);
 
 public static class HelpJuiceSourceParser
 {
+    public const string FallbackCategoryExternalId = "__helpjuice_need_category__";
+
     public static async Task<HelpJuiceSource> ParseAndValidateAsync(PackageContents package,
         HelpJuiceMigrationLimits limits, TimeProvider timeProvider,
         IReadOnlySet<string>? destinationArticleSlugs = null,
@@ -112,9 +117,6 @@ public static class HelpJuiceSourceParser
             var updated = ParseDate(row["updated_at"], out var validUpdated);
             if (!validCreated) issues.Add(Issue("Warning", "INVALID_DATE", "Invalid created_at will use the migration time.", "questions.csv", row.RowNumber, "Question", id, "automaticallyRepaired=true;field=created_at"));
             if (!validUpdated) issues.Add(Issue("Warning", "INVALID_DATE", "Invalid updated_at will use created_at or the migration time.", "questions.csv", row.RowNumber, "Question", id, "automaticallyRepaired=true;field=updated_at"));
-            if (newerDraft)
-                issues.Add(Issue("Warning", "UNRECONSTRUCTABLE_NEWER_DRAFT", "HelpJuice reports a newer draft, but this export contains only one body. The exported body will be imported without inventing a second version.",
-                    "questions.csv", row.RowNumber, "Question", id, "automaticallyRepaired=false;field=has_draft_revision_after_current_revision"));
             if (row.Values.ContainsKey("joined_tag_names") && row["joined_tag_names"].Length > 0)
                 issues.Add(Issue("Warning", "TAGS_IGNORED", "HelpJuice tags are not imported because the KB has no article-tag model.", "questions.csv", row.RowNumber, "Question", id));
 
@@ -127,9 +129,54 @@ public static class HelpJuiceSourceParser
         }
 
         var answers = answersCsv.Rows.Select(row => new HelpJuiceAnswer(row.RowNumber,
-            row["id"].Trim(), row["question_id"].Trim(), row["body"], row.Values)).ToArray();
+            row["id"].Trim(), row["question_id"].Trim(), row["body"], row.Values)).ToList();
         AddDuplicateIssues(questions.Select(x => (x.Id, x.RowNumber)), "QUESTION_ID_DUPLICATE", "questions.csv", "Question", issues, Issue);
         AddDuplicateIssues(answers.Select(x => (x.Id, x.RowNumber)), "ANSWER_ID_DUPLICATE", "answers.csv", "Answer", issues, Issue);
+
+        for (var index = 0; index < questions.Count; index++)
+        {
+            var question = questions[index];
+            if (!question.HasUnrecoverableNewerDraft) continue;
+            var matchingAnswers = answers.Where(answer => answer.QuestionId.Equals(question.Id,
+                StringComparison.OrdinalIgnoreCase)).ToArray();
+            if (TryRecoverNewerDraftBody(question, matchingAnswers, out var draftBody, out var recoverySource))
+            {
+                questions[index] = question with
+                {
+                    ReconstructedNewerDraftBody = draftBody,
+                    NewerDraftRecoverySource = recoverySource
+                };
+                issues.Add(Issue("Info", "NEWER_DRAFT_RECONSTRUCTED",
+                    $"The newer draft for article '{question.Name}' ({question.Id}) was recovered from {recoverySource}; the exported answer remains the available published/current version.",
+                    "questions.csv", question.RowNumber, "Question", question.Id,
+                    $"automaticallyRepaired=true;availableVersion=exported answer;missingVersion=newer draft;recoverySource={recoverySource}"));
+            }
+            else
+            {
+                issues.Add(Issue("Warning", "UNRECONSTRUCTABLE_NEWER_DRAFT",
+                    $"Article '{question.Name}' ({question.Id}) has an available exported answer body, but HelpJuice reports a missing newer draft. No distinct draft body exists in the question or answer fields, so the available content is preserved without inventing draft content.",
+                    "questions.csv", question.RowNumber, "Question", question.Id,
+                    "automaticallyRepaired=false;availableVersion=exported answer;missingVersion=newer draft;reason=no distinct draft body in export"));
+            }
+        }
+
+        foreach (var question in questions)
+        {
+            if (answers.Any(answer => answer.QuestionId.Equals(question.Id, StringComparison.OrdinalIgnoreCase) &&
+                                      !string.IsNullOrWhiteSpace(answer.Body))) continue;
+            var candidates = new[] { "body", "body_html", "answer_body", "answer_html", "content", "content_html" }
+                .Select(field => (Field: field, Value: question.Source.GetValueOrDefault(field)))
+                .Where(candidate => !string.IsNullOrWhiteSpace(candidate.Value))
+                .DistinctBy(candidate => candidate.Value, StringComparer.Ordinal).ToArray();
+            if (candidates.Length != 1) continue;
+            var candidate = candidates[0];
+            answers.Add(new(question.RowNumber, $"recovered:{question.Id}", question.Id, candidate.Value!,
+                question.Source));
+            issues.Add(Issue("Info", "EMPTY_SOURCE_BODY_RECOVERED",
+                $"The answer row was empty or absent; article body was recovered from questions.csv field '{candidate.Field}'.",
+                "questions.csv", question.RowNumber, "Question", question.Id,
+                $"automaticallyRepaired=true;field=body;source=questions.csv:{candidate.Field}"));
+        }
 
         // HelpJuice translations commonly share codenames. Preserve every row and allocate stable source slugs.
         foreach (var group in questions.GroupBy(x => x.Slug, StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1))
@@ -180,8 +227,19 @@ public static class HelpJuiceSourceParser
             issues.Add(Issue("Error", "INVALID_ANSWER_ID", "Answer ID and question_id are required.", "answers.csv", answer.RowNumber, "Answer", answer.Id));
         foreach (var answer in answers.Where(a => a.QuestionId.Length > 0 && !questionIds.Contains(a.QuestionId)))
             issues.Add(Issue("Warning", "ANSWER_QUESTION_MISSING", $"Orphan answer references missing question '{answer.QuestionId}' and will be skipped.", "answers.csv", answer.RowNumber, "Answer", answer.Id));
-        foreach (var group in answers.Where(a => questionIds.Contains(a.QuestionId)).GroupBy(a => a.QuestionId, StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1))
-            issues.Add(Issue("Error", "MULTIPLE_ANSWERS", $"Question '{group.Key}' has multiple answer bodies and cannot be selected safely.", "answers.csv", group.First().RowNumber, "Question", group.Key));
+        foreach (var group in answers.Where(a => questionIds.Contains(a.QuestionId))
+                     .GroupBy(a => a.QuestionId, StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1))
+        {
+            var distinctBodies = group.Where(answer => !string.IsNullOrWhiteSpace(answer.Body))
+                .Select(answer => answer.Body).Distinct(StringComparer.Ordinal).ToArray();
+            if (distinctBodies.Length > 1)
+                issues.Add(Issue("Error", "MULTIPLE_ANSWERS", $"Question '{group.Key}' has multiple distinct answer bodies and cannot be selected safely.", "answers.csv", group.First().RowNumber, "Question", group.Key));
+            else if (distinctBodies.Length == 1 && string.IsNullOrWhiteSpace(group.First().Body))
+                issues.Add(Issue("Info", "EMPTY_SOURCE_BODY_RECOVERED",
+                    "The primary answer row was empty; the only non-empty body from another exported answer row was selected deterministically.",
+                    "answers.csv", group.First().RowNumber, "Question", group.Key,
+                    "automaticallyRepaired=true;field=body;source=alternate answer row"));
+        }
 
         var categories = await ParseCategoriesAsync(package, limits, issues, Issue, cancellationToken);
         var categorizations = await ParseCategorizationsAsync(package, limits, issues, Issue, cancellationToken);
@@ -282,17 +340,23 @@ public static class HelpJuiceSourceParser
                 issues.Add(Issue("Warning", "CATEGORY_COUNT_MISMATCH", $"HelpJuice reports {declaredCount} categories but its category fields contain {related.Length} distinct relationships.",
                     "questions.csv", question.RowNumber, "Question", question.Id, "automaticallyRepaired=true;field=categories_count"));
             foreach (var missingCategory in related.Where(id => !categoryIds.Contains(id)))
-                issues.Add(Issue("Warning", "ARTICLE_CATEGORY_MISSING", $"Categorization references missing category '{missingCategory}'; the article will remain uncategorized.",
+                issues.Add(Issue("Warning", "ARTICLE_CATEGORY_MISSING", $"Categorization references missing category '{missingCategory}'; the valid relationships will be kept and the fallback will be used if none remain.",
                     "categorizations.csv", null, "Question", question.Id, "automaticallyRepaired=false;field=category_id"));
             var valid = related.Where(categoryIds.Contains).ToArray();
-            if (valid.Length == 0 && declaredCount != 0)
-                issues.Add(Issue("Warning", "UNCATEGORIZED_ARTICLE", "No valid row in categorizations.csv exists; the article will remain uncategorized.",
-                    "questions.csv", question.RowNumber, "Question", question.Id, $"automaticallyRepaired=false;language_id={question.LanguageId?.ToString() ?? ""}"));
-            if (valid.Length > 1)
-                issues.Add(Issue("Warning", "MULTIPLE_CATEGORIES",
-                    $"The target schema supports one category; primary '{valid[0]}' was selected by HelpJuice position/row order and discarded relationships are [{string.Join(", ", valid.Skip(1))}].",
-                    "categorizations.csv", null, "Question", question.Id,
-                    $"automaticallyRepaired=true;field=category_id;selected={valid[0]};discarded={string.Join(',', valid.Skip(1))}"));
+            if (valid.Length == 0)
+            {
+                if (!categoryIds.Contains(FallbackCategoryExternalId))
+                {
+                    categories.Add(new(0, FallbackCategoryExternalId, null, "Need category", 0,
+                        "need-category", int.MaxValue));
+                    categoryIds.Add(FallbackCategoryExternalId);
+                }
+                valid = [FallbackCategoryExternalId];
+                issues.Add(Issue("Info", "FALLBACK_CATEGORY_ASSIGNED",
+                    "No valid HelpJuice category could be determined; the article will be assigned to the root category 'Need category'.",
+                    "questions.csv", question.RowNumber, "Question", question.Id,
+                    "automaticallyRepaired=true;field=category_id;fallback=Need category"));
+            }
             var sourceMetadata = new Dictionary<string, string>(question.Source, StringComparer.OrdinalIgnoreCase);
             if (related.Length > 0) sourceMetadata["categorizations.category_ids"] = string.Join(',', related);
             if (metadataRecovered.Length > 0) sourceMetadata["migration.category_reconstruction"] = "export_metadata";
@@ -302,7 +366,10 @@ public static class HelpJuiceSourceParser
                     category.Id.Equals(id, StringComparison.OrdinalIgnoreCase) && category.Visibility == "Internal")))
                 visibility = "Internal";
             sourceMetadata["migration.visibility"] = visibility;
-            questions[index] = question with { CategoryId = valid.FirstOrDefault(), Source = sourceMetadata, Visibility = visibility };
+            questions[index] = question with
+            {
+                CategoryId = valid[0], CategoryIds = valid, Source = sourceMetadata, Visibility = visibility
+            };
         }
 
         var questionById = questions.GroupBy(x => x.Id, StringComparer.OrdinalIgnoreCase)
@@ -318,11 +385,14 @@ public static class HelpJuiceSourceParser
         var mediaBySource = BuildMediaSourceMap(uploads);
         var localMediaNames = package.MediaFiles.Select(Path.GetFileName).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var answersByQuestion = answers.GroupBy(x => x.QuestionId, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+            .ToDictionary(g => g.Key, g => g.FirstOrDefault(answer => !string.IsNullOrWhiteSpace(answer.Body)) ?? g.First(),
+                StringComparer.OrdinalIgnoreCase);
         var emptyBodies = questions.Count(q => !answersByQuestion.TryGetValue(q.Id, out var answer) || string.IsNullOrWhiteSpace(answer.Body));
         foreach (var question in questions.Where(q => !answersByQuestion.TryGetValue(q.Id, out var answer) || string.IsNullOrWhiteSpace(answer.Body)))
-            issues.Add(Issue("Warning", "EMPTY_SOURCE_BODY", "The exported answer body is empty; a valid empty editor document will be imported.",
-                "questions.csv", question.RowNumber, "Question", question.Id, "automaticallyRepaired=true;field=body"));
+            issues.Add(Issue("Warning", "EMPTY_SOURCE_BODY",
+                $"Article '{question.Name}' ({question.Id}) has no body in any exported answer row or recognized question body field; an empty editor document will be retained for manual review.",
+                "questions.csv", question.RowNumber, "Question", question.Id,
+                "automaticallyRepaired=false;field=body;reason=no body anywhere in export"));
 
         var convertedAnswers = new Dictionary<string, HelpJuiceHtmlConversion>(StringComparer.OrdinalIgnoreCase);
         var missingMedia = 0;
@@ -360,7 +430,10 @@ public static class HelpJuiceSourceParser
                 if (source.StartsWith("blob:", StringComparison.OrdinalIgnoreCase))
                 {
                     missingMedia++;
-                    issues.Add(Issue("Warning", "UNRESOLVED_TEMPORARY_MEDIA", $"Temporary browser media '{Limit(source)}' cannot be recovered; source metadata was preserved.", "answers.csv", answer.RowNumber, "Answer", answer.Id));
+                    issues.Add(Issue("Warning", "UNRESOLVED_TEMPORARY_MEDIA",
+                        $"Article '{question.Name}' ({question.Id}) references temporary media '{Limit(source)}'; browser-only URLs are not present in the backup and cannot be recovered.",
+                        "answers.csv", answer.RowNumber, "Question", question.Id,
+                        $"automaticallyRepaired=false;missingSource={Limit(source)}"));
                     continue;
                 }
                 var absolute = Uri.TryCreate(source.StartsWith("//", StringComparison.Ordinal) ? "https:" + source : source,
@@ -375,7 +448,10 @@ public static class HelpJuiceSourceParser
                 if (source.StartsWith('/') && !source.StartsWith("//"))
                 {
                     missingMedia++;
-                    issues.Add(Issue("Warning", "UNRESOLVED_RELATIVE_MEDIA", $"Relative media '{Limit(source)}' could not be matched safely and was preserved.", "answers.csv", answer.RowNumber, "Answer", answer.Id));
+                    issues.Add(Issue("Warning", "UNRESOLVED_RELATIVE_MEDIA",
+                        $"Article '{question.Name}' ({question.Id}) references local media '{Limit(source)}', but no unique packaged file or upload mapping contains those bytes; the source path was preserved for manual recovery.",
+                        "answers.csv", answer.RowNumber, "Question", question.Id,
+                        $"automaticallyRepaired=false;missingSource={Limit(source)}"));
                     continue;
                 }
                 if (absolute && uri!.Scheme == Uri.UriSchemeHttps)
@@ -386,8 +462,9 @@ public static class HelpJuiceSourceParser
                 {
                     missingMedia++;
                     issues.Add(Issue("Warning", "UNSUPPORTED_MEDIA_URL",
-                        $"Media URL '{Limit(source)}' does not use a supported absolute HTTPS URL and cannot be imported safely (action=unsafe; preserved=true).",
-                        "answers.csv", answer.RowNumber, "Answer", answer.Id));
+                        $"Article '{question.Name}' ({question.Id}) references media '{Limit(source)}', which is neither a packaged local asset nor a supported absolute HTTPS URL; it cannot be internalized automatically.",
+                        "answers.csv", answer.RowNumber, "Question", question.Id,
+                        $"automaticallyRepaired=false;missingSource={Limit(source)};preserved=true"));
                 }
             }
             foreach (var warning in conversion.Warnings.Where(w => w.Code is not "UNRESOLVED_MEDIA" and not "UNRESOLVED_TEMPORARY_MEDIA"))
@@ -402,7 +479,7 @@ public static class HelpJuiceSourceParser
             issues.Count(i => i.ErrorCode is "ARTICLE_CATEGORY_MISSING" or "CATEGORY_PARENT_MISSING"), missingMedia,
             package.AvailableFiles, missing, package.UnsupportedFiles, issues.Count(i => i.Severity == "Error"), issues.Count(i => i.Severity == "Warning"));
         return new(questions, answers, categories, categorizationFirst, package.MediaFiles, mediaBySource,
-            convertedAnswers, issues, summary, uploads);
+            convertedAnswers, issues, summary, uploads, package.RootPath);
     }
 
     public static IReadOnlyList<HelpJuiceCategory> OrderCategories(IReadOnlyList<HelpJuiceCategory> categories, out IReadOnlyList<string> cycleIds)
@@ -548,6 +625,40 @@ public static class HelpJuiceSourceParser
             return element.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.Array &&
                    content.EnumerateArray().Any(Visit);
         }
+    }
+
+    private static bool TryRecoverNewerDraftBody(HelpJuiceQuestion question,
+        IReadOnlyList<HelpJuiceAnswer> answers, out string body, out string source)
+    {
+        static bool IsDraftBodyField(string name)
+        {
+            var normalized = Regex.Replace(name, "[^a-z0-9]+", "_", RegexOptions.IgnoreCase)
+                .Trim('_').ToLowerInvariant();
+            return normalized.Contains("draft", StringComparison.Ordinal) &&
+                   (normalized.Contains("body", StringComparison.Ordinal) ||
+                    normalized.Contains("content", StringComparison.Ordinal) ||
+                    normalized.Contains("revision", StringComparison.Ordinal)) &&
+                   normalized is not "has_draft_revision_after_current_revision";
+        }
+
+        var currentBodies = answers.Select(answer => answer.Body).Where(value => !string.IsNullOrWhiteSpace(value))
+            .ToHashSet(StringComparer.Ordinal);
+        var candidates = question.Source.Where(pair => IsDraftBodyField(pair.Key))
+            .Select(pair => (Value: pair.Value, Source: $"questions.csv:{pair.Key}"))
+            .Concat(answers.SelectMany(answer => answer.Source.Where(pair => IsDraftBodyField(pair.Key))
+                .Select(pair => (Value: pair.Value, Source: $"answers.csv row {answer.RowNumber}:{pair.Key}"))))
+            .Where(candidate => !string.IsNullOrWhiteSpace(candidate.Value) &&
+                                !currentBodies.Contains(candidate.Value))
+            .DistinctBy(candidate => candidate.Value, StringComparer.Ordinal).ToArray();
+        if (candidates.Length == 1)
+        {
+            body = candidates[0].Value;
+            source = candidates[0].Source;
+            return true;
+        }
+        body = string.Empty;
+        source = string.Empty;
+        return false;
     }
 
     private static async Task<List<HelpJuiceCategory>> ParseCategoriesAsync(PackageContents package, HelpJuiceMigrationLimits limits,
@@ -837,5 +948,5 @@ public static class HelpJuiceSourceParser
     private static bool ParseBoolean(string value,out bool valid){if(string.IsNullOrWhiteSpace(value)){valid=true;return false;} if(bool.TryParse(value,out var b)){valid=true;return b;} if(value.Trim() is "1" or "yes" or "YES" or "t" or "T"){valid=true;return true;} if(value.Trim() is "0" or "no" or "NO" or "f" or "F"){valid=true;return false;} valid=false;return false;}
     private static DateTime? ParseDate(string value,out bool valid){if(string.IsNullOrWhiteSpace(value)){valid=true;return null;}var normalized=value.Trim();if(normalized.EndsWith(" UTC",StringComparison.OrdinalIgnoreCase))normalized=normalized[..^4]+" +00:00";valid=DateTimeOffset.TryParse(normalized,System.Globalization.CultureInfo.InvariantCulture,System.Globalization.DateTimeStyles.AllowWhiteSpaces,out var d);return valid?d.UtcDateTime:null;}
     private static string? NullIfEmpty(string value)=>string.IsNullOrWhiteSpace(value)?null:value.Trim(); private static string Limit(string value)=>value.Length<=160?value:value[..157]+"...";
-    private static HelpJuiceSource EmptySummary(PackageContents p,List<MigrationIssueData> issues,IReadOnlyList<string> missing){var s=new HelpJuiceValidationSummary(0,0,0,0,0,0,0,0,0,0,p.AvailableFiles,missing,p.UnsupportedFiles,issues.Count(i=>i.Severity=="Error"),issues.Count(i=>i.Severity=="Warning"));return new([],[],[],new Dictionary<string,string>(),p.MediaFiles,new Dictionary<string,string>(),new Dictionary<string,HelpJuiceHtmlConversion>(),issues,s,[]);}
+    private static HelpJuiceSource EmptySummary(PackageContents p,List<MigrationIssueData> issues,IReadOnlyList<string> missing){var s=new HelpJuiceValidationSummary(0,0,0,0,0,0,0,0,0,0,p.AvailableFiles,missing,p.UnsupportedFiles,issues.Count(i=>i.Severity=="Error"),issues.Count(i=>i.Severity=="Warning"));return new([],[],[],new Dictionary<string,string>(),p.MediaFiles,new Dictionary<string,string>(),new Dictionary<string,HelpJuiceHtmlConversion>(),issues,s,[],p.RootPath);}
 }

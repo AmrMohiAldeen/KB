@@ -78,12 +78,17 @@ public sealed class ExportJobRepository(KbDbContext db) : IExportJobRepository
         var included = Descendants(root, categories);
         var categoryIds = included.Select(item => item.CategoryId).ToHashSet();
         var articles = await db.Articles.AsNoTracking()
-            .Where(item => item.CategoryIdFk != null && categoryIds.Contains(item.CategoryIdFk.Value) &&
+            .Where(item => (item.CategoryIdFk != null && categoryIds.Contains(item.CategoryIdFk.Value) ||
+                            item.ArticleCategories.Any(link => categoryIds.Contains(link.CategoryIdFk))) &&
                            item.DeletedAt == null && item.Status != ArticleStatuses.Deleted)
             .Select(item => new
             {
                 item.ArticleId, item.Title, item.Slug, item.CategoryIdFk, item.Position,
-                item.Status, item.CurrentDraftIdFk, item.LastPublishedVersionIdFk
+                item.Status, item.CurrentDraftIdFk, item.LastPublishedVersionIdFk,
+                CategoryIds = item.ArticleCategories.OrderBy(link => link.SortOrder)
+                    .Select(link => link.CategoryIdFk).ToArray(),
+                ExportCategoryId = item.ArticleCategories.Where(link => categoryIds.Contains(link.CategoryIdFk))
+                    .OrderBy(link => link.SortOrder).Select(link => (Guid?)link.CategoryIdFk).FirstOrDefault()
             }).ToListAsync(token);
 
         var articleIds = articles.Select(item => item.ArticleId).ToArray();
@@ -154,9 +159,9 @@ public sealed class ExportJobRepository(KbDbContext db) : IExportJobRepository
             selected.Select(item => new ExportSnapshotArticle(item.Article.ArticleId, item.SourceType,
                 item.SourceType == ExportSourceTypes.Draft ? item.Source!.Id : null,
                 item.SourceType == ExportSourceTypes.Version ? item.Source!.Id : null,
-                item.Article.CategoryIdFk, item.Article.Title, item.Article.Slug, item.Article.Position,
+                item.Article.ExportCategoryId ?? item.Article.CategoryIdFk, item.Article.Title, item.Article.Slug, item.Article.Position,
                 item.Source!.ContentJsonPath, item.Source.RenderedHtmlPath,
-                item.Source.PlainTextPath, item.Source.PublishedAt)).ToArray());
+                item.Source.PlainTextPath, item.Source.PublishedAt, item.Article.CategoryIds)).ToArray());
         var entity = NewJob(ExportEntityTypes.Category, null, categoryId, null, null, null, exportType,
             requestedBy, requestedAt, snapshot, FileName(root.Slug, exportType));
         db.ExportJobs.Add(entity);

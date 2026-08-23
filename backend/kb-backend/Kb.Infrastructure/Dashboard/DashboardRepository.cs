@@ -59,7 +59,9 @@ public sealed class DashboardRepository(KbDbContext dbContext) : IDashboardRepos
                 category.SortOrder,
                 category.Path,
                 category.Depth,
-                category.Articles.Count(article =>
+                category.ArticleCategories.Count(link => link.Article.DeletedAt == null &&
+                    link.Article.Status != ArticleStatuses.Deleted && link.Article.Status != ArticleStatuses.Archived) +
+                category.Articles.Count(article => !article.ArticleCategories.Any() &&
                     article.DeletedAt == null && article.Status != ArticleStatuses.Deleted &&
                     article.Status != ArticleStatuses.Archived),
                 category.Status,
@@ -94,7 +96,9 @@ public sealed class DashboardRepository(KbDbContext dbContext) : IDashboardRepos
                         article.CurrentDraftIdFkNavigation.LockedByFkNavigation.UserId,
                         article.CurrentDraftIdFkNavigation.LockedByFkNavigation.FullName),
                 article.Position,
-                article.Visibility))
+                article.Visibility,
+                article.ArticleCategories.OrderBy(link => link.SortOrder).Select(link => new CategoryReference(
+                    link.Category.CategoryId, link.Category.Name, link.Category.Slug, link.Category.Path)).ToArray()))
             .ToListAsync(cancellationToken);
 
         var combined = categoryItems.Select(category => new DashboardItemData(
@@ -217,6 +221,14 @@ public sealed class DashboardRepository(KbDbContext dbContext) : IDashboardRepos
                 article.CategoryIdFk = destinationCategoryId;
                 article.Position = nextPosition++;
                 article.UpdatedAt = audit.CreatedAt;
+                var categoryLinks = await dbContext.ArticleCategories
+                    .Where(link => link.ArticleIdFk == article.ArticleId).ToListAsync(cancellationToken);
+                dbContext.ArticleCategories.RemoveRange(categoryLinks);
+                dbContext.ArticleCategories.Add(new ArticleCategory
+                {
+                    ArticleIdFk = article.ArticleId, CategoryIdFk = destinationCategoryId,
+                    IsPrimary = true, SortOrder = 0
+                });
                 AddAudit(article.ArticleId, article.ArticleId, ArticleAuditEntityTypes.Article,
                     audit with
                     {
@@ -275,7 +287,8 @@ public sealed class DashboardRepository(KbDbContext dbContext) : IDashboardRepos
         if (search is not null)
             source = source.Where(article => article.Title.Contains(search));
         if (categoryId is { } id)
-            source = source.Where(article => article.CategoryIdFk == id);
+            source = source.Where(article => article.CategoryIdFk == id ||
+                article.ArticleCategories.Any(link => link.CategoryIdFk == id));
         return source;
     }
 

@@ -38,7 +38,8 @@ public sealed class ArticleRepository(KbDbContext dbContext) : IArticleRepositor
         if (query.Search is not null)
             source = source.Where(article => article.Title.Contains(query.Search));
         if (query.CategoryId is { } categoryId)
-            source = source.Where(article => article.CategoryIdFk == categoryId);
+            source = source.Where(article => article.CategoryIdFk == categoryId ||
+                article.ArticleCategories.Any(link => link.CategoryIdFk == categoryId));
         if (query.Status is not null)
             source = source.Where(article => article.Status == query.Status);
         if (query.OwnerId is { } ownerId)
@@ -68,7 +69,9 @@ public sealed class ArticleRepository(KbDbContext dbContext) : IArticleRepositor
                     ? null : new UserReference(article.CurrentDraftIdFkNavigation.LockedByFkNavigation.UserId,
                         article.CurrentDraftIdFkNavigation.LockedByFkNavigation.FullName),
                 article.Position,
-                article.Visibility))
+                article.Visibility,
+                article.ArticleCategories.OrderBy(link => link.SortOrder).Select(link => new CategoryReference(
+                    link.Category.CategoryId, link.Category.Name, link.Category.Slug, link.Category.Path)).ToArray()))
             .ToListAsync(cancellationToken);
         return new(items, query.Page, query.PageSize, totalCount);
     }
@@ -136,7 +139,9 @@ public sealed class ArticleRepository(KbDbContext dbContext) : IArticleRepositor
                 .Select(review => (DateTime?)review.CreatedAt).Max(),
             article.LastPublishedVersionIdFkNavigation == null
                 ? null : article.LastPublishedVersionIdFkNavigation.PublishedAt,
-            article.Visibility));
+            article.Visibility,
+            article.ArticleCategories.OrderBy(link => link.SortOrder).Select(link => new CategoryReference(
+                link.Category.CategoryId, link.Category.Name, link.Category.Slug, link.Category.Path)).ToArray()));
 
     public Task<ArticleMutationData?> GetForMutationAsync(Guid id, CancellationToken cancellationToken) =>
         dbContext.Articles.AsNoTracking().Where(article => article.ArticleId == id)
@@ -174,6 +179,10 @@ public sealed class ArticleRepository(KbDbContext dbContext) : IArticleRepositor
             UpdatedAt = article.CreatedAt, Position = position, Visibility = article.Visibility
         };
         dbContext.Articles.Add(entity);
+        dbContext.ArticleCategories.Add(new ArticleCategory
+        {
+            ArticleIdFk = entity.ArticleId, CategoryIdFk = article.CategoryId, IsPrimary = true, SortOrder = 0
+        });
         try
         {
             await dbContext.SaveChangesAsync(cancellationToken);
@@ -238,6 +247,13 @@ public sealed class ArticleRepository(KbDbContext dbContext) : IArticleRepositor
                 .MaxAsync(cancellationToken) ?? -1) + 1;
         }
         entity.CategoryIdFk = categoryId;
+        var categoryLinks = await dbContext.ArticleCategories
+            .Where(link => link.ArticleIdFk == id).ToListAsync(cancellationToken);
+        dbContext.ArticleCategories.RemoveRange(categoryLinks);
+        dbContext.ArticleCategories.Add(new ArticleCategory
+        {
+            ArticleIdFk = id, CategoryIdFk = categoryId, IsPrimary = true, SortOrder = 0
+        });
         entity.UpdatedAt = audit.CreatedAt;
         AddAudit(id, audit);
         await SearchIndexJobQueue.EnqueueArticleAsync(dbContext, id, SearchIndexJobTypes.Upsert,

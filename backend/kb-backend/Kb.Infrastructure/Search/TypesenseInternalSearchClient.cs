@@ -45,14 +45,14 @@ internal sealed class TypesenseInternalSearchClient : IInternalSearchClient, ITy
             ["highlight_start_tag"] = HighlightStart,
             ["highlight_end_tag"] = HighlightEnd,
             ["snippet_threshold"] = "24",
-            ["facet_by"] = "status,category_id,author_facet",
+            ["facet_by"] = "status,category_ids,author_facet",
             ["max_facet_values"] = "100",
             ["page"] = query.Page.ToString(),
             ["per_page"] = query.PageSize.ToString()
         };
         var filters = new List<string>();
         if (query.Status is not null) filters.Add($"status:={FilterValue(query.Status)}");
-        if (query.CategoryId is { } categoryId) filters.Add($"category_id:={categoryId:D}");
+        if (query.CategoryId is { } categoryId) filters.Add($"category_ids:={categoryId:D}");
         if (query.OwnerId is { } ownerId) filters.Add($"author_id:={ownerId:D}");
         if (filters.Count > 0) parameters["filter_by"] = string.Join(" && ", filters);
         var uri = $"collections/{Uri.EscapeDataString(options.CollectionAlias)}/documents/search?" +
@@ -66,7 +66,7 @@ internal sealed class TypesenseInternalSearchClient : IInternalSearchClient, ITy
         if (root.TryGetProperty("hits", out var hitArray))
             foreach (var hit in hitArray.EnumerateArray()) hits.Add(ParseHit(hit));
         return new InternalSearchResult(hits, root.TryGetProperty("found", out var found) ? found.GetInt64() : hits.Count,
-            query.Page, query.PageSize, ParseFacet(root, "status"), ParseFacet(root, "category_id"),
+            query.Page, query.PageSize, ParseFacet(root, "status"), ParseFacet(root, "category_ids"),
             ParseFacet(root, "author_facet"));
     }
 
@@ -244,6 +244,7 @@ internal sealed class TypesenseInternalSearchClient : IInternalSearchClient, ITy
                 new { name = "body", type = "string" }, new { name = "slug", type = "string" },
                 new { name = "status", type = "string", facet = true },
                 new { name = "category_id", type = "string", facet = true },
+                new { name = "category_ids", type = "string[]", facet = true, optional = true },
                 new { name = "category_name", type = "string" }, new { name = "category_path", type = "string" },
                 new { name = "author_id", type = "string", facet = true },
                 new { name = "author_name", type = "string" }, new { name = "author_facet", type = "string", facet = true },

@@ -34,7 +34,8 @@ internal sealed record InternalSearchDocument(
     [property: JsonPropertyName("is_public")] bool IsPublic = false,
     [property: JsonPropertyName("is_archived")] bool IsArchived = false,
     [property: JsonPropertyName("is_deleted")] bool IsDeleted = false,
-    [property: JsonPropertyName("category_ancestor_ids")] string[]? CategoryAncestorIds = null);
+    [property: JsonPropertyName("category_ancestor_ids")] string[]? CategoryAncestorIds = null,
+    [property: JsonPropertyName("category_ids")] string[]? CategoryIds = null);
 
 internal interface ITypesenseInternalIndex
 {

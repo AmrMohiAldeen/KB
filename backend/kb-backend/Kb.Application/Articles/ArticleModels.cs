@@ -11,12 +11,13 @@ public sealed record UserReference(Guid Id, string Name);
 public sealed record ArticleListData(Guid Id, string Title, string Slug, string Status,
     CategoryReference? Category, UserReference Owner, Guid? CurrentDraftId, Guid? CurrentPublishedVersionId,
     DateTime CreatedAt, DateTime UpdatedAt, DateTime? PublishedAt, bool IsCurrentDraftLocked,
-    UserReference? LockedBy, int Position, string Visibility = "Public");
+    UserReference? LockedBy, int Position, string Visibility = "Public",
+    IReadOnlyList<CategoryReference>? Categories = null);
 
 public sealed record ArticleData(Guid Id, string Title, string Slug, string Status, CategoryReference? Category,
     UserReference Owner, DraftData? CurrentDraft, PublishedVersionData? CurrentPublishedVersion,
     DateTime CreatedAt, DateTime UpdatedAt, DateTime? SubmittedAt, DateTime? ApprovedAt, DateTime? PublishedAt,
-    string Visibility = "Public");
+    string Visibility = "Public", IReadOnlyList<CategoryReference>? Categories = null);
 
 public sealed record DraftData(Guid Id, string ContentJsonPath, string? RenderedHtmlPath, string? PlainTextPath,
     string? ContentHash, long ContentSizeBytes, byte[] RowVersion, string Status, bool IsLocked,

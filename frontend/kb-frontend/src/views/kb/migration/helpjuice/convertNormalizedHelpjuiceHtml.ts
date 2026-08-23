@@ -44,12 +44,14 @@ function moveChildren(from: Element, to: ParentNode): void {
 }
 
 function transformCallouts(root: HTMLElement): void {
-  Array.from(root.querySelectorAll<HTMLElement>('.helpjuice-callout, .callout')).forEach(source => {
+  Array.from(root.querySelectorAll<HTMLElement>(
+    '.helpjuice-callout, .hj-callout, .helpjuice-notice, .notice, .callout, .callout-info, .callout-warning, .alert-info, .alert-warning'
+  )).forEach(source => {
     if (source.closest('[data-kb-callout]')) return
 
     const callout = replaceTag(source, 'aside')
     const variant =
-      callout.classList.contains('warning') || callout.classList.contains('callout-warning')
+      callout.classList.contains('warning') || callout.classList.contains('callout-warning') || callout.classList.contains('alert-warning')
         ? 'warning'
         : callout.classList.contains('success')
           ? 'success'
@@ -138,35 +140,6 @@ function transformTabs(root: HTMLElement): void {
 
     source.replaceWith(container)
     tabs.slice(1).forEach(tab => tab.remove())
-  })
-}
-
-function transformDecisionTrees(root: HTMLElement, warnings: MigrationWarning[]): void {
-  Array.from(root.querySelectorAll<HTMLElement>('.helpjuice-decision-tree')).forEach(tree => {
-    if (!tree.isConnected) return
-
-    warnings.push(
-      migrationWarning(
-        'DECISION_TREE_STATIC_FALLBACK',
-        'The decision tree was converted to readable static content because no compatible editor node exists.',
-        '.helpjuice-decision-tree'
-      )
-    )
-
-    const section = replaceTag(tree, 'section')
-    const heading = section.ownerDocument.createElement('h3')
-    heading.textContent = 'Decision tree'
-    section.prepend(heading)
-
-    Array.from(
-      section.querySelectorAll<HTMLElement>(
-        '.helpjuice-decision-tree-first-question, .helpjuice-decision-tree-button, .helpjuice-decision-tree-button-text, .helpjuice-decision-tree-tab-nav, .helpjuice-decision-tree-tab-content, .helpjuice-decision-tree-tab-content-inner, .helpjuice-decision-tree-tabs'
-      )
-    ).forEach(element => {
-      if (!element.isConnected) return
-      if (element.classList.contains('helpjuice-decision-tree-first-question')) replaceTag(element, 'h4')
-      else if (element.tagName.toLowerCase() === 'button') replaceTag(element, 'p')
-    })
   })
 }
 
@@ -449,7 +422,6 @@ export function prepareHelpjuiceSemanticHtml(html: string): PreparedHelpjuiceHtm
   transformCallouts(root)
   transformAccordions(root)
   transformTabs(root)
-  transformDecisionTrees(root, warnings)
   transformTaskLists(root)
   transformGlossary(root)
   flattenLayoutTables(root, warnings)

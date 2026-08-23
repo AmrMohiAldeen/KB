@@ -33,6 +33,8 @@ public partial class Article
 
     public virtual ICollection<ArticleAuditLog> ArticleAuditLogs { get; set; } = new List<ArticleAuditLog>();
 
+    public virtual ICollection<ArticleCategory> ArticleCategories { get; set; } = new List<ArticleCategory>();
+
     public virtual ICollection<ArticleComment> ArticleComments { get; set; } = new List<ArticleComment>();
 
     public virtual ICollection<ArticleNotificationPreference> ArticleNotificationPreferences { get; set; } = new List<ArticleNotificationPreference>();

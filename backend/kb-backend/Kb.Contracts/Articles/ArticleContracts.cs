@@ -42,12 +42,14 @@ public sealed record ArticleSummaryResponse(Guid ArticleId, string Title, string
 public sealed record ArticleListItemResponse(Guid ArticleId, string Title, string Slug, string Status,
     CategorySummaryResponse? Category, UserSummaryResponse Owner, Guid? CurrentDraftId,
     Guid? CurrentPublishedVersionId, DateTime CreatedAt, DateTime UpdatedAt, DateTime? PublishedAt,
-    bool IsCurrentDraftLocked, UserSummaryResponse? LockedBy, int Position, string Visibility);
+    bool IsCurrentDraftLocked, UserSummaryResponse? LockedBy, int Position, string Visibility,
+    IReadOnlyList<CategorySummaryResponse>? Categories = null);
 
 public sealed record ArticleDetailsResponse(Guid ArticleId, string Title, string Slug, string Status,
     CategorySummaryResponse? Category, UserSummaryResponse Owner, ArticleDraftMetadataResponse? CurrentDraft,
     ArticlePublishedVersionMetadataResponse? CurrentPublishedVersion, DateTime CreatedAt, DateTime UpdatedAt,
-    DateTime? SubmittedAt, DateTime? ApprovedAt, DateTime? PublishedAt, string Visibility);
+    DateTime? SubmittedAt, DateTime? ApprovedAt, DateTime? PublishedAt, string Visibility,
+    IReadOnlyList<CategorySummaryResponse>? Categories = null);
 
 public sealed record ArticleDraftMetadataResponse(Guid DraftId, string? ContentHash, long ContentSizeBytes,
     string RowVersion, string Status,

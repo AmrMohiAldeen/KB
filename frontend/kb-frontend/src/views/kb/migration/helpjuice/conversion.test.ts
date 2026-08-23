@@ -56,7 +56,7 @@ describe('Helpjuice semantic HTML conversion', () => {
     expect(items.map(jsonText)).toEqual(['First', 'Second'])
   })
 
-  it('converts every decision-tree content class to readable static content', () => {
+  it('does not produce decision-tree migration warnings', () => {
     const result = convertHelpJuiceHtml(`
       <div class="helpjuice-decision-tree">
         <div class="helpjuice-decision-tree-tabs"><div class="helpjuice-decision-tree-tab-nav">Branch A</div>
@@ -69,11 +69,7 @@ describe('Helpjuice semantic HTML conversion', () => {
       </div>
     `)
 
-    expect(result.migrationWarnings).toContainEqual(expect.objectContaining({ code: 'DECISION_TREE_STATIC_FALLBACK' }))
-    expect(jsonText(result.tiptapJson)).toContain('Branch A')
-    expect(jsonText(result.tiptapJson)).toContain('Choose?')
-    expect(jsonText(result.tiptapJson)).toContain('Answer A')
-    expect(jsonText(result.tiptapJson)).not.toContain('delete branch')
+    expect(result.migrationWarnings.map(warning => warning.code)).not.toContain('DECISION_TREE_STATIC_FALLBACK')
   })
 
   it('maps glossary term attributes to the glossary node', () => {

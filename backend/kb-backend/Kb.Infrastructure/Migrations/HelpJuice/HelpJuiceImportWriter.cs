@@ -111,7 +111,12 @@ public sealed class HelpJuiceImportWriter(KbDbContext db, TimeProvider timeProvi
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
         var mapping = await FindMappingAsync("Category", source.ExternalId, ct);
         var existing = mapping is null
-            ? await db.Categories.SingleOrDefaultAsync(x => x.Slug == source.Slug, ct)
+            ? source.ExternalId == HelpJuiceSourceParser.FallbackCategoryExternalId
+                ? await db.Categories.OrderByDescending(category => category.Name == "Need category" &&
+                        category.ParentCategoryIdFk == null)
+                    .FirstOrDefaultAsync(category => category.Slug == source.Slug ||
+                        category.Name == "Need category" && category.ParentCategoryIdFk == null, ct)
+                : await db.Categories.SingleOrDefaultAsync(x => x.Slug == source.Slug, ct)
             : await db.Categories.SingleOrDefaultAsync(x => x.CategoryId == mapping.InternalId, ct)
                 ?? throw new ConflictException($"Mapped HelpJuice category '{source.ExternalId}' no longer exists.");
         if (existing is not null && (mapping is not null && !behavior.Equals(MigrationConflictBehaviors.UpdateExisting, StringComparison.OrdinalIgnoreCase) || behavior.Equals(MigrationConflictBehaviors.Skip, StringComparison.OrdinalIgnoreCase)))
@@ -171,7 +176,9 @@ public sealed class HelpJuiceImportWriter(KbDbContext db, TimeProvider timeProvi
         if(mapping is null&&existing is not null&&!behavior.Equals(MigrationConflictBehaviors.UpdateExisting,StringComparison.OrdinalIgnoreCase)) existing=null;
         if(existing is not null&&(mapping is not null&&!behavior.Equals(MigrationConflictBehaviors.UpdateExisting,StringComparison.OrdinalIgnoreCase)||behavior.Equals(MigrationConflictBehaviors.Skip,StringComparison.OrdinalIgnoreCase)))
         {
-            if(source.AuthorResolved&&Reattribute(existing,source.AuthorId))
+            var categoryChanged = await SynchronizeArticleCategoriesAsync(existing, source, ct);
+            var authorChanged = source.AuthorResolved && Reattribute(existing,source.AuthorId);
+            if(categoryChanged || authorChanged)
             {
                 await SearchIndexJobQueue.EnqueueArticleAsync(db,existing.ArticleId,SearchIndexJobTypes.Upsert,timeProvider.GetUtcNow().UtcDateTime,ct);
                 AddAudit(source.ActorId,"MigrationArticleAuthorReconciled","Article",existing.ArticleId,existing.ArticleId,operationId);
@@ -218,19 +225,21 @@ public sealed class HelpJuiceImportWriter(KbDbContext db, TimeProvider timeProvi
         Guid? versionId=null;
         if(source.CreatePublishedVersion)
         {
-            var existingVersion=await db.ArticleVersions.AsNoTracking().Where(x=>x.ArticleIdFk==article.ArticleId&&x.ContentHash==source.Content.Hash).OrderByDescending(x=>x.VersionNumber).FirstOrDefaultAsync(ct);
+            var versionHash=source.Content.VersionHash??source.Content.Hash;
+            var existingVersion=await db.ArticleVersions.AsNoTracking().Where(x=>x.ArticleIdFk==article.ArticleId&&x.ContentHash==versionHash).OrderByDescending(x=>x.VersionNumber).FirstOrDefaultAsync(ct);
             if(existingVersion is not null) versionId=existingVersion.VersionId;
             else
             {
                 versionId=Guid.NewGuid();var number=await db.ArticleVersions.Where(x=>x.ArticleIdFk==article.ArticleId).MaxAsync(x=>(int?)x.VersionNumber,ct)??0;number++;
-                var version=new ArticleVersion{VersionId=versionId.Value,ArticleIdFk=article.ArticleId,VersionNumber=number,SourceDraftIdFk=draft.DraftId,SourceDraftNumber=draft.DraftNumber,SnapshotReason=ArticleSnapshotReasons.Published,ContentJsonStoragePath=source.Content.VersionJsonPath??source.Content.JsonPath,RenderedHtmlStoragePath=source.Content.VersionHtmlPath??source.Content.HtmlPath,PlainTextStoragePath=source.Content.VersionTextPath??source.Content.TextPath,ContentHash=source.Content.Hash,ContentSizeBytes=source.Content.Size,CreatedAt=source.UpdatedAt,CreatedByFk=source.AuthorId,PublishedByFk=source.AuthorId,PublishedAt=source.PublishedAt};
+                var version=new ArticleVersion{VersionId=versionId.Value,ArticleIdFk=article.ArticleId,VersionNumber=number,SourceDraftIdFk=draft.DraftId,SourceDraftNumber=draft.DraftNumber,SnapshotReason=ArticleSnapshotReasons.Published,ContentJsonStoragePath=source.Content.VersionJsonPath??source.Content.JsonPath,RenderedHtmlStoragePath=source.Content.VersionHtmlPath??source.Content.HtmlPath,PlainTextStoragePath=source.Content.VersionTextPath??source.Content.TextPath,ContentHash=versionHash,ContentSizeBytes=source.Content.VersionSize??source.Content.Size,CreatedAt=source.UpdatedAt,CreatedByFk=source.AuthorId,PublishedByFk=source.AuthorId,PublishedAt=source.PublishedAt};
                 db.ArticleVersions.Add(version);
                 AddAudit(source.ActorId,"MigrationPublishedVersionCreated","ArticleVersion",versionId,article.ArticleId,operationId);
             }
             article.LastPublishedVersionIdFk=versionId;
-            await SynchronizeReferencesAsync(source.Content.MediaIds,article.ArticleId,"Version",versionId.Value,ct);
+            await SynchronizeReferencesAsync(source.Content.VersionMediaIds??source.Content.MediaIds,article.ArticleId,"Version",versionId.Value,ct);
         }
         await SynchronizeReferencesAsync(source.Content.MediaIds,article.ArticleId,"Draft",draft.DraftId,ct);
+        await SynchronizeArticleCategoriesAsync(article, source, ct);
         await SearchIndexJobQueue.EnqueueArticleAsync(db,article.ArticleId,SearchIndexJobTypes.Upsert,timeProvider.GetUtcNow().UtcDateTime,ct);
         AddAudit(source.ActorId,disposition==MigrationWriteDisposition.Updated?"MigrationArticleUpdated":"MigrationArticleImported","Article",article.ArticleId,article.ArticleId,operationId);
         await SaveAsync(ct);await tx.CommitAsync(ct);return new(article.ArticleId,disposition,draft.DraftId,versionId);
@@ -249,6 +258,28 @@ public sealed class HelpJuiceImportWriter(KbDbContext db, TimeProvider timeProvi
     }
 
     private async Task SynchronizeReferencesAsync(IEnumerable<Guid> ids,Guid articleId,string type,Guid entityId,CancellationToken ct){var desired=ids.ToHashSet();var existing=await db.MediaReferences.Where(x=>x.ReferenceEntityType==type&&x.ReferenceEntityId==entityId).ToListAsync(ct);db.MediaReferences.RemoveRange(existing.Where(x=>!desired.Contains(x.MediaIdFk)));var current=existing.Select(x=>x.MediaIdFk).ToHashSet();foreach(var id in desired.Where(id=>!current.Contains(id)))db.MediaReferences.Add(new(){ReferenceId=NewId(),MediaIdFk=id,ArticleIdFk=articleId,ReferenceEntityType=type,ReferenceEntityId=entityId});}
+    private async Task<bool> SynchronizeArticleCategoriesAsync(Article article, ImportedArticleData source,
+        CancellationToken ct)
+    {
+        var desired = (source.CategoryIds ?? (source.CategoryId is null ? [] : [source.CategoryId.Value]))
+            .Where(id => id != Guid.Empty).Distinct().ToArray();
+        if (source.CategoryId is { } primary && desired.Contains(primary))
+            desired = [primary, .. desired.Where(id => id != primary)];
+        var existing = await db.ArticleCategories.Where(link => link.ArticleIdFk == article.ArticleId).ToListAsync(ct);
+        var desiredPrimary = desired.Length == 0 ? (Guid?)null : desired[0];
+        var changed = existing.Count != desired.Length || !existing.OrderBy(link => link.SortOrder)
+            .Select(link => link.CategoryIdFk).SequenceEqual(desired) || article.CategoryIdFk != desiredPrimary;
+        if (!changed) return false;
+        db.ArticleCategories.RemoveRange(existing);
+        for (var index = 0; index < desired.Length; index++)
+            db.ArticleCategories.Add(new ArticleCategory
+            {
+                ArticleIdFk = article.ArticleId, CategoryIdFk = desired[index], IsPrimary = index == 0,
+                SortOrder = index
+            });
+        article.CategoryIdFk = desired.Length == 0 ? null : desired[0];
+        return true;
+    }
     private void AddAudit(Guid actor,string action,string type,Guid? entityId,Guid? articleId,Guid operationId)=>db.ArticleAuditLogs.Add(new(){AuditLogId=NewId(),ActorIdFk=actor,ArticleIdFk=articleId,ActionType=action,EntityType=type,EntityId=entityId,MetaDataJson=JsonSerializer.Serialize(new{migrationOperationId=operationId,sourceSystem="HelpJuice"}),CreatedAt=timeProvider.GetUtcNow().UtcDateTime});
     private async Task<string> BuildCategoryPath(Guid? parent,Guid id,CancellationToken ct){if(parent is null)return $"/{id:N}/";var path=await db.Categories.Where(x=>x.CategoryId==parent).Select(x=>x.Path).SingleOrDefaultAsync(ct)??throw new ConflictException("Imported category parent is unavailable.");return $"{path}{id:N}/";}
     private async Task<string> AllocateCategorySlugAsync(string source,CancellationToken ct){var stem=source.Length==0?"category":source;for(var n=1;n<100000;n++){var suffix=n==1?"":$"-{n}";var candidate=stem[..Math.Min(stem.Length,250-suffix.Length)].TrimEnd('-')+suffix;if(!await db.Categories.AnyAsync(x=>x.Slug==candidate,ct))return candidate;}throw new ConflictException("A unique category slug could not be allocated.");}

@@ -15,7 +15,9 @@ public static class HelpJuicePreviewBuilder
             var answers = answersByQuestion.GetValueOrDefault(question.Id) ?? [];
             var answer = answers.FirstOrDefault();
             var categoryId = question.CategoryId ?? source.CategorizationByQuestionId.GetValueOrDefault(question.Id);
-            var categoryIds = CategoryAncestry(categoryId, categories);
+            var directCategoryIds = question.CategoryIds ?? (categoryId is null ? [] : [categoryId]);
+            var categoryIds = directCategoryIds.SelectMany(id => CategoryAncestry(id, categories))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
             var answerIds = answers.Select(item => item.Id).Where(id => id.Length > 0)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
             var issues = source.Issues.Where(issue => IsArticleIssue(
@@ -27,10 +29,12 @@ public static class HelpJuicePreviewBuilder
 
             return new HelpJuiceMigrationPreviewArticle(question.Id, question.RowNumber, answer?.Id,
                 answer?.RowNumber, question.Name, question.Slug, question.Description, question.IsPublished, question.IsArchived,
-                question.CreatedAt, question.UpdatedAt, categoryId, CategoryLocation(categoryIds, categories),
+                question.CreatedAt, question.UpdatedAt, categoryId,
+                string.Join("; ", directCategoryIds.Select(id => CategoryLocation(CategoryAncestry(id, categories), categories))
+                    .Where(location => !string.IsNullOrWhiteSpace(location))),
                 question.Visibility, question.HelpJuiceAuthorId, question.AuthorUserId, question.AuthorName,
                 conversion.RenderedHtml, conversion.PlainText.Length,
-                SourceMetadata(question, answer), issues);
+                SourceMetadata(question, answer), issues, directCategoryIds);
         }).ToArray();
 
         var packageIssues = source.Issues.Where(issue => issue.RowNumber is null &&

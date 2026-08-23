@@ -9,7 +9,6 @@ export type MigrationWarningCode =
   | 'H5_MAPPED_TO_H4'
   | 'LAYOUT_TABLE_FLATTENED'
   | 'UNSUPPORTED_EMBED'
-  | 'DECISION_TREE_STATIC_FALLBACK'
   | 'TRANSLATION_PLACEHOLDER'
   | 'EMPTY_ANSWER'
   | 'TEXT_CONTENT_MISMATCH'
@@ -39,8 +38,13 @@ export const HELPJUICE_CLASS_REGISTRY = {
     'success',
     'warning',
     'callout',
+    'hj-callout',
+    'notice',
+    'helpjuice-notice',
     'callout-info',
     'callout-warning',
+    'alert-info',
+    'alert-warning',
     'helpjuice-accordion',
     'helpjuice-accordion-title',
     'helpjuice-accordion-body',

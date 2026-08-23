@@ -81,7 +81,8 @@ public sealed class CategoryRepository(KbDbContext dbContext) : ICategoryReposit
         dbContext.Categories.AsNoTracking().AnyAsync(category => category.ParentCategoryIdFk == id, cancellationToken);
 
     public Task<bool> HasArticlesAsync(Guid id, CancellationToken cancellationToken) =>
-        dbContext.Articles.AsNoTracking().AnyAsync(article => article.CategoryIdFk == id, cancellationToken);
+        dbContext.Articles.AsNoTracking().AnyAsync(article => article.CategoryIdFk == id ||
+            article.ArticleCategories.Any(link => link.CategoryIdFk == id), cancellationToken);
 
     public Task<bool> IsActiveImageMediaAsync(Guid id, CancellationToken cancellationToken) =>
         dbContext.MediaFiles.AsNoTracking().AnyAsync(media => media.MediaId == id &&
@@ -149,7 +150,8 @@ public sealed class CategoryRepository(KbDbContext dbContext) : ICategoryReposit
             await SearchIndexJobQueue.EnqueueCategoryAsync(dbContext, affectedId, SearchIndexJobTypes.Upsert,
                 audit.CreatedAt, cancellationToken);
         var affectedArticleIds = await dbContext.Articles.AsNoTracking()
-            .Where(article => article.CategoryIdFk.HasValue && affectedIds.Contains(article.CategoryIdFk.Value) &&
+            .Where(article => (article.CategoryIdFk.HasValue && affectedIds.Contains(article.CategoryIdFk.Value) ||
+                               article.ArticleCategories.Any(link => affectedIds.Contains(link.CategoryIdFk))) &&
                               article.DeletedAt == null && article.Status != ArticleStatuses.Deleted)
             .Select(article => article.ArticleId).ToArrayAsync(cancellationToken);
         foreach (var articleId in affectedArticleIds)
@@ -188,7 +190,8 @@ public sealed class CategoryRepository(KbDbContext dbContext) : ICategoryReposit
             await SearchIndexJobQueue.EnqueueCategoryAsync(dbContext, update.Id, SearchIndexJobTypes.Upsert,
                 audit.CreatedAt, cancellationToken);
         var articleIds = await dbContext.Articles.AsNoTracking()
-            .Where(article => article.CategoryIdFk.HasValue && ids.Contains(article.CategoryIdFk.Value) &&
+            .Where(article => (article.CategoryIdFk.HasValue && ids.Contains(article.CategoryIdFk.Value) ||
+                               article.ArticleCategories.Any(link => ids.Contains(link.CategoryIdFk))) &&
                               article.DeletedAt == null && article.Status != ArticleStatuses.Deleted)
             .Select(article => article.ArticleId).ToListAsync(cancellationToken);
         foreach (var articleId in articleIds)
@@ -220,7 +223,8 @@ public sealed class CategoryRepository(KbDbContext dbContext) : ICategoryReposit
             await SearchIndexJobQueue.EnqueueCategoryAsync(dbContext, affectedId, SearchIndexJobTypes.Upsert,
                 audit.CreatedAt, cancellationToken);
         var articleIds = await dbContext.Articles.AsNoTracking()
-            .Where(article => article.CategoryIdFk.HasValue && affectedIds.Contains(article.CategoryIdFk.Value) &&
+            .Where(article => (article.CategoryIdFk.HasValue && affectedIds.Contains(article.CategoryIdFk.Value) ||
+                               article.ArticleCategories.Any(link => affectedIds.Contains(link.CategoryIdFk))) &&
                               article.DeletedAt == null && article.Status != ArticleStatuses.Deleted)
             .Select(article => article.ArticleId).ToArrayAsync(cancellationToken);
         foreach (var articleId in articleIds)

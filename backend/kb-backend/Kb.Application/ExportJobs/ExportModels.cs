@@ -13,7 +13,7 @@ public sealed record ExportSnapshotCategory(Guid Id, Guid? ParentId, string Name
 public sealed record ExportSnapshotArticle(Guid ArticleId, string SourceType, Guid? DraftId,
     Guid? VersionId, Guid? CategoryId,
     string Title, string Slug, int Position, string ContentJsonPath, string? RenderedHtmlPath,
-    string? PlainTextPath, DateTime? PublishedAt);
+    string? PlainTextPath, DateTime? PublishedAt, IReadOnlyList<Guid>? CategoryIds = null);
 
 public sealed record ExportJobData(Guid Id, string EntityType, Guid? ArticleId, Guid? CategoryId,
     string? SourceType, Guid? DraftId, Guid? VersionId, string ExportType, string Status,

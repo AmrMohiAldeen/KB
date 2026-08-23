@@ -208,7 +208,10 @@ public sealed class ViewerRepository(KbDbContext db, TimeProvider timeProvider) 
         VisibleCategories(rootPath).OrderBy(item => item.Depth).ThenBy(item => item.SortOrder)
             .ThenBy(item => item.Name).Select(category => new ViewerCategoryData(category.CategoryId,
                 category.ParentCategoryIdFk, category.Name, category.Slug, category.Description, category.SortOrder,
-                category.Path, category.Depth, category.Articles.Count(article =>
+                category.Path, category.Depth, category.ArticleCategories.Count(link =>
+                    link.Article.Visibility == ContentVisibilities.Public && link.Article.Status == ArticleStatuses.Published &&
+                    link.Article.DeletedAt == null && link.Article.LastPublishedVersionIdFk != null) +
+                category.Articles.Count(article => !article.ArticleCategories.Any() &&
                     article.Visibility == ContentVisibilities.Public && article.Status == ArticleStatuses.Published &&
                     article.DeletedAt == null && article.LastPublishedVersionIdFk != null),
                 category.ViewerImageMediaIdFkNavigation != null &&
@@ -230,7 +233,8 @@ public sealed class ViewerRepository(KbDbContext db, TimeProvider timeProvider) 
     {
         var query = VisibleArticles(rootPath);
         if (search is not null) query = query.Where(article => article.Title.Contains(search));
-        if (categoryId is { } id) query = query.Where(article => article.CategoryIdFk == id);
+        if (categoryId is { } id) query = query.Where(article =>
+            article.CategoryIdFk == id || article.ArticleCategories.Any(link => link.CategoryIdFk == id));
         return await query.OrderBy(article => article.Position).ThenBy(article => article.Title)
             .Select(article => new ViewerArticleSummary(article.ArticleId, article.Title, article.Slug,
                 article.CategoryIdFk!.Value, article.CategoryIdFkNavigation!.Name,
@@ -260,13 +264,17 @@ public sealed class ViewerRepository(KbDbContext db, TimeProvider timeProvider) 
     private IQueryable<Article> VisibleArticles(string rootPath) => db.Articles.AsNoTracking().Where(article =>
         article.Visibility == ContentVisibilities.Public && article.Status == ArticleStatuses.Published &&
         article.DeletedAt == null && article.LastPublishedVersionIdFk != null && article.CategoryIdFk != null &&
-        article.CategoryIdFkNavigation != null && article.CategoryIdFkNavigation.Path != null &&
-        article.CategoryIdFkNavigation.Path.StartsWith(rootPath) &&
-        article.CategoryIdFkNavigation.Status == CategoryStatuses.Active &&
-        article.CategoryIdFkNavigation.Visibility == ContentVisibilities.Public &&
-        !db.Categories.Any(ancestor => ancestor.Path != null &&
-            article.CategoryIdFkNavigation.Path.StartsWith(ancestor.Path) &&
-            (ancestor.Status != CategoryStatuses.Active || ancestor.Visibility != ContentVisibilities.Public)));
+        article.CategoryIdFkNavigation != null &&
+        (article.CategoryIdFkNavigation.Path != null && article.CategoryIdFkNavigation.Path.StartsWith(rootPath) &&
+             article.CategoryIdFkNavigation.Status == CategoryStatuses.Active &&
+             article.CategoryIdFkNavigation.Visibility == ContentVisibilities.Public &&
+             !db.Categories.Any(ancestor => ancestor.Path != null &&
+                 article.CategoryIdFkNavigation.Path.StartsWith(ancestor.Path) &&
+                 (ancestor.Status != CategoryStatuses.Active || ancestor.Visibility != ContentVisibilities.Public)) ||
+         article.ArticleCategories.Any(link => link.Category.Path != null && link.Category.Path.StartsWith(rootPath) &&
+             link.Category.Status == CategoryStatuses.Active && link.Category.Visibility == ContentVisibilities.Public &&
+             !db.Categories.Any(ancestor => ancestor.Path != null && link.Category.Path.StartsWith(ancestor.Path) &&
+                 (ancestor.Status != CategoryStatuses.Active || ancestor.Visibility != ContentVisibilities.Public)))));
 
     private static string RequiredRootPath(ViewerSolution solution) => solution.RootCategory.Path ??
         throw new ConflictException("The Viewer solution root category has no hierarchy path.");

@@ -97,7 +97,7 @@ public sealed class HelpJuiceParsingTests
         Assert.True(preview.IsLimited);Assert.Equal(2,preview.SourceArticleCount);
         Assert.Equal("One",article.Title);Assert.Equal("Guides / Setup",article.CategoryLocation);
         Assert.Contains("First body",article.ContentHtml);Assert.Equal("u1",article.SourceMetadata["question.user_id"]);
-        Assert.Contains(article.Issues,issue=>issue.ErrorCode=="UNSUPPORTED_MEDIA_URL"&&issue.ExternalId=="a1");
+        Assert.Contains(article.Issues,issue=>issue.ErrorCode=="UNSUPPORTED_MEDIA_URL"&&issue.ExternalId=="q1");
         Assert.DoesNotContain(article.Issues,issue=>issue.ExternalId is "q2" or "a2");
     }
 
@@ -132,7 +132,8 @@ public sealed class HelpJuiceParsingTests
         Assert.Equal("same-q2",source.Questions.Single(x=>x.Id=="q2").Slug);
         Assert.Equal("draft",source.Questions.Single(x=>x.Id=="q3").Slug);
         Assert.True(source.Questions.Single(x=>x.Id=="q2").IsArchived);
-        Assert.Null(source.Questions.Single(x=>x.Id=="q3").CategoryId);
+        Assert.Equal(HelpJuiceSourceParser.FallbackCategoryExternalId,
+            source.Questions.Single(x=>x.Id=="q3").CategoryId);
         Assert.Contains(source.Issues,x=>x.ErrorCode=="EMPTY_SOURCE_BODY"&&x.ExternalId=="q2");
         Assert.Contains(source.Issues,x=>x.ErrorCode=="CATEGORY_COUNT_MISMATCH"&&x.ExternalId=="q3");
         Assert.Equal("11",source.Questions.Single(x=>x.Id=="q1").HelpJuiceAuthorId);
@@ -150,6 +151,8 @@ public sealed class HelpJuiceParsingTests
         var source=await HelpJuiceSourceParser.ParseAndValidateAsync(package,new(),TimeProvider.System);
 
         Assert.Equal("c1",source.Questions.Single(question=>question.Id=="q1").CategoryId);
+        Assert.Equal(HelpJuiceSourceParser.FallbackCategoryExternalId,
+            source.Questions.Single(question=>question.Id=="q2").CategoryId);
         Assert.DoesNotContain(source.Issues,issue=>issue.ExternalId=="q1"&&issue.ErrorCode is "CATEGORY_COUNT_MISMATCH" or "UNCATEGORIZED_ARTICLE");
         Assert.DoesNotContain(source.Issues,issue=>issue.ExternalId=="q2"&&issue.ErrorCode=="UNCATEGORIZED_ARTICLE");
     }
@@ -181,14 +184,15 @@ public sealed class HelpJuiceParsingTests
             "id,question_id,category_id,position\nx1,q-en,c-en,1");
         var source=await HelpJuiceSourceParser.ParseAndValidateAsync(package,new(),TimeProvider.System);
 
-        Assert.Null(source.Questions.Single(question=>question.Id=="q-ar").CategoryId);
+        Assert.Equal(HelpJuiceSourceParser.FallbackCategoryExternalId,
+            source.Questions.Single(question=>question.Id=="q-ar").CategoryId);
         Assert.DoesNotContain(source.Issues,issue=>issue.ExternalId=="q-ar"&&issue.ErrorCode=="CATEGORY_RELATIONSHIP_RECONSTRUCTED");
         Assert.Contains(source.Issues,issue=>issue.ExternalId=="q-ar"&&issue.ErrorCode=="CATEGORY_COUNT_MISMATCH");
-        Assert.Contains(source.Issues,issue=>issue.ExternalId=="q-ar"&&issue.ErrorCode=="UNCATEGORIZED_ARTICLE");
+        Assert.Contains(source.Issues,issue=>issue.ExternalId=="q-ar"&&issue.ErrorCode=="FALLBACK_CATEGORY_ASSIGNED");
     }
 
     [Fact]
-    public async Task All_source_categories_are_preserved_in_metadata_when_the_target_selects_one()
+    public async Task All_source_categories_are_preserved_as_article_memberships()
     {
         using var package=Package("id,name,categories_count\nq1,One,2", "id,question_id,body\na1,q1,Body",
             "id,parent_id,name\nc1,,First\nc2,,Second",
@@ -197,8 +201,9 @@ public sealed class HelpJuiceParsingTests
         var question=Assert.Single(source.Questions);
 
         Assert.Equal("c1",question.CategoryId);
+        Assert.Equal(["c1","c2"], question.CategoryIds);
         Assert.Equal("c1,c2",question.Source["categorizations.category_ids"]);
-        Assert.Contains(source.Issues,issue=>issue.ErrorCode=="MULTIPLE_CATEGORIES");
+        Assert.DoesNotContain(source.Issues,issue=>issue.ErrorCode=="MULTIPLE_CATEGORIES");
     }
 
     [Fact]
@@ -274,6 +279,38 @@ public sealed class HelpJuiceParsingTests
         Assert.Contains("data-kb-callout",result.RenderedHtml);
         Assert.Contains("data-kb-tabs",result.RenderedHtml);
         Assert.Contains("data-kb-accordion",result.RenderedHtml);
+    }
+
+    [Fact]
+    public void Info_callouts_direction_and_ordered_list_start_are_preserved_in_json_and_html()
+    {
+        var result = HelpJuiceHtmlConverter.Convert("""
+            <div class="callout-info"><p dir="rtl">تنبيه <a href="/guide">الرابط</a></p></div>
+            <ol start="125" dir="ltr"><li>One hundred twenty-five</li></ol>
+            """);
+
+        Assert.Contains("\"type\":\"callout\"", result.TiptapJson);
+        Assert.Contains("\"variant\":\"info\"", result.TiptapJson);
+        Assert.Contains("\"dir\":\"rtl\"", result.TiptapJson);
+        Assert.Contains("\"start\":125", result.TiptapJson);
+        Assert.Contains("<p dir=\"rtl\">", result.RenderedHtml);
+        Assert.Contains("<ol dir=\"ltr\" start=\"125\">", result.RenderedHtml);
+        Assert.DoesNotContain(result.Warnings, warning => warning.Code == "MEANINGFUL_CLASS_NOT_PRESERVED");
+    }
+
+    [Fact]
+    public async Task Newer_draft_is_recovered_only_from_a_distinct_exported_draft_body()
+    {
+        using var package = Package(
+            "id,name,is_published,has_draft_revision_after_current_revision,draft_body\nq1,Guide,true,true,<p>New draft</p>",
+            "id,question_id,body\na1,q1,<p>Published</p>");
+
+        var source = await HelpJuiceSourceParser.ParseAndValidateAsync(package, new(), TimeProvider.System);
+        var question = Assert.Single(source.Questions);
+
+        Assert.Equal("<p>New draft</p>", question.ReconstructedNewerDraftBody);
+        Assert.Contains(source.Issues, issue => issue.ErrorCode == "NEWER_DRAFT_RECONSTRUCTED");
+        Assert.DoesNotContain(source.Issues, issue => issue.ErrorCode == "UNRECONSTRUCTABLE_NEWER_DRAFT");
     }
 
     [Fact]

@@ -168,6 +168,33 @@ public sealed class HelpJuiceImportWriterTests
         Assert.Equal(2,await f.Context.MigrationExternalMappings.CountAsync(mapping=>mapping.ExternalEntityType=="Media"));
     }
 
+    [Fact]
+    public async Task Import_preserves_every_category_and_keeps_the_first_as_legacy_primary()
+    {
+        await using var f = await Fixture.CreateAsync();
+        var firstCategory = Guid.NewGuid();
+        var secondCategory = Guid.NewGuid();
+        f.Context.Categories.AddRange(
+            new Category { CategoryId = firstCategory, Name = "First", Slug = "first", Depth = 0, SortOrder = 0 },
+            new Category { CategoryId = secondCategory, Name = "Second", Slug = "second", Depth = 0, SortOrder = 1 });
+        await f.Context.SaveChangesAsync();
+
+        var result = await f.Writer.WriteArticleAsync(f.OperationId,
+            Article("multiple-categories", false, f.UserId) with
+            {
+                CategoryId = firstCategory, CategoryIds = [firstCategory, secondCategory]
+            }, MigrationConflictBehaviors.Skip, default);
+
+        f.Context.ChangeTracker.Clear();
+        Assert.Equal(firstCategory, (await f.Context.Articles.SingleAsync(article =>
+            article.ArticleId == result.InternalId)).CategoryIdFk);
+        var links = await f.Context.ArticleCategories.Where(link => link.ArticleIdFk == result.InternalId)
+            .OrderBy(link => link.SortOrder).ToListAsync();
+        Assert.Equal([firstCategory, secondCategory], links.Select(link => link.CategoryIdFk));
+        Assert.True(links[0].IsPrimary);
+        Assert.False(links[1].IsPrimary);
+    }
+
     private static ImportedArticleData Article(string id,bool published,Guid actor)=>new(id,id,id,null,null,actor,actor,true,published?ArticleStatuses.Published:ArticleStatuses.Draft,published,DateTime.UtcNow.AddDays(-1),DateTime.UtcNow,null,new($"draft/{id}.json",$"draft/{id}.html",$"draft/{id}.txt","a".PadLeft(64,'0'),20,[],published?$"version/{id}.json":null,published?$"version/{id}.html":null,published?$"version/{id}.txt":null));
 
     private sealed class Fixture : IAsyncDisposable

@@ -44,6 +44,8 @@ internal sealed class InternalSearchDocumentSource(
 
         var categories = await LoadCategoriesAsync(cancellationToken);
         categories.TryGetValue(article.CategoryIdFk ?? Guid.Empty, out var category);
+        var assignedCategoryIds = await ArticleCategoryIdsAsync(article.ArticleId, article.CategoryIdFk,
+            cancellationToken);
         var hasDraftContent = !string.IsNullOrWhiteSpace(article.PlainTextPath) ||
                               !string.IsNullOrWhiteSpace(article.JsonPath);
         var body = await ReadDraftTextAsync(
@@ -53,7 +55,10 @@ internal sealed class InternalSearchDocumentSource(
         return new InternalSearchDocument($"article_{article.ArticleId:N}", "article", article.ArticleId.ToString("D"),
             article.Title, body, article.Slug, article.Status, article.CategoryIdFk?.ToString("D") ?? string.Empty,
             category?.Name ?? string.Empty, BuildCategoryPath(category, categories), article.AuthorIdFk.ToString("D"),
-            article.OwnerName, $"{article.AuthorIdFk:D}|{article.OwnerName}", ToUnixTime(article.UpdatedAt));
+            article.OwnerName, $"{article.AuthorIdFk:D}|{article.OwnerName}", ToUnixTime(article.UpdatedAt),
+            CategoryIds: assignedCategoryIds.Select(value => value.ToString("D")).ToArray(),
+            CategoryAncestorIds: assignedCategoryIds.Where(categories.ContainsKey)
+                .SelectMany(value => CategoryAncestorIds(categories[value], categories)).Distinct().ToArray());
     }
 
     public async Task<InternalSearchDocument?> GetCategoryAsync(Guid id, CancellationToken cancellationToken)
@@ -65,7 +70,8 @@ internal sealed class InternalSearchDocumentSource(
             .MaxAsync(log => (DateTime?)log.CreatedAt, cancellationToken) ?? DateTime.UnixEpoch;
         return new InternalSearchDocument($"category_{id:N}", "category", id.ToString("D"), category.Name,
             category.Description ?? string.Empty, category.Slug, category.Status, id.ToString("D"), category.Name,
-            BuildCategoryPath(category, categories), string.Empty, string.Empty, string.Empty, ToUnixTime(updatedAt));
+            BuildCategoryPath(category, categories), string.Empty, string.Empty, string.Empty, ToUnixTime(updatedAt),
+            CategoryIds: [id.ToString("D")], CategoryAncestorIds: CategoryAncestorIds(category, categories));
     }
 
     public async Task<InternalSearchDocument?> GetPublicArticleAsync(Guid id, CancellationToken cancellationToken)
@@ -82,15 +88,22 @@ internal sealed class InternalSearchDocumentSource(
             }).SingleOrDefaultAsync(cancellationToken);
         if (article is null) return null;
         var categories = await LoadCategoriesAsync(cancellationToken);
-        if (!categories.TryGetValue(article.CategoryIdFk ?? Guid.Empty, out var category) ||
-            !IsPubliclyVisible(category, categories)) return null;
-        var solutionIds = await SolutionIdsAsync(category.Path, cancellationToken);
+        var assignedCategoryIds = await ArticleCategoryIdsAsync(article.ArticleId, article.CategoryIdFk,
+            cancellationToken);
+        var visibleCategories = assignedCategoryIds.Where(categories.ContainsKey).Select(value => categories[value])
+            .Where(value => IsPubliclyVisible(value, categories)).ToArray();
+        if (visibleCategories.Length == 0) return null;
+        var category = visibleCategories.FirstOrDefault(value => value.Id == article.CategoryIdFk) ?? visibleCategories[0];
+        var solutionIds = (await Task.WhenAll(visibleCategories.Select(value =>
+            SolutionIdsAsync(value.Path, cancellationToken)))).SelectMany(value => value).Distinct().ToArray();
         var body = await ReadDraftTextAsync(article.PlainTextPath, article.JsonPath, cancellationToken);
         return new InternalSearchDocument($"article_{article.ArticleId:N}", "article", article.ArticleId.ToString("D"),
             article.Title, body, article.Slug, article.Status, article.CategoryIdFk?.ToString("D") ?? string.Empty,
             category.Name, BuildCategoryPath(category, categories), article.AuthorIdFk.ToString("D"),
             article.OwnerName, $"{article.AuthorIdFk:D}|{article.OwnerName}", ToUnixTime(article.UpdatedAt),
-            solutionIds, true, true, false, false, CategoryAncestorIds(category, categories));
+            solutionIds, true, true, false, false,
+            visibleCategories.SelectMany(value => CategoryAncestorIds(value, categories)).Distinct().ToArray(),
+            visibleCategories.Select(value => value.Id.ToString("D")).ToArray());
     }
 
     public async Task<InternalSearchDocument?> GetPublicCategoryAsync(Guid id, CancellationToken cancellationToken)
@@ -104,7 +117,8 @@ internal sealed class InternalSearchDocumentSource(
         return new InternalSearchDocument($"category_{id:N}", "category", id.ToString("D"), category.Name,
             category.Description ?? string.Empty, category.Slug, category.Status, id.ToString("D"), category.Name,
             BuildCategoryPath(category, categories), string.Empty, string.Empty, string.Empty, ToUnixTime(updatedAt),
-            solutionIds, false, true, false, false, CategoryAncestorIds(category, categories));
+            solutionIds, false, true, false, false, CategoryAncestorIds(category, categories),
+            [id.ToString("D")]);
     }
 
     public async Task<IReadOnlyList<InternalSearchDocument>> GetAllAsync(CancellationToken cancellationToken)
@@ -167,6 +181,15 @@ internal sealed class InternalSearchDocumentSource(
         await dbContext.Categories.AsNoTracking().ToDictionaryAsync(category => category.CategoryId,
             category => new CategoryRow(category.CategoryId, category.ParentCategoryIdFk, category.Name,
                 category.Slug, category.Description, category.Status, category.Visibility, category.Path), token);
+
+    private async Task<Guid[]> ArticleCategoryIdsAsync(Guid articleId, Guid? legacyCategoryId,
+        CancellationToken token)
+    {
+        var ids = await dbContext.ArticleCategories.AsNoTracking()
+            .Where(link => link.ArticleIdFk == articleId).OrderBy(link => link.SortOrder)
+            .Select(link => link.CategoryIdFk).ToArrayAsync(token);
+        return ids.Length > 0 ? ids : legacyCategoryId is { } id ? [id] : [];
+    }
 
     private async Task<string[]> SolutionIdsAsync(string? categoryPath, CancellationToken token)
     {

@@ -17,6 +17,8 @@ public partial class KbDbContext : DbContext
 
     public virtual DbSet<ArticleAuditLog> ArticleAuditLogs { get; set; }
 
+    public virtual DbSet<ArticleCategory> ArticleCategories { get; set; }
+
     public virtual DbSet<ArticleComment> ArticleComments { get; set; }
 
     public virtual DbSet<ArticleNotificationPreference> ArticleNotificationPreferences { get; set; }
@@ -445,6 +447,29 @@ public partial class KbDbContext : DbContext
                 .HasForeignKey(d => d.ViewerImageMediaIdFk)
                 .OnDelete(DeleteBehavior.SetNull)
                 .HasConstraintName("FK_CATEGORIES_ViewerImage_MEDIA_FILES");
+        });
+
+        modelBuilder.Entity<ArticleCategory>(entity =>
+        {
+            entity.ToTable("ARTICLE_CATEGORIES", table => table.HasCheckConstraint(
+                "CK_ARTICLE_CATEGORIES_SortOrder", "[SortOrder] >= 0"));
+            entity.HasKey(value => new { value.ArticleIdFk, value.CategoryIdFk });
+            entity.HasIndex(value => new { value.CategoryIdFk, value.SortOrder, value.ArticleIdFk },
+                "IX_ARTICLE_CATEGORIES_CategoryID_SortOrder");
+            entity.HasIndex(value => value.ArticleIdFk, "UX_ARTICLE_CATEGORIES_Primary")
+                .IsUnique().HasFilter("([IsPrimary]=(1))");
+            entity.Property(value => value.ArticleIdFk).HasColumnName("ArticleID_FK");
+            entity.Property(value => value.CategoryIdFk).HasColumnName("CategoryID_FK");
+            entity.Property(value => value.IsPrimary).HasDefaultValue(false,
+                "DF_ARTICLE_CATEGORIES_IsPrimary");
+            entity.Property(value => value.SortOrder).HasDefaultValue(0,
+                "DF_ARTICLE_CATEGORIES_SortOrder");
+            entity.HasOne(value => value.Article).WithMany(value => value.ArticleCategories)
+                .HasForeignKey(value => value.ArticleIdFk).OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("FK_ARTICLE_CATEGORIES_ARTICLES");
+            entity.HasOne(value => value.Category).WithMany(value => value.ArticleCategories)
+                .HasForeignKey(value => value.CategoryIdFk).OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_ARTICLE_CATEGORIES_CATEGORIES");
         });
 
         modelBuilder.Entity<ContentBlock>(entity =>
