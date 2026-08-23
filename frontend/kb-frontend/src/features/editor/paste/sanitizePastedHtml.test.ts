@@ -445,7 +445,7 @@ describe('sanitizePastedHTML', () => {
     expect(html).not.toContain('<em');
     expect(html).not.toContain('<i');
     expect(html).not.toContain('<u');
-    expect(html).not.toContain('<s');
+    expect(html).not.toMatch(/<s(?:\s|>)/);
   });
 
   it('converts legacy font tags to safe span styles and removes legacy font attrs', () => {
@@ -738,7 +738,8 @@ describe('sanitizePastedHTML', () => {
     expect(html).not.toContain('background-image');
     expect(html).not.toContain('javascript:');
     expect(html).not.toContain('expression');
-    expect(html).not.toContain('999px');
+    // Large but valid CSS sizes are preserved; the malformed color is still removed.
+    expect(html).toContain('font-size: 999px');
     expect(html).not.toContain('font-family');
   });
 

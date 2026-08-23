@@ -1,5 +1,6 @@
 import type { Editor } from "@tiptap/core";
 import type { ToolbarOption } from "./toolbarOptions";
+import { sanitizeCssFontSize } from "../lib/typographyStyles";
 
 export const DEFAULT_FONT_SIZE = 11;
 export type FontSizeDirection = 1 | -1;
@@ -47,23 +48,12 @@ export function getNextFontSize(
 }
 
 export function normalizeFontSizeInput(value: number | string): string | null {
-  const raw = String(value).trim().toLowerCase();
-  const match = raw.match(/^(\d+(?:\.\d+)?)(px|pt|em|rem|%)?$/);
-  if (!match) return null;
+  const raw = String(value).trim();
+  const candidate = /^\+?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(raw)
+    ? `${raw}px`
+    : raw;
 
-  const amount = Number(match[1]);
-  if (!Number.isFinite(amount) || amount <= 0) return null;
-
-  const unit = match[2] ?? "px";
-  const inRange =
-    (unit === "px" && amount <= 300) ||
-    (unit === "pt" && amount <= 225) ||
-    ((unit === "em" || unit === "rem") && amount <= 20) ||
-    (unit === "%" && amount <= 2000);
-
-  if (!inRange) return null;
-
-  return `${amount}${unit}`;
+  return sanitizeCssFontSize(candidate);
 }
 
 export function applyFontSize(editor: Editor, size: number | string) {

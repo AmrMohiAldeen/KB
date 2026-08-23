@@ -24,6 +24,12 @@ import {
 } from './pasteSanitizerConfig';
 import type { SanitizedUrl } from './pasteSanitizerTypes';
 import { sanitizeFontFamily } from './fontFamilySanitizer';
+import {
+  sanitizeCssFontSize,
+  sanitizeCssFontStyle,
+  sanitizeCssFontWeight,
+  sanitizeCssLineHeight,
+} from '../lib/typographyStyles';
 
 function decodeCssEscapes(value: string): string {
   return value.replace(/\\([0-9a-fA-F]{1,6}\s?|.)/g, (_, escape: string) => {
@@ -71,54 +77,15 @@ function sanitizeCssColor(
 }
 
 export function sanitizeFontSize(value: string): string | null {
-  const trimmed = value.trim().toLowerCase();
-  if (isDangerousCssValue(trimmed)) return null;
-
-  const match = trimmed.match(/^(\d+(?:\.\d+)?)(px|pt|em|rem|%)$/);
-  if (!match) return null;
-
-  const amount = Number(match[1]);
-  const unit = match[2];
-  if (!Number.isFinite(amount)) return null;
-
-  const inRange =
-    (unit === 'px' && amount >= 1 && amount <= 300) ||
-    (unit === 'pt' && amount >= 1 && amount <= 225) ||
-    ((unit === 'em' || unit === 'rem') && amount >= 0.1 && amount <= 20) ||
-    (unit === '%' && amount >= 1 && amount <= 2000);
-
-  return inRange ? `${amount}${unit}` : null;
+  return sanitizeCssFontSize(value);
 }
 
 function sanitizeLineHeight(value: string): string | null {
-  const trimmed = value.trim().toLowerCase();
-  if (trimmed === 'normal') return trimmed;
-  if (isDangerousCssValue(trimmed)) return null;
-
-  const unitless = trimmed.match(/^(\d+(?:\.\d+)?)$/);
-  if (unitless) {
-    const amount = Number(unitless[1]);
-    return amount >= 1 && amount <= 3 ? String(amount) : null;
-  }
-
-  const length = trimmed.match(/^(\d+(?:\.\d+)?)(px|%)$/);
-  if (!length) return null;
-
-  const amount = Number(length[1]);
-  const unit = length[2];
-  const inRange =
-    (unit === 'px' && amount >= 12 && amount <= 72) ||
-    (unit === '%' && amount >= 80 && amount <= 300);
-
-  return inRange ? `${amount}${unit}` : null;
+  return sanitizeCssLineHeight(value);
 }
 
 function sanitizeFontWeight(value: string): string | null {
-  const trimmed = value.trim().toLowerCase();
-  if (/^(?:bold|bolder)$/.test(trimmed)) return trimmed;
-  if (/^[5-9]00$/.test(trimmed)) return trimmed;
-
-  return null;
+  return sanitizeCssFontWeight(value);
 }
 
 function sanitizeTextDecoration(value: string): string | null {
@@ -211,7 +178,7 @@ function sanitizeStyleProperty(
   if (normalizedProperty === 'line-height') return sanitizeLineHeight(value);
   if (normalizedProperty === 'font-weight') return sanitizeFontWeight(value);
   if (normalizedProperty === 'font-style') {
-    return value.trim().toLowerCase() === 'italic' ? 'italic' : null;
+    return sanitizeCssFontStyle(value);
   }
   if (normalizedProperty === 'text-decoration') return sanitizeTextDecoration(value);
 

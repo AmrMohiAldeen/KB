@@ -112,6 +112,8 @@ public sealed record VersionDiffEntryData(
 public sealed record LifecycleVersionComparisonData(
     LifecycleVersionSummaryData BaseVersion,
     LifecycleVersionSummaryData TargetVersion,
+    JsonElement BaseContent,
+    JsonElement TargetContent,
     IReadOnlyList<VersionDiffEntryData> Changes,
     int AddedCount,
     int RemovedCount,

@@ -100,6 +100,8 @@ export type VersionDiffEntryResponse = {
 export type ArticleVersionComparisonResponse = {
   baseVersion: ArticleVersionSummaryResponse
   targetVersion: ArticleVersionSummaryResponse
+  baseContent: JSONContent
+  targetContent: JSONContent
   changes: VersionDiffEntryResponse[]
   addedCount: number
   removedCount: number

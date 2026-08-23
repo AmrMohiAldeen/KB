@@ -69,6 +69,8 @@ internal static partial class TiptapVersionDiff
         return new(
             baseVersion,
             targetVersion,
+            baseContent,
+            targetContent,
             changes,
             changes.Count(change => change.ChangeType == "Added"),
             changes.Count(change => change.ChangeType == "Removed"),

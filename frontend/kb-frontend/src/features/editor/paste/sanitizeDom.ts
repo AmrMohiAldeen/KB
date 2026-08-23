@@ -27,6 +27,11 @@ import {
 } from './domUtils';
 import { sanitizeFontFamily } from './fontFamilySanitizer';
 import {
+  sanitizeCssFontStyle,
+  sanitizeCssFontWeight,
+  sanitizeCssLineHeight,
+} from '../lib/typographyStyles';
+import {
   normalizePastedTables,
   normalizePastedTableStructure,
 } from './normalizeTables';
@@ -53,6 +58,9 @@ const TEXT_STYLE_CONTAINERS = new Set([
 type InheritedTextStyle = {
   fontFamily: string | null;
   fontSize: string | null;
+  fontWeight: string | null;
+  fontStyle: string | null;
+  lineHeight: string | null;
   color: string | null;
 };
 
@@ -190,8 +198,11 @@ function sanitizeNode(node: Node, depth: number): void {
   }
 
   if (shouldUnwrapFormattingElement(element)) {
+    // Keep the cancelling CSS (for example font-weight: normal inside a bold
+    // ancestor) as a textStyle span while removing only the semantic mark.
+    element = replaceElementTag(element, 'span');
     sanitizeChildNodes(element, depth);
-    unwrapElement(element);
+    applySanitizedAttributes(element);
     return;
   }
 
@@ -367,11 +378,21 @@ function pushInheritedTextStyleIntoChildren(element: HTMLElement): void {
     readStyleProperty(element, 'font-family') ?? '',
   );
   const fontSize = sanitizeFontSize(readStyleProperty(element, 'font-size') ?? '');
+  const fontWeight = sanitizeCssFontWeight(readStyleProperty(element, 'font-weight') ?? '');
+  const fontStyle = sanitizeCssFontStyle(readStyleProperty(element, 'font-style') ?? '');
+  const lineHeight = sanitizeCssLineHeight(readStyleProperty(element, 'line-height') ?? '');
   const color = readStyleProperty(element, 'color');
 
-  if (!fontFamily && !fontSize && !color) return;
+  if (!fontFamily && !fontSize && !fontWeight && !fontStyle && !lineHeight && !color) return;
 
-  wrapDirectInlineRunsWithTextStyle(element, { fontFamily, fontSize, color });
+  wrapDirectInlineRunsWithTextStyle(element, {
+    fontFamily,
+    fontSize,
+    fontWeight,
+    fontStyle,
+    lineHeight,
+    color,
+  });
 
   Array.from(element.children).forEach((child) => {
     const childElement = child as HTMLElement;
@@ -382,6 +403,15 @@ function pushInheritedTextStyleIntoChildren(element: HTMLElement): void {
 
     if (fontSize && !readStyleProperty(childElement, 'font-size')) {
       appendStyleProperty(childElement, 'font-size', fontSize);
+    }
+    if (fontWeight && !readStyleProperty(childElement, 'font-weight')) {
+      appendStyleProperty(childElement, 'font-weight', fontWeight);
+    }
+    if (fontStyle && !readStyleProperty(childElement, 'font-style')) {
+      appendStyleProperty(childElement, 'font-style', fontStyle);
+    }
+    if (lineHeight && !readStyleProperty(childElement, 'line-height')) {
+      appendStyleProperty(childElement, 'line-height', lineHeight);
     }
     if (color && !readStyleProperty(childElement, 'color')) {
       appendStyleProperty(childElement, 'color', color);
@@ -399,6 +429,9 @@ function wrapRunWithTextStyle(
   const styles: string[] = [];
   if (textStyle.fontFamily) styles.push(`font-family: ${textStyle.fontFamily}`);
   if (textStyle.fontSize) styles.push(`font-size: ${textStyle.fontSize}`);
+  if (textStyle.fontWeight) styles.push(`font-weight: ${textStyle.fontWeight}`);
+  if (textStyle.fontStyle) styles.push(`font-style: ${textStyle.fontStyle}`);
+  if (textStyle.lineHeight) styles.push(`line-height: ${textStyle.lineHeight}`);
   if (textStyle.color) styles.push(`color: ${textStyle.color}`);
   if (styles.length === 0) return;
 
@@ -440,11 +473,18 @@ function propagateTextStyleToText(
     fontFamily:
       readStyleProperty(element, 'font-family') ?? inheritedTextStyle.fontFamily,
     fontSize: readStyleProperty(element, 'font-size') ?? inheritedTextStyle.fontSize,
+    fontWeight:
+      readStyleProperty(element, 'font-weight') ?? inheritedTextStyle.fontWeight,
+    fontStyle:
+      readStyleProperty(element, 'font-style') ?? inheritedTextStyle.fontStyle,
+    lineHeight:
+      readStyleProperty(element, 'line-height') ?? inheritedTextStyle.lineHeight,
     color: readStyleProperty(element, 'color') ?? inheritedTextStyle.color,
   };
 
   if (
-    (textStyle.fontFamily || textStyle.fontSize || textStyle.color) &&
+    (textStyle.fontFamily || textStyle.fontSize || textStyle.fontWeight ||
+      textStyle.fontStyle || textStyle.lineHeight || textStyle.color) &&
     TEXT_STYLE_CONTAINERS.has(tagName)
   ) {
     wrapDirectInlineRunsWithTextStyle(element, textStyle);
@@ -460,6 +500,9 @@ function propagateInheritedTextStyles(root: ParentNode): void {
     propagateTextStyleToText(child as HTMLElement, {
       fontFamily: null,
       fontSize: null,
+      fontWeight: null,
+      fontStyle: null,
+      lineHeight: null,
       color: null,
     });
   });

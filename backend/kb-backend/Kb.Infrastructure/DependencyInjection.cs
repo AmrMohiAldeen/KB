@@ -32,6 +32,8 @@ using Kb.Application.Public;
 using Kb.Infrastructure.Public;
 using Kb.Application.Viewer;
 using Kb.Infrastructure.Viewer;
+using Kb.Application.Users;
+using Kb.Infrastructure.Users;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -71,6 +73,7 @@ public static class DependencyInjection
         services.AddScoped<IArticleRepository, ArticleRepository>();
         services.AddScoped<IPublicKnowledgeBaseRepository, PublicKnowledgeBaseRepository>();
         services.AddScoped<IViewerRepository, ViewerRepository>();
+        services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<IArticleDraftRepository, ArticleDraftRepository>();
         services.AddScoped<IAuditLogRepository, AuditLogRepository>();
         services.AddScoped<IMediaRepository, MediaRepository>();

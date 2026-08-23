@@ -269,6 +269,14 @@ describe('ArticleVersionComparisonPage', () => {
     const result: ArticleVersionComparisonResponse = {
       baseVersion: version(1),
       targetVersion: version(2),
+      baseContent: {
+        type: 'doc',
+        content: [{ type: 'paragraph', content: [{ type: 'text', text: 'old wording' }] }]
+      },
+      targetContent: {
+        type: 'doc',
+        content: [{ type: 'paragraph', content: [{ type: 'text', text: 'new wording added guidance' }] }]
+      },
       addedCount: 1,
       removedCount: 1,
       changedCount: 1,
@@ -333,7 +341,7 @@ describe('ArticleVersionComparisonPage', () => {
     expect(document.body.textContent).toContain('added guidance')
     expect(document.body.textContent).toContain('Older version')
     expect(document.body.textContent).toContain('Newer version')
-    expect(document.body.textContent).toContain('Author: Article Author')
+    expect(document.body.textContent).toContain('Article Author')
     expect(getVersions).toHaveBeenCalledWith(
       'article-1',
       { page: 1, pageSize: 100 },

@@ -1,0 +1,77 @@
+using Kb.Application.Abstractions;
+using Kb.Application.Exceptions;
+using Kb.Domain.Constants;
+
+namespace Kb.Application.Users;
+
+public sealed class UserService(
+    IUserRepository repository,
+    ICurrentUser currentUser,
+    IPermissionChecker permissionChecker)
+{
+    public const int DefaultPageSize = 20;
+    public const int MaxPageSize = 100;
+    private static readonly IReadOnlySet<string> SortFields = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "fullName", "email", "role", "status", "createdAt", "lastLoginAt"
+    };
+
+    public async Task<PagedUserData> GetPagedAsync(
+        string? search, string? role, string? status, int page, int pageSize,
+        string? sortBy, string? sortDirection, CancellationToken cancellationToken)
+    {
+        await RequirePermissionAsync(cancellationToken);
+        if (page < 1)
+            throw new BusinessRuleException("Page must be at least 1.");
+        if (pageSize < 1 || pageSize > MaxPageSize)
+            throw new BusinessRuleException($"Page size must be between 1 and {MaxPageSize}.");
+
+        var normalizedSearch = Normalize(search, "Search", 300);
+        var normalizedRole = Normalize(role, "Role", 100);
+        var normalizedStatus = Normalize(status, "Status", 20)?.ToLowerInvariant();
+        bool? isActive = normalizedStatus switch
+        {
+            null => null,
+            "active" => true,
+            "inactive" => false,
+            _ => throw new BusinessRuleException("Status must be active or inactive.")
+        };
+        var normalizedSortBy = string.IsNullOrWhiteSpace(sortBy) ? "fullName" : sortBy.Trim();
+        if (!SortFields.Contains(normalizedSortBy))
+            throw new BusinessRuleException("The selected user sort field is not supported.");
+        var descending = (sortDirection ?? "asc").Trim().ToLowerInvariant() switch
+        {
+            "asc" => false,
+            "desc" => true,
+            _ => throw new BusinessRuleException("Sort direction must be asc or desc.")
+        };
+
+        return await repository.GetPagedAsync(new(
+            normalizedSearch, normalizedRole, isActive, page, pageSize, normalizedSortBy, descending),
+            cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<UserRoleData>> GetRolesAsync(CancellationToken cancellationToken)
+    {
+        await RequirePermissionAsync(cancellationToken);
+        return await repository.GetRolesAsync(cancellationToken);
+    }
+
+    private async Task RequirePermissionAsync(CancellationToken cancellationToken)
+    {
+        if (!currentUser.IsAuthenticated)
+            throw new UnauthorizedAccessException();
+        if (!await permissionChecker.HasPermissionAsync(
+                currentUser.UserId, PermissionCodes.UsersManage, cancellationToken))
+            throw new ForbiddenException("You do not have permission to manage users.");
+    }
+
+    private static string? Normalize(string? value, string name, int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var normalized = value.Trim();
+        if (normalized.Length > maxLength)
+            throw new BusinessRuleException($"{name} cannot exceed {maxLength} characters.");
+        return normalized;
+    }
+}

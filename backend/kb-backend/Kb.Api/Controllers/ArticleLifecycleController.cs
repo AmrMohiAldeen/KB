@@ -109,6 +109,8 @@ public sealed class ArticleLifecycleController(ArticleLifecycleService lifecycle
         return Ok(new ArticleVersionComparisonResponse(
             ToVersionSummary(comparison.BaseVersion),
             ToVersionSummary(comparison.TargetVersion),
+            comparison.BaseContent,
+            comparison.TargetContent,
             comparison.Changes.Select(change => new VersionDiffEntryResponse(
                 change.ChangeType,
                 change.BlockType,

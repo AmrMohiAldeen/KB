@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
@@ -15,9 +15,9 @@ import MenuItem from '@mui/material/MenuItem'
 import Select from '@mui/material/Select'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
-import { ArrowLeft, CheckCircle2 } from 'lucide-react'
+import { ArrowLeft } from 'lucide-react'
 import { getLocalizedUrl } from '@/utils/i18n'
-import { KbEmptyState, KbPageHeader, KbPageShell } from '@/views/shared'
+import { KbPageHeader, KbPageShell } from '@/views/shared'
 import type {
   ArticleVersionComparisonResponse,
   ArticleVersionSummaryResponse
@@ -28,6 +28,8 @@ import {
   getArticleVersions
 } from '@/lib/api/articleLifecycleApi'
 import { formatVersionDate, snapshotReasonLabel, versionLabel } from './versionUi'
+import VersionDiffViewer from './VersionDiffViewer'
+import { createVersionDocumentDiff } from './versionDocumentDiff'
 
 type ArticleVersionComparisonPageProps = {
   lang: string
@@ -39,13 +41,6 @@ type ArticleVersionComparisonPageProps = {
   getVersions?: typeof getArticleVersions
   onNavigate?: (url: string) => void
 }
-
-const changeColor = {
-  Added: 'success',
-  Removed: 'error',
-  Changed: 'warning',
-  Unchanged: 'default'
-} as const
 
 export default function ArticleVersionComparisonPage({
   lang,
@@ -65,6 +60,9 @@ export default function ArticleVersionComparisonPage({
   const [newerVersionId, setNewerVersionId] = useState(targetVersionId)
   const [loading, setLoading] = useState(true)
   const [messages, setMessages] = useState<string[]>([])
+  const olderPane = useRef<HTMLDivElement>(null)
+  const newerPane = useRef<HTMLDivElement>(null)
+  const scrollSyncing = useRef(false)
   const historyUrl = getLocalizedUrl(
     `/editor/versions?articleId=${encodeURIComponent(articleId)}`,
     lang
@@ -144,6 +142,19 @@ export default function ArticleVersionComparisonPage({
     setNewerVersionId(newer.versionId)
   }
 
+  const renderedDiff = useMemo(() => comparison
+    ? createVersionDocumentDiff(comparison.baseContent, comparison.targetContent)
+    : null, [comparison])
+
+  const syncScroll = (source: HTMLDivElement, target: HTMLDivElement | null) => {
+    if (!target || scrollSyncing.current) return
+    const available = source.scrollHeight - source.clientHeight
+    const targetAvailable = target.scrollHeight - target.clientHeight
+    scrollSyncing.current = true
+    target.scrollTop = available > 0 ? source.scrollTop / available * targetAvailable : 0
+    window.requestAnimationFrame(() => { scrollSyncing.current = false })
+  }
+
   return (
     <KbPageShell maxWidth={1200}>
       <KbPageHeader
@@ -221,33 +232,6 @@ export default function ArticleVersionComparisonPage({
 
       {comparison && (
         <>
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
-            {([
-              ['Older version', comparison.baseVersion],
-              ['Newer version', comparison.targetVersion]
-            ] as const).map(([title, version]) => (
-              <Card key={title} variant='outlined'>
-                <CardContent>
-                  <Stack spacing={0.75}>
-                    <Typography variant='overline' color='text.secondary'>{title}</Typography>
-                    <Typography variant='h6'>{versionLabel(version)}</Typography>
-                    <Typography variant='body2'>Author: {version.createdBy.fullName}</Typography>
-                    <Typography variant='body2'>Created: {formatVersionDate(version.createdAt, lang)}</Typography>
-                    {version.publishedAt && (
-                      <Typography variant='body2'>
-                        Published: {formatVersionDate(version.publishedAt, lang)}
-                        {version.publishedBy ? ` by ${version.publishedBy.fullName}` : ''}
-                      </Typography>
-                    )}
-                    <Typography variant='caption' color='text.secondary'>
-                      {snapshotReasonLabel[version.snapshotReason]}
-                    </Typography>
-                  </Stack>
-                </CardContent>
-              </Card>
-            ))}
-          </Box>
-
           <Card variant='outlined'>
             <CardContent>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} useFlexGap sx={{ flexWrap: 'wrap' }}>
@@ -259,106 +243,38 @@ export default function ArticleVersionComparisonPage({
             </CardContent>
           </Card>
 
-          {comparison.changes.length === 0 ? (
-            <KbEmptyState
-              icon={<CheckCircle2 />}
-              title='No readable content changes'
-              description='The selected snapshots have the same semantic text blocks.'
-            />
-          ) : (
-            <Stack spacing={3} aria-label='Version comparison changes'>
-              {comparison.changes.map((change, index) => (
-                <Card
-                  key={`${change.changeType}-${change.beforePosition ?? 'new'}-${change.afterPosition ?? 'removed'}-${index}`}
-                  variant='outlined'
-                  sx={theme => ({
-                    borderInlineStart: change.changeType === 'Unchanged'
-                      ? `4px solid ${theme.palette.divider}`
-                      : `4px solid ${theme.palette[changeColor[change.changeType]].main}`,
-                    bgcolor: change.changeType === 'Added'
-                      ? 'success.lighterOpacity'
-                      : change.changeType === 'Removed'
-                        ? 'error.lighterOpacity'
-                        : change.changeType === 'Changed'
-                          ? 'warning.lighterOpacity'
-                          : 'background.paper'
-                  })}
+          <Box
+            aria-label='Side-by-side article version comparison'
+            sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'minmax(0, 1fr) minmax(0, 1fr)' }, gap: 2 }}
+          >
+            {renderedDiff && ([
+              { title: 'Older version', version: comparison.baseVersion, content: renderedDiff.older, ref: olderPane },
+              { title: 'Newer version', version: comparison.targetVersion, content: renderedDiff.newer, ref: newerPane }
+            ] as const).map((pane, index) => (
+              <Card key={pane.title} variant='outlined' sx={{ minInlineSize: 0, overflow: 'hidden' }}>
+                <Box sx={{ p: 3, borderBlockEnd: theme => `1px solid ${theme.palette.divider}`, bgcolor: 'action.hover' }}>
+                  <Typography variant='overline' color='text.secondary'>{pane.title}</Typography>
+                  <Typography variant='h6'>{versionLabel(pane.version)}</Typography>
+                  <Typography variant='body2' color='text.secondary'>
+                    {formatVersionDate(pane.version.createdAt, lang)} · {pane.version.createdBy.fullName}
+                  </Typography>
+                  <Typography variant='caption' color='text.secondary'>
+                    {snapshotReasonLabel[pane.version.snapshotReason]}
+                  </Typography>
+                </Box>
+                <Box
+                  ref={pane.ref}
+                  onScroll={event => syncScroll(
+                    event.currentTarget,
+                    index === 0 ? newerPane.current : olderPane.current
+                  )}
+                  sx={{ p: { xs: 3, lg: 4 }, blockSize: { xs: 'auto', md: '70vh' }, overflowY: { xs: 'visible', md: 'auto' } }}
                 >
-                  <CardContent>
-                    <Stack spacing={2}>
-                      <Stack direction='row' spacing={1.5} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
-                        <Chip
-                          size='small'
-                          color={changeColor[change.changeType]}
-                          variant={change.changeType === 'Unchanged' ? 'outlined' : 'tonal'}
-                          label={change.changeType === 'Changed' ? 'Modified' : change.changeType}
-                        />
-                        <Typography variant='subtitle2'>{change.blockLabel}</Typography>
-                      </Stack>
-
-                      {change.changeType === 'Changed' ? (
-                        <>
-                          <Box>
-                            <Typography variant='caption' color='text.secondary'>Older version</Typography>
-                            <Typography component='p' sx={{ mt: 0.5, whiteSpace: 'pre-wrap', p: 2 }}>
-                              {change.segments.filter(segment => segment.changeType !== 'Added')
-                                .map((segment, segmentIndex) => (
-                                  <Box
-                                    component='span'
-                                    key={`${segment.changeType}-${segmentIndex}`}
-                                    sx={{
-                                      bgcolor: segment.changeType === 'Removed' ? 'error.lighterOpacity' : undefined,
-                                      color: segment.changeType === 'Removed' ? 'error.main' : 'text.primary',
-                                      textDecoration: segment.changeType === 'Removed' ? 'line-through' : undefined
-                                    }}
-                                  >
-                                    {segment.text}
-                                  </Box>
-                                ))}
-                            </Typography>
-                          </Box>
-                          <Box>
-                            <Typography variant='caption' color='text.secondary'>Newer version</Typography>
-                            <Typography component='p' sx={{ mt: 0.5, whiteSpace: 'pre-wrap', p: 2 }}>
-                              {change.segments.filter(segment => segment.changeType !== 'Removed')
-                                .map((segment, segmentIndex) => (
-                                <Box
-                                  component='span'
-                                  key={`${segment.changeType}-${segmentIndex}`}
-                                  sx={{
-                                    bgcolor: segment.changeType === 'Unchanged'
-                                      ? undefined
-                                      : 'success.lighterOpacity',
-                                    color: segment.changeType === 'Unchanged' ? 'text.primary' : 'success.dark'
-                                  }}
-                                >
-                                  {segment.text}
-                                </Box>
-                              ))}
-                            </Typography>
-                          </Box>
-                        </>
-                      ) : (
-                        <Box>
-                          <Typography
-                            component='p'
-                            sx={{
-                              whiteSpace: 'pre-wrap',
-                              m: 0,
-                              color: change.changeType === 'Removed' ? 'error.main' : 'text.primary',
-                              textDecoration: change.changeType === 'Removed' ? 'line-through' : undefined
-                            }}
-                          >
-                            {change.afterText ?? change.beforeText}
-                          </Typography>
-                        </Box>
-                      )}
-                    </Stack>
-                  </CardContent>
-                </Card>
-              ))}
-            </Stack>
-          )}
+                  <VersionDiffViewer content={pane.content} />
+                </Box>
+              </Card>
+            ))}
+          </Box>
         </>
       )}
     </KbPageShell>

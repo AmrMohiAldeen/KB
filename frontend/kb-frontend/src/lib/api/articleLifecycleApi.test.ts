@@ -183,6 +183,8 @@ describe('article lifecycle API', () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
       baseVersion: { versionId: 'base' },
       targetVersion: { versionId: 'target' },
+      baseContent: { type: 'doc', content: [] },
+      targetContent: { type: 'doc', content: [] },
       changes: [],
       addedCount: 0,
       removedCount: 0,

@@ -374,6 +374,60 @@ public sealed class HelpJuiceParsingTests
     }
 
     [Fact]
+    public void Valid_CSS_typography_values_survive_migration_without_unsupported_style_warnings()
+    {
+        var result=HelpJuiceHtmlConverter.Convert("""
+            <p>
+              <span style="font-size:8px">px</span><span style="font-size:10pt">pt</span>
+              <span style="font-size:.8em">em</span><span style="font-size:125%">percent</span>
+              <span style="font-size:larger">keyword</span>
+              <span style="font-weight:normal">normal weight</span><span style="font-weight:350.5">variable weight</span>
+              <span style="font-weight:bolder">relative weight</span>
+              <span style="font-style:oblique 12deg">angled oblique</span><span style="font-style:italic">italic</span>
+              <span style="line-height:normal">normal height</span><span style="line-height:1.2">unitless height</span>
+              <span style="line-height:24px">pixel height</span><span style="line-height:14pt">point height</span>
+              <span style="line-height:150%">percentage height</span><span style="line-height:1.4em">relative height</span>
+            </p>
+            """);
+
+        foreach (var expected in new[]
+                 {
+                     "\"fontSize\":\"8px\"", "\"fontSize\":\"10pt\"", "\"fontSize\":\".8em\"",
+                     "\"fontSize\":\"125%\"", "\"fontSize\":\"larger\"", "\"fontWeight\":\"normal\"",
+                     "\"fontWeight\":\"350.5\"", "\"fontWeight\":\"bolder\"", "\"fontStyle\":\"oblique 12deg\"",
+                     "\"fontStyle\":\"italic\"", "\"lineHeight\":\"normal\"", "\"lineHeight\":\"1.2\"",
+                     "\"lineHeight\":\"24px\"", "\"lineHeight\":\"14pt\"", "\"lineHeight\":\"150%\"",
+                     "\"lineHeight\":\"1.4em\""
+                 })
+            Assert.Contains(expected,result.TiptapJson);
+        Assert.Contains("font-weight:350.5",result.RenderedHtml);
+        Assert.Contains("font-style:oblique 12deg",result.RenderedHtml);
+        Assert.Contains("line-height:14pt",result.RenderedHtml);
+        Assert.DoesNotContain(result.Warnings,warning=>warning.Code=="UNSUPPORTED_STYLE_REMOVED");
+    }
+
+    [Fact]
+    public void Malformed_or_out_of_range_typography_values_are_removed_safely()
+    {
+        var result=HelpJuiceHtmlConverter.Convert("""
+            <p onclick="alert(1)">
+              <span style="font-size:expression(alert(1))">size</span>
+              <span style="font-weight:1001">weight</span>
+              <span style="font-style:oblique 100deg">style</span>
+              <span style="line-height:-1">height</span>
+            </p>
+            """);
+
+        Assert.Equal(4,result.Warnings.Count(warning=>warning.Code=="UNSUPPORTED_STYLE_REMOVED"));
+        Assert.Contains(result.Warnings,warning=>warning.Code=="UNSAFE_ATTRIBUTE_REMOVED");
+        Assert.DoesNotContain("expression",result.TiptapJson,StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("fontWeight",result.TiptapJson);
+        Assert.DoesNotContain("fontStyle",result.TiptapJson);
+        Assert.DoesNotContain("lineHeight",result.TiptapJson);
+        Assert.DoesNotContain("onclick",result.RenderedHtml,StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void HelpJuice_system_and_variable_colors_resolve_to_safe_visible_colors()
     {
         var result=HelpJuiceHtmlConverter.Convert("""

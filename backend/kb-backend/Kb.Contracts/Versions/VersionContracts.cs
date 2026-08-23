@@ -69,6 +69,8 @@ public sealed record VersionDiffEntryResponse(
 public sealed record ArticleVersionComparisonResponse(
     ArticleVersionSummaryResponse BaseVersion,
     ArticleVersionSummaryResponse TargetVersion,
+    JsonElement BaseContent,
+    JsonElement TargetContent,
     IReadOnlyList<VersionDiffEntryResponse> Changes,
     int AddedCount,
     int RemovedCount,

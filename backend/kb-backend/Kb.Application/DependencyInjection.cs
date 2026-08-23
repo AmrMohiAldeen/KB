@@ -12,6 +12,7 @@ using Kb.Application.ExportJobs;
 using Kb.Application.Search;
 using Kb.Application.Public;
 using Kb.Application.Viewer;
+using Kb.Application.Users;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Kb.Application;
@@ -38,6 +39,7 @@ public static class DependencyInjection
         services.AddScoped<InternalSearchService>();
         services.AddScoped<PublicKnowledgeBaseService>();
         services.AddScoped<ViewerService>();
+        services.AddScoped<UserService>();
         return services;
     }
 }

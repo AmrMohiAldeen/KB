@@ -1,3 +1,10 @@
+import {
+  sanitizeCssFontSize,
+  sanitizeCssFontStyle,
+  sanitizeCssFontWeight,
+  sanitizeCssLineHeight
+} from '../../../../features/editor/lib/typographyStyles'
+
 export type MigrationWarningCode =
   | 'MALFORMED_HTML_REPAIRED'
   | 'BASE64_MEDIA_FOUND'
@@ -157,6 +164,9 @@ const STRIPPED_ATTRIBUTE_PATTERNS = [
 const SUPPORTED_STYLE_PROPERTIES = new Set([
   'font-family',
   'font-size',
+  'font-weight',
+  'font-style',
+  'line-height',
   'color',
   'background-color',
   'text-align',
@@ -291,6 +301,30 @@ function normalizeStyle(element: HTMLElement): void {
       value = value.toLowerCase()
       if (value !== 'rtl' && value !== 'ltr') continue
       if (!element.hasAttribute('dir')) element.setAttribute('dir', value)
+    }
+
+    if (normalizedProperty === 'font-size') {
+      const fontSize = sanitizeCssFontSize(value)
+      if (!fontSize) continue
+      value = fontSize
+    }
+
+    if (normalizedProperty === 'font-weight') {
+      const fontWeight = sanitizeCssFontWeight(value)
+      if (!fontWeight) continue
+      value = fontWeight
+    }
+
+    if (normalizedProperty === 'font-style') {
+      const fontStyle = sanitizeCssFontStyle(value)
+      if (!fontStyle) continue
+      value = fontStyle
+    }
+
+    if (normalizedProperty === 'line-height') {
+      const lineHeight = sanitizeCssLineHeight(value)
+      if (!lineHeight) continue
+      value = lineHeight
     }
 
     if (normalizedProperty === 'color' || normalizedProperty === 'border-color') {

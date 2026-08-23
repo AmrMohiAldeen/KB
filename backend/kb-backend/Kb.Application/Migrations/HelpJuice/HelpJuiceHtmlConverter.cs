@@ -406,8 +406,8 @@ public static partial class HelpJuiceHtmlConverter
         var fontSize = styles.GetValueOrDefault("font-size")?.Trim();
         if (!string.IsNullOrWhiteSpace(fontSize))
         {
-            if (TryCssLength(fontSize, out var size, out var sizeUnit) && sizeUnit is "px" or "pt" or "em" or "rem" or "%" && size is >= 1 and <= 500)
-                values["fontSize"] = NormalizeCssLength(size, sizeUnit, convertAbsolute: false);
+            if (SanitizeCssFontSize(fontSize) is { } safeFontSize)
+                values["fontSize"] = safeFontSize;
             else warning("UNSUPPORTED_STYLE_REMOVED", $"Style font-size='{Limit(fontSize)}' on the source element was removed (action=removed; preserved=false).");
         }
         else if (MapLegacyFontSize(attrs.GetValueOrDefault("size")) is { } legacyFontSize)
@@ -419,12 +419,23 @@ public static partial class HelpJuiceHtmlConverter
         var lineHeight = styles.GetValueOrDefault("line-height")?.Trim();
         if (!string.IsNullOrWhiteSpace(lineHeight))
         {
-            if (TryCssLength(lineHeight, out var height, out var heightUnit) && heightUnit is "px" or "pt" or "em" or "rem" or "%" && height is > 0 and <= 500)
-                values["lineHeight"] = NormalizeCssLength(height, heightUnit, convertAbsolute: false);
-            else if (double.TryParse(lineHeight, System.Globalization.NumberStyles.AllowDecimalPoint,
-                         System.Globalization.CultureInfo.InvariantCulture, out var unitless) && unitless is > 0 and <= 10)
-                values["lineHeight"] = unitless.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+            if (SanitizeCssLineHeight(lineHeight) is { } safeLineHeight)
+                values["lineHeight"] = safeLineHeight;
             else warning("UNSUPPORTED_STYLE_REMOVED", $"Style line-height='{Limit(lineHeight)}' on the source element was removed (action=removed; preserved=false).");
+        }
+        var weight = styles.GetValueOrDefault("font-weight")?.Trim();
+        if (!string.IsNullOrWhiteSpace(weight))
+        {
+            if (SanitizeCssFontWeight(weight) is { } safeFontWeight)
+                values["fontWeight"] = safeFontWeight;
+            else warning("UNSUPPORTED_STYLE_REMOVED", $"Style font-weight='{Limit(weight)}' was removed (action=removed; preserved=false).");
+        }
+        var fontStyle = styles.GetValueOrDefault("font-style")?.Trim();
+        if (!string.IsNullOrWhiteSpace(fontStyle))
+        {
+            if (SanitizeCssFontStyle(fontStyle) is { } safeFontStyle)
+                values["fontStyle"] = safeFontStyle;
+            else warning("UNSUPPORTED_STYLE_REMOVED", $"Style font-style='{Limit(fontStyle)}' was removed (action=removed; preserved=false).");
         }
         var legacyStyle = BuildLegacyStyle(attrs, "textStyle");
         if (legacyStyle.Length > 0) values["legacyStyle"] = legacyStyle;
@@ -435,18 +446,16 @@ public static partial class HelpJuiceHtmlConverter
             if (TryNormalizeCssColor(background, out var safeBackground)) result.Add(new("highlight", new() { ["color"] = safeBackground }));
             else warning("UNSUPPORTED_BACKGROUND_COLOR", $"Background color '{Limit(background)}' was removed (action=removed; preserved=false).");
         }
-        if (styles.GetValueOrDefault("font-weight") is { } weight)
+        if (weight is not null && SanitizeCssFontWeight(weight) is { } semanticWeight)
         {
-            if (weight.Equals("bold", StringComparison.OrdinalIgnoreCase) || int.TryParse(weight, out var numericWeight) && numericWeight >= 600)
+            if (semanticWeight.Equals("bold", StringComparison.OrdinalIgnoreCase) ||
+                double.TryParse(semanticWeight, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var numericWeight) && numericWeight >= 600)
                 result.Add(new("bold"));
-            else if (!weight.Equals("normal", StringComparison.OrdinalIgnoreCase) && weight != "400")
-                warning("UNSUPPORTED_STYLE_REMOVED", $"Style font-weight='{Limit(weight)}' was removed (action=removed; preserved=false).");
         }
-        if (styles.GetValueOrDefault("font-style") is { } fontStyle)
+        if (fontStyle is not null && SanitizeCssFontStyle(fontStyle) is { } semanticFontStyle)
         {
-            if (fontStyle.Equals("italic", StringComparison.OrdinalIgnoreCase)) result.Add(new("italic"));
-            else if (!fontStyle.Equals("normal", StringComparison.OrdinalIgnoreCase))
-                warning("UNSUPPORTED_STYLE_REMOVED", $"Style font-style='{Limit(fontStyle)}' was removed (action=removed; preserved=false).");
+            if (semanticFontStyle.Equals("italic", StringComparison.OrdinalIgnoreCase)) result.Add(new("italic"));
         }
         if (styles.GetValueOrDefault("text-decoration") is { } decoration)
         {
@@ -1205,6 +1214,92 @@ public static partial class HelpJuiceHtmlConverter
         return amount >= 0;
     }
 
+    private static string? CleanTypographyValue(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var cleaned = Regex.Replace(value.Trim(), @"\s*!important\s*$", string.Empty,
+            RegexOptions.IgnoreCase).Trim();
+        if (cleaned.Length is 0 or > 120 || cleaned.Any(ch => char.IsControl(ch) || ch is ';' or '{' or '}' or '\\' or '\'' or '"' or '/'))
+            return null;
+        return ContainsUnsafeCss(cleaned) || Regex.IsMatch(cleaned, @"url\s*\(", RegexOptions.IgnoreCase)
+            ? null
+            : cleaned;
+    }
+
+    private static bool IsCssWideKeyword(string value) =>
+        Regex.IsMatch(value, @"^(?:inherit|initial|revert|revert-layer|unset)$", RegexOptions.IgnoreCase);
+
+    private static bool TryNonNegativeCssNumber(string value, out double amount)
+    {
+        amount = 0;
+        var match = CssNumberRegex().Match(value);
+        return match.Success && double.TryParse(match.Groups[1].Value,
+            System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture,
+            out amount) && double.IsFinite(amount) && amount >= 0;
+    }
+
+    private static bool IsNonNegativeCssLengthPercentage(string value)
+    {
+        var match = CssTypographyLengthRegex().Match(value);
+        if (match.Success && double.TryParse(match.Groups[1].Value,
+                System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture,
+                out var amount) && double.IsFinite(amount) && amount >= 0)
+            return true;
+        return TryNonNegativeCssNumber(value, out var zero) && zero == 0;
+    }
+
+    private static string? SanitizeCssFontSize(string? value)
+    {
+        var cleaned = CleanTypographyValue(value);
+        if (cleaned is null) return null;
+        return IsCssWideKeyword(cleaned) || FontSizeKeywordRegex().IsMatch(cleaned) ||
+               IsNonNegativeCssLengthPercentage(cleaned)
+            ? cleaned
+            : null;
+    }
+
+    private static string? SanitizeCssLineHeight(string? value)
+    {
+        var cleaned = CleanTypographyValue(value);
+        if (cleaned is null) return null;
+        return cleaned.Equals("normal", StringComparison.OrdinalIgnoreCase) || IsCssWideKeyword(cleaned) ||
+               TryNonNegativeCssNumber(cleaned, out _) || IsNonNegativeCssLengthPercentage(cleaned)
+            ? cleaned
+            : null;
+    }
+
+    private static string? SanitizeCssFontWeight(string? value)
+    {
+        var cleaned = CleanTypographyValue(value);
+        if (cleaned is null) return null;
+        if (IsCssWideKeyword(cleaned) || Regex.IsMatch(cleaned, @"^(?:normal|bold|lighter|bolder)$", RegexOptions.IgnoreCase))
+            return cleaned;
+        return TryNonNegativeCssNumber(cleaned, out var amount) && amount is >= 1 and <= 1000
+            ? cleaned
+            : null;
+    }
+
+    private static string? SanitizeCssFontStyle(string? value)
+    {
+        var cleaned = CleanTypographyValue(value);
+        if (cleaned is null) return null;
+        if (IsCssWideKeyword(cleaned) || Regex.IsMatch(cleaned, @"^(?:normal|italic|oblique)$", RegexOptions.IgnoreCase))
+            return cleaned;
+        var match = ObliqueAngleRegex().Match(cleaned);
+        if (!match.Success || !double.TryParse(match.Groups[1].Value,
+                System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture,
+                out var angle) || !double.IsFinite(angle)) return null;
+        var degrees = match.Groups[2].Value.ToLowerInvariant() switch
+        {
+            "deg" => angle,
+            "grad" => angle * .9d,
+            "rad" => angle * 180d / Math.PI,
+            "turn" => angle * 360d,
+            _ => double.NaN
+        };
+        return degrees is >= -90 and <= 90 ? cleaned : null;
+    }
+
     private static double? ToPixels(double amount, string unit) => unit switch
     {
         "px" => amount,
@@ -1774,6 +1869,8 @@ public static partial class HelpJuiceHtmlConverter
         {
             Attrs?.GetValueOrDefault("fontFamily") is { } family ? $"font-family:{family};" : null,
             Attrs?.GetValueOrDefault("fontSize") is { } size ? $"font-size:{size};" : null,
+            Attrs?.GetValueOrDefault("fontWeight") is { } fontWeight ? $"font-weight:{fontWeight};" : null,
+            Attrs?.GetValueOrDefault("fontStyle") is { } fontStyle ? $"font-style:{fontStyle};" : null,
             Attrs?.GetValueOrDefault("color") is { } color ? $"color:{color};" : null,
             Attrs?.GetValueOrDefault("lineHeight") is { } lineHeight ? $"line-height:{lineHeight};" : null,
             Attrs?.GetValueOrDefault("legacyStyle") is { } legacyStyle ? legacyStyle.ToString() : null
@@ -1795,6 +1892,10 @@ public static partial class HelpJuiceHtmlConverter
     [GeneratedRegex(@"(?:^|\s)([a-zA-Z_:][-a-zA-Z0-9_:.]*)(?=\s|$)", RegexOptions.Compiled)] private static partial Regex BooleanAttributeRegex();
     [GeneratedRegex(@"\s+", RegexOptions.Compiled)] private static partial Regex WhitespaceRegex();
     [GeneratedRegex(@"^(\d+(?:\.\d+)?)(%|px|in|cm|mm|pt|pc|em|rem)?$", RegexOptions.Compiled | RegexOptions.IgnoreCase)] private static partial Regex CssLengthRegex();
+    [GeneratedRegex(@"^\+?((?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)$", RegexOptions.Compiled | RegexOptions.IgnoreCase)] private static partial Regex CssNumberRegex();
+    [GeneratedRegex(@"^\+?((?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)(?:px|pt|pc|in|cm|mm|q|em|rem|ex|ch|cap|ic|lh|rlh|vw|vh|vi|vb|vmin|vmax|svw|svh|svi|svb|svmin|svmax|lvw|lvh|lvi|lvb|lvmin|lvmax|dvw|dvh|dvi|dvb|dvmin|dvmax|cqw|cqh|cqi|cqb|cqmin|cqmax|%)$", RegexOptions.Compiled | RegexOptions.IgnoreCase)] private static partial Regex CssTypographyLengthRegex();
+    [GeneratedRegex(@"^(?:xx-small|x-small|small|medium|large|x-large|xx-large|xxx-large|larger|smaller|math)$", RegexOptions.Compiled | RegexOptions.IgnoreCase)] private static partial Regex FontSizeKeywordRegex();
+    [GeneratedRegex(@"^oblique\s+([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)(deg|grad|rad|turn)$", RegexOptions.Compiled | RegexOptions.IgnoreCase)] private static partial Regex ObliqueAngleRegex();
     [GeneratedRegex(@"^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$", RegexOptions.Compiled | RegexOptions.IgnoreCase)] private static partial Regex HexColorRegex();
     [GeneratedRegex(@"^(rgb)(a)?\(([^)]*)\)$", RegexOptions.Compiled | RegexOptions.IgnoreCase)] private static partial Regex RgbColorRegex();
     [GeneratedRegex(@"^hsl(a)?\(([^)]*)\)$", RegexOptions.Compiled | RegexOptions.IgnoreCase)] private static partial Regex HslColorRegex();

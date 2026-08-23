@@ -8,7 +8,7 @@ import {
 import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
 
-import { TextStyle, FontSize, LineHeight } from '@tiptap/extension-text-style';
+import { TextStyle } from '@tiptap/extension-text-style';
 import FontFamily from '@tiptap/extension-font-family';
 import Color from '@tiptap/extension-color';
 import Highlight from '@tiptap/extension-highlight';
@@ -20,6 +20,7 @@ import { Glossary } from './Glossary';
 import { FontSizeShortcuts } from './FontSizeShortcuts';
 import { HeadingIds } from './HeadingIds';
 import { LegacyHelpJuiceFormatting } from './LegacyHelpJuiceFormatting';
+import { SafeFontSize, SafeLineHeight, TypographyStyles } from './TypographyStyles';
 
 import { Youtube } from '@tiptap/extension-youtube';
 import { imageExtensions } from '../blocks/image';
@@ -112,12 +113,13 @@ export const getEditorExtensions = (options: EditorExtensionOptions = {}) => {
     // Text styling/marks
     TextStyle,
     FontFamily,
-    FontSize,
+    SafeFontSize,
     Color,
     Highlight.configure({
       multicolor: true,
     }),
-    LineHeight,
+    SafeLineHeight,
+    TypographyStyles,
     Superscript,
     Subscript,
     TextAlign.configure({

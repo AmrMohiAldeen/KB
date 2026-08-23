@@ -40,13 +40,15 @@ describe('font size helpers', () => {
     expect(normalizeFontSizeInput('10.5pt')).toBe('10.5pt');
     expect(normalizeFontSizeInput('1.25rem')).toBe('1.25rem');
     expect(normalizeFontSizeInput('125%')).toBe('125%');
+    expect(normalizeFontSizeInput('larger')).toBe('larger');
+    expect(normalizeFontSizeInput('999px')).toBe('999px');
   });
 
-  it('rejects malformed or extreme custom font sizes', () => {
+  it('rejects malformed or negative custom font sizes', () => {
     expect(normalizeFontSizeInput('')).toBeNull();
-    expect(normalizeFontSizeInput('large')).toBeNull();
+    expect(normalizeFontSizeInput('large')).toBe('large');
     expect(normalizeFontSizeInput('10.5; color:red')).toBeNull();
-    expect(normalizeFontSizeInput('999px')).toBeNull();
+    expect(normalizeFontSizeInput('-1px')).toBeNull();
   });
 
   it('applies decimal custom font sizes and still unsets the default px size', () => {
