@@ -59,6 +59,8 @@ public partial class KbDbContext : DbContext
 
     public virtual DbSet<KbLanguage> KbLanguages { get; set; }
 
+    public virtual DbSet<ProtectedTranslationTerm> ProtectedTranslationTerms { get; set; }
+
     public virtual DbSet<Notification> Notifications { get; set; }
 
     public virtual DbSet<Role> Roles { get; set; }
@@ -591,6 +593,38 @@ public partial class KbDbContext : DbContext
                 CreatedAt = new DateTime(2026, 8, 24, 0, 0, 0, DateTimeKind.Utc),
                 UpdatedAt = new DateTime(2026, 8, 24, 0, 0, 0, DateTimeKind.Utc)
             });
+        });
+
+        modelBuilder.Entity<ProtectedTranslationTerm>(entity =>
+        {
+            entity.ToTable("PROTECTED_TRANSLATION_TERMS", table =>
+            {
+                table.HasCheckConstraint("CK_PROTECTED_TRANSLATION_TERMS_Term", Database.IsSqlServer()
+                    ? "LEN(LTRIM(RTRIM([Term]))) > 0"
+                    : "length(trim(\"Term\")) > 0");
+            });
+            entity.HasKey(e => e.ProtectedTranslationTermId);
+            entity.HasIndex(e => new { e.LocaleCode, e.IsEnabled }, "IX_PROTECTED_TRANSLATION_TERMS_LocaleCode_Enabled");
+            entity.HasIndex(e => new { e.Term, e.LocaleCode }, "UX_PROTECTED_TRANSLATION_TERMS_Term_LocaleCode")
+                .IsUnique().HasFilter("([LocaleCode] IS NOT NULL)");
+            entity.HasIndex(e => e.Term, "UX_PROTECTED_TRANSLATION_TERMS_GlobalTerm")
+                .IsUnique().HasFilter("([LocaleCode] IS NULL)");
+            entity.Property(e => e.ProtectedTranslationTermId)
+                .HasColumnName("ProtectedTranslationTermID")
+                .HasDefaultValueSql("(newsequentialid())", "DF_PROTECTED_TRANSLATION_TERMS_ID");
+            entity.Property(e => e.Term).HasMaxLength(300);
+            entity.Property(e => e.LocaleCode).HasMaxLength(35);
+            entity.Property(e => e.IsEnabled).HasDefaultValue(true, "DF_PROTECTED_TRANSLATION_TERMS_IsEnabled");
+            entity.Property(e => e.MetadataJson).HasMaxLength(4000);
+            entity.Property(e => e.CreatedAt).HasPrecision(3)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_PROTECTED_TRANSLATION_TERMS_CreatedAt");
+            entity.Property(e => e.UpdatedAt).HasPrecision(3)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_PROTECTED_TRANSLATION_TERMS_UpdatedAt");
+            entity.HasOne(e => e.Language).WithMany()
+                .HasPrincipalKey(e => e.LocaleCode)
+                .HasForeignKey(e => e.LocaleCode)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_PROTECTED_TRANSLATION_TERMS_LocaleCode_KB_LANGUAGES");
         });
 
         modelBuilder.Entity<CategoryLocalization>(entity =>

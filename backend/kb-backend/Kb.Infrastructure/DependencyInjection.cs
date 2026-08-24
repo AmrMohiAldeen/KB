@@ -80,6 +80,15 @@ public static class DependencyInjection
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<ILanguageRepository, LanguageRepository>();
         services.AddScoped<IArticleTranslationRepository, ArticleTranslationRepository>();
+        services.AddScoped<IProtectedTranslationTermRepository, ProtectedTranslationTermRepository>();
+        services.AddScoped<IAutomaticArticleTranslationRepository, AutomaticArticleTranslationRepository>();
+        services.Configure<AzureTranslationOptions>(configuration.GetSection("Translation:Azure"));
+        services.AddHttpClient<AzureTranslationProvider>(client =>
+            client.Timeout = TimeSpan.FromSeconds(configuration.GetValue<int?>("Translation:TimeoutSeconds") ?? 60));
+        var translationProvider = configuration["Translation:Provider"] ?? "Azure";
+        if (!string.Equals(translationProvider, "Azure", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"Unsupported translation provider '{translationProvider}'.");
+        services.AddScoped<ITranslationProvider>(provider => provider.GetRequiredService<AzureTranslationProvider>());
         services.AddScoped<IArticleDraftRepository, ArticleDraftRepository>();
         services.AddScoped<IAuditLogRepository, AuditLogRepository>();
         services.AddScoped<IMediaRepository, MediaRepository>();

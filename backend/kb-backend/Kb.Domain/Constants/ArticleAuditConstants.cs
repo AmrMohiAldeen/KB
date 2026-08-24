@@ -35,6 +35,7 @@ public static class ArticleAuditActions
     public const string TranslationUnlinked = "ArticleTranslationUnlinked";
     public const string TranslationTranslatorAssigned = "ArticleTranslationTranslatorAssigned";
     public const string TranslationVerified = "ArticleTranslationVerified";
+    public const string TranslationAutomaticallyGenerated = "ArticleTranslationAutomaticallyGenerated";
 }
 
 public static class ArticleAuditEntityTypes
@@ -44,6 +45,14 @@ public static class ArticleAuditEntityTypes
     public const string Version = "ArticleVersion";
     public const string Comment = "ArticleComment";
     public const string Language = "KbLanguage";
+    public const string ProtectedTranslationTerm = "ProtectedTranslationTerm";
+}
+
+public static class ProtectedTranslationTermAuditActions
+{
+    public const string Created = "ProtectedTranslationTermCreated";
+    public const string Updated = "ProtectedTranslationTermUpdated";
+    public const string Deleted = "ProtectedTranslationTermDeleted";
 }
 
 public static class LanguageAuditActions
