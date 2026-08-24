@@ -30,7 +30,10 @@ export const auditActionOptions = [
   ['CategoryCreated', 'Category created'],
   ['CategoryUpdated', 'Category updated'],
   ['CategoryMoved', 'Category moved'],
-  ['CategoryDeleted', 'Category deleted']
+  ['CategoryDeleted', 'Category deleted'],
+  ['UserCreated', 'User created'],
+  ['UserRoleAssigned', 'Role assigned'],
+  ['UserRoleChanged', 'Role changed']
 ] as const
 
 const auditActionLabels = new Map<string, string>(auditActionOptions)

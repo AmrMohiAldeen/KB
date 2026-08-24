@@ -258,4 +258,12 @@ public static class CategoryAuditActions
 public static class AuditEntityTypes
 {
     public const string Category = "Category";
+    public const string User = "User";
+}
+
+public static class UserAuditActions
+{
+    public const string Created = "UserCreated";
+    public const string RoleAssigned = "UserRoleAssigned";
+    public const string RoleChanged = "UserRoleChanged";
 }

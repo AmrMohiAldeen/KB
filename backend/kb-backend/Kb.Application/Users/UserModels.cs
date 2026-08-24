@@ -25,3 +25,9 @@ public sealed record PagedUserData(
     int Page,
     int PageSize,
     long TotalCount);
+
+public sealed record NewUserData(string FullName, string Email, Guid RoleId, DateTime CreatedAt);
+
+public sealed record UserAuditData(Guid ActorId, DateTime CreatedAt);
+
+public sealed record CreateUserCommand(string FullName, string Email, Guid RoleId);

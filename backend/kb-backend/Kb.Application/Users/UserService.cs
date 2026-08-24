@@ -1,13 +1,15 @@
 using Kb.Application.Abstractions;
 using Kb.Application.Exceptions;
 using Kb.Domain.Constants;
+using System.Net.Mail;
 
 namespace Kb.Application.Users;
 
 public sealed class UserService(
     IUserRepository repository,
     ICurrentUser currentUser,
-    IPermissionChecker permissionChecker)
+    IPermissionChecker permissionChecker,
+    TimeProvider timeProvider)
 {
     public const int DefaultPageSize = 20;
     public const int MaxPageSize = 100;
@@ -57,6 +59,31 @@ public sealed class UserService(
         return await repository.GetRolesAsync(cancellationToken);
     }
 
+    public async Task<UserListItemData> CreateAsync(CreateUserCommand command, CancellationToken cancellationToken)
+    {
+        await RequirePermissionAsync(cancellationToken);
+        var fullName = Required(command.FullName, "Full name", 200);
+        var email = ValidateEmail(command.Email);
+        if (command.RoleId == Guid.Empty)
+            throw new BusinessRuleException("A role is required.");
+
+        var now = timeProvider.GetUtcNow().UtcDateTime;
+        return await repository.CreateAsync(new(fullName, email, command.RoleId, now),
+            new(currentUser.UserId, now), cancellationToken);
+    }
+
+    public async Task<UserListItemData> ChangeRoleAsync(Guid userId, Guid roleId, CancellationToken cancellationToken)
+    {
+        await RequirePermissionAsync(cancellationToken);
+        if (userId == Guid.Empty)
+            throw new BusinessRuleException("A user is required.");
+        if (roleId == Guid.Empty)
+            throw new BusinessRuleException("A role is required.");
+
+        return await repository.ChangeRoleAsync(userId, roleId,
+            new(currentUser.UserId, timeProvider.GetUtcNow().UtcDateTime), cancellationToken);
+    }
+
     private async Task RequirePermissionAsync(CancellationToken cancellationToken)
     {
         if (!currentUser.IsAuthenticated)
@@ -73,5 +100,17 @@ public sealed class UserService(
         if (normalized.Length > maxLength)
             throw new BusinessRuleException($"{name} cannot exceed {maxLength} characters.");
         return normalized;
+    }
+
+    private static string Required(string? value, string name, int maxLength) =>
+        Normalize(value, name, maxLength) ?? throw new BusinessRuleException($"{name} is required.");
+
+    private static string ValidateEmail(string? value)
+    {
+        var email = Required(value, "Email", 320);
+        if (!MailAddress.TryCreate(email, out var parsed) ||
+            !parsed.Address.Equals(email, StringComparison.OrdinalIgnoreCase))
+            throw new BusinessRuleException("Email must be a valid email address.");
+        return email;
     }
 }

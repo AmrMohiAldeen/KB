@@ -42,6 +42,31 @@ public sealed class UsersController(UserService users) : ControllerBase
         return Ok(roles.Select(role => new RoleSummaryResponse(role.RoleId, role.RoleName)).ToArray());
     }
 
+    [HttpPost]
+    [Authorize(Policy = ManagePolicy)]
+    [ProducesResponseType<UserListItemResponse>(StatusCodes.Status201Created)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<UserListItemResponse>> Create(CreateUserRequest request,
+        CancellationToken cancellationToken)
+    {
+        var user = await users.CreateAsync(new(request.FullName, request.Email, request.RoleId),
+            cancellationToken);
+        return StatusCode(StatusCodes.Status201Created, ToResponse(user));
+    }
+
+    [HttpPut("{id:guid}/role")]
+    [Authorize(Policy = ManagePolicy)]
+    [ProducesResponseType<UserListItemResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<UserListItemResponse>> ChangeRole(Guid id, UpdateUserRoleRequest request,
+        CancellationToken cancellationToken)
+    {
+        var user = await users.ChangeRoleAsync(id, request.RoleId, cancellationToken);
+        return Ok(ToResponse(user));
+    }
+
     private static UserListItemResponse ToResponse(UserListItemData user) => new(
         user.UserId, user.Email, user.FullName, user.IsActive, user.CreatedAt, user.LastLoginAt,
         user.Roles.Select(role => new RoleSummaryResponse(role.RoleId, role.RoleName)).ToArray());

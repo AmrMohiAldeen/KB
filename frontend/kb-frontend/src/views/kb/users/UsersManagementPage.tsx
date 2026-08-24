@@ -5,10 +5,12 @@ import Alert from '@mui/material/Alert'
 import AlertTitle from '@mui/material/AlertTitle'
 import Avatar from '@mui/material/Avatar'
 import Box from '@mui/material/Box'
+import Button from '@mui/material/Button'
 import Chip from '@mui/material/Chip'
 import MenuItem from '@mui/material/MenuItem'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
+import { UserPlus } from 'lucide-react'
 import type { KbUserStatus, UserRoleSummary, UsersType } from '@/types/apps/userTypes'
 import type { KbDataTableColumn, KbDataTableSort } from '@/views/shared/tables/KbDataTable'
 import { KbPageShell } from '@/views/shared'
@@ -16,11 +18,12 @@ import KbValidationSummary from '@/views/shared/forms/KbValidationSummary'
 import KbDataTable from '@/views/shared/tables/KbDataTable'
 import KbTableToolbar from '@/views/shared/tables/KbTableToolbar'
 import KbTableFilter from '@/views/shared/tables/KbTableFilter'
-import { describeUsersApiError, getUserRoles, getUsers } from '@/lib/api/usersApi'
+import { changeUserRole, createUser, describeUsersApiError, getUserRoles, getUsers } from '@/lib/api/usersApi'
 import { hasAccessToken, isAuthenticationError } from '@/lib/api/http'
 import PageHeader from '../shared/components/PageHeader'
 import StatusChip from '../shared/components/StatusChip'
 import { formatDate } from '../shared/utils/formatDate'
+import UserDialog, { type UserFormState } from './UserDialog'
 
 type UsersManagementPageProps = { accessToken: string }
 const missingTokenMessage = 'Sign in through the company authentication provider before loading users.'
@@ -42,6 +45,10 @@ const UsersManagementPage = ({ accessToken }: UsersManagementPageProps) => {
   const [errors, setErrors] = useState<string[]>([])
   const [roleErrors, setRoleErrors] = useState<string[]>([])
   const [unauthorized, setUnauthorized] = useState(!authenticated)
+  const [dialogMode, setDialogMode] = useState<'create' | 'role' | null>(null)
+  const [dialogUser, setDialogUser] = useState<UsersType | undefined>()
+  const [dialogErrors, setDialogErrors] = useState<string[]>([])
+  const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 350)
@@ -94,6 +101,35 @@ const UsersManagementPage = ({ accessToken }: UsersManagementPageProps) => {
     return () => { window.clearTimeout(timer); controller.abort() }
   }, [loadUsers])
 
+  const closeDialog = () => {
+    if (submitting) return
+    setDialogMode(null)
+    setDialogUser(undefined)
+    setDialogErrors([])
+  }
+
+  const submitUser = async (form: UserFormState) => {
+    setSubmitting(true)
+    setDialogErrors([])
+    try {
+      if (dialogMode === 'role' && dialogUser)
+        await changeUserRole(dialogUser.userId, form.roleId, accessToken)
+      else
+        await createUser({ fullName: form.fullName, email: form.email, roleId: form.roleId }, accessToken)
+      setDialogMode(null)
+      setDialogUser(undefined)
+      await loadUsers()
+    } catch (error) {
+      if (isAuthenticationError(error)) {
+        setUnauthorized(true)
+        setDialogErrors([])
+        setDialogMode(null)
+      } else setDialogErrors(describeUsersApiError(error))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   const columns = useMemo<Array<KbDataTableColumn<UsersType>>>(() => [
     { id: 'fullName', label: 'Name', sortable: true, render: user => (
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 3, minInlineSize: 260 }}>
@@ -113,7 +149,16 @@ const UsersManagementPage = ({ accessToken }: UsersManagementPageProps) => {
       <StatusChip label={user.isActive ? 'active' : 'inactive'} color={user.isActive ? 'success' : 'secondary'} />
     ) },
     { id: 'createdAt', label: 'Joined', sortable: true, render: user => formatDate(user.createdAt) },
-    { id: 'lastLoginAt', label: 'Last Login', sortable: true, render: user => user.lastLoginAt ? formatDate(user.lastLoginAt) : '—' }
+    { id: 'lastLoginAt', label: 'Last Login', sortable: true, render: user => user.lastLoginAt ? formatDate(user.lastLoginAt) : '—' },
+    { id: 'actions', label: 'Actions', render: user => (
+      <Button size='small' variant='outlined' color='secondary' onClick={() => {
+        setDialogErrors([])
+        setDialogUser(user)
+        setDialogMode('role')
+      }}>
+        Change role
+      </Button>
+    ) }
   ], [])
 
   const resetPage = () => setPage(0)
@@ -149,6 +194,10 @@ const UsersManagementPage = ({ accessToken }: UsersManagementPageProps) => {
               <MenuItem value='inactive'>Inactive</MenuItem>
             </KbTableFilter>
           </>}
+          actions={<Button variant='contained' startIcon={<UserPlus size={18} />} disabled={roles.length === 0}
+            onClick={() => { setDialogErrors([]); setDialogUser(undefined); setDialogMode('create') }}>
+            Add user
+          </Button>}
         />}
         emptyState={{
           title: unauthorized ? 'Sign in required' : allErrors.length ? 'Unable to load users' : 'No users found',
@@ -158,6 +207,15 @@ const UsersManagementPage = ({ accessToken }: UsersManagementPageProps) => {
         }}
         pagination={{ page, rowsPerPage: pageSize, totalRows: totalCount, onPageChange: setPage,
           onRowsPerPageChange: nextPageSize => { setPageSize(nextPageSize); resetPage() } }}
+      />
+      <UserDialog
+        open={dialogMode !== null}
+        user={dialogMode === 'role' ? dialogUser : undefined}
+        roles={roles}
+        submitting={submitting}
+        errors={dialogErrors}
+        onClose={closeDialog}
+        onSubmit={submitUser}
       />
     </KbPageShell>
   )

@@ -52,11 +52,73 @@ public sealed class UserSliceTests
     }
 
     [Fact]
-    public void Endpoints_follow_the_users_manage_policy_and_expose_read_only_operations()
+    public async Task Creating_and_changing_a_role_uses_global_role_links_and_audits_each_change()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.PermissionGranted = true;
+        var roles = await fixture.Service.GetRolesAsync(default);
+        var reviewer = roles.Single(role => role.RoleName == "Reviewer");
+        var admin = roles.Single(role => role.RoleName == "Admin");
+
+        var created = await fixture.Service.CreateAsync(
+            new("New User", "new@example.test", reviewer.RoleId), default);
+
+        Assert.Equal("new@example.test", created.Email);
+        Assert.Equal("Reviewer", Assert.Single(created.Roles).RoleName);
+        Assert.Equal(reviewer.RoleId, Assert.Single(await fixture.Context.UserRoles
+            .Where(link => link.UserId == created.UserId).ToListAsync()).RoleId);
+        var creationActions = await fixture.Context.ArticleAuditLogs.Where(log => log.EntityId == created.UserId)
+            .Select(log => log.ActionType).ToArrayAsync();
+        Assert.Contains(UserAuditActions.Created, creationActions);
+        Assert.Contains(UserAuditActions.RoleAssigned, creationActions);
+
+        var changed = await fixture.Service.ChangeRoleAsync(created.UserId, admin.RoleId, default);
+
+        Assert.Equal("Admin", Assert.Single(changed.Roles).RoleName);
+        Assert.Equal(new[] { admin.RoleId }, await fixture.Context.UserRoles
+            .Where(link => link.UserId == created.UserId).Select(link => link.RoleId).ToArrayAsync());
+        Assert.Contains(await fixture.Context.ArticleAuditLogs.ToListAsync(), log =>
+            log.EntityId == created.UserId && log.ActionType == UserAuditActions.RoleChanged &&
+            log.MetaDataJson!.Contains("Reviewer") && log.MetaDataJson.Contains("Admin"));
+    }
+
+    [Fact]
+    public async Task Creating_prevents_duplicate_email()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.PermissionGranted = true;
+        var roleId = (await fixture.Service.GetRolesAsync(default)).First().RoleId;
+
+        await Assert.ThrowsAsync<ConflictException>(() => fixture.Service.CreateAsync(
+            new("Another Zara", "ZARA@example.test", roleId), default));
+    }
+
+    [Fact]
+    public async Task Creating_requires_users_manage_permission_and_valid_input()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var roleId = (await fixture.Context.Roles.Select(role => role.RoleId).FirstAsync());
+
+        fixture.Current.IsAuthenticated = false;
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => fixture.Service.CreateAsync(
+            new("New User", "new@example.test", roleId), default));
+
+        fixture.Current.IsAuthenticated = true;
+        await Assert.ThrowsAsync<ForbiddenException>(() => fixture.Service.CreateAsync(
+            new("New User", "new@example.test", roleId), default));
+
+        fixture.PermissionGranted = true;
+        var invalid = await Assert.ThrowsAsync<BusinessRuleException>(() => fixture.Service.CreateAsync(
+            new("New User", "not-an-email", roleId), default));
+        Assert.Equal("Email must be a valid email address.", invalid.Message);
+    }
+
+    [Fact]
+    public void Endpoints_follow_the_users_manage_policy_for_all_user_mutations()
     {
         var controller = typeof(UsersController);
         var methods = controller.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly);
-        Assert.Equal(2, methods.Length);
+        Assert.Equal(4, methods.Length);
         Assert.All(methods, method => Assert.Equal(
             PermissionPolicy.Prefix + PermissionCodes.UsersManage,
             method.GetCustomAttribute<AuthorizeAttribute>()!.Policy));
@@ -104,7 +166,7 @@ public sealed class UserSliceTests
             context.ChangeTracker.Clear();
             var current = new CurrentUser { UserId = zara.UserId };
             var permissions = new PermissionChecker();
-            return new(connection, context, new UserService(new UserRepository(context), current, permissions),
+            return new(connection, context, new UserService(new UserRepository(context), current, permissions, TimeProvider.System),
                 current, permissions);
         }
 

@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using Kb.Contracts.Common;
 
 namespace Kb.Contracts.Users;
@@ -23,4 +24,22 @@ public sealed record UserDetailsResponse(
 public sealed class UpdateUserStatusRequest
 {
     public bool IsActive { get; init; }
+}
+
+public sealed class CreateUserRequest
+{
+    [Required, NonWhiteSpace, StringLength(200)]
+    public required string FullName { get; init; }
+
+    [Required, NonWhiteSpace, StringLength(320), EmailAddress]
+    public required string Email { get; init; }
+
+    [NonEmptyGuid]
+    public Guid RoleId { get; init; }
+}
+
+public sealed class UpdateUserRoleRequest
+{
+    [NonEmptyGuid]
+    public Guid RoleId { get; init; }
 }
