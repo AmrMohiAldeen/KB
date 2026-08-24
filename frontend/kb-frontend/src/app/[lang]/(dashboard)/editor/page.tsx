@@ -7,10 +7,10 @@ export default async function Page({
   searchParams
 }: {
   params: Promise<{ lang: string }>
-  searchParams: Promise<{ articleId?: string; restoredFromVersion?: string }>
+  searchParams: Promise<{ articleId?: string; restoredFromVersion?: string; sourceArticleId?: string }>
 }) {
   const { lang } = await params
-  const { articleId = '', restoredFromVersion } = await searchParams
+  const { articleId = '', restoredFromVersion, sourceArticleId } = await searchParams
   const accessToken = await getServerAccessToken()
 
   return (
@@ -19,6 +19,7 @@ export default async function Page({
       articleId={articleId}
       accessToken={accessToken}
       restoredFromVersion={restoredFromVersion}
+      sourceArticleId={sourceArticleId}
     />
   )
 }

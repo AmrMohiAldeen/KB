@@ -1,0 +1,64 @@
+using System.Data;
+using System.Text.Json;
+using Kb.Application.Exceptions;
+using Kb.Application.Translations;
+using Kb.Domain.Constants;
+using Kb.Infrastructure.Data;
+using Kb.Infrastructure.Data.Entities;
+using Microsoft.EntityFrameworkCore;
+
+namespace Kb.Infrastructure.Translations;
+
+public sealed class ArticleTranslationRepository(KbDbContext db) : IArticleTranslationRepository
+{
+    public async Task<IReadOnlyList<ArticleTranslationData>> GetAllAsync(Guid articleId, CancellationToken ct)
+    {
+        var article = await db.Articles.AsNoTracking().SingleOrDefaultAsync(x => x.ArticleId == articleId, ct) ?? throw new NotFoundException("The article was not found.");
+        return await db.Articles.AsNoTracking().Where(x => x.TranslationGroupId == article.TranslationGroupId)
+            .OrderBy(x => x.LocaleCode).Select(ToDataProjection).ToListAsync(ct);
+    }
+    public Task<ArticleTranslationData> CreateAsync(Guid sourceId, NewArticleTranslationData request, TranslationAuditData audit, CancellationToken ct) => InTransaction(async token =>
+    {
+        var source = await Article(sourceId, token); await ValidateTarget(source, request.LocaleCode, request.CategoryId, request.CategoryIds, token);
+        if (request.AssignedTranslatorUserId is { } translator && !await db.Users.AnyAsync(x => x.UserId == translator && x.IsActive, token)) throw new NotFoundException("The translator was not found or is inactive.");
+        var id = Guid.NewGuid(); var article = new Article { ArticleId = id, Title = request.Title, Slug = await Slug(request.Slug ?? $"{source.Slug}-{request.LocaleCode.ToLowerInvariant()}", token), CategoryIdFk = request.CategoryId, AuthorIdFk = audit.ActorId, Status = ArticleStatuses.Draft, Visibility = request.Visibility, Position = await Position(request.CategoryId, token), LocaleCode = request.LocaleCode, TranslationGroupId = source.TranslationGroupId, CreatedAt = audit.CreatedAt, UpdatedAt = audit.CreatedAt };
+        var metadata = new ArticleTranslationMetadata { ArticleId = id, SourceArticleId = source.ArticleId, SourceVersionId = source.LastPublishedVersionIdFk, SourceVersionNumber = source.LastPublishedVersionIdFkNavigation?.VersionNumber, TranslationMethod = ArticleTranslationMethods.Manual, TranslationStatus = ArticleTranslationStatuses.NeedsVerification, AssignedTranslatorUserId = request.AssignedTranslatorUserId };
+        db.Articles.Add(article); db.ArticleTranslationMetadata.Add(metadata); AddCategories(id, request.CategoryId, request.CategoryIds); await db.SaveChangesAsync(token);
+        var draft = new ArticleDraft { DraftId = Guid.NewGuid(), ArticleIdFk = id, DraftNumber = 1, ContentJsonStoragePath = string.Empty, ContentSizeBytes = 0, IsLocked = false, CreatedByFk = audit.ActorId, UpdatedByFk = audit.ActorId, CreatedAt = audit.CreatedAt, UpdatedAt = audit.CreatedAt, Status = ArticleStatuses.Draft, RowVersion = db.Database.IsSqlServer() ? null! : Guid.NewGuid().ToByteArray() };
+        db.ArticleDrafts.Add(draft); await db.SaveChangesAsync(token); article.CurrentDraftIdFk = draft.DraftId; Audit(id, audit, ArticleAuditActions.TranslationCreated, new { sourceArticleId = source.ArticleId, localeCode = request.LocaleCode }); await db.SaveChangesAsync(token); return ToData(article, metadata);
+    }, ct);
+    public Task<ArticleTranslationData> LinkAsync(Guid sourceId, Guid targetId, TranslationAuditData audit, CancellationToken ct) => InTransaction(async token =>
+    {
+        var source = await Article(sourceId, token); var target = await Article(targetId, token);
+        if (source.LocaleCode == target.LocaleCode) throw new BusinessRuleException("Source and target articles must use different locales.");
+        if (!await db.KbLanguages.AnyAsync(x => x.LocaleCode == target.LocaleCode && x.IsEnabled, token)) throw new BusinessRuleException("The target language is not enabled.");
+        if (await db.Articles.AnyAsync(x => x.TranslationGroupId == source.TranslationGroupId && x.LocaleCode == target.LocaleCode && x.ArticleId != target.ArticleId, token)) throw new ConflictException("A translation already exists for that locale.");
+        if (await db.Articles.CountAsync(x => x.TranslationGroupId == target.TranslationGroupId, token) != 1) throw new ConflictException("Only an unlinked article can be linked.");
+        var metadata = await db.ArticleTranslationMetadata.SingleOrDefaultAsync(x => x.ArticleId == targetId, token);
+        if (metadata is not null && metadata.SourceArticleId is not null) throw new ConflictException("Only an unlinked article can be linked.");
+        metadata ??= new ArticleTranslationMetadata { ArticleId = targetId }; if (db.Entry(metadata).State == EntityState.Detached) db.ArticleTranslationMetadata.Add(metadata);
+        target.TranslationGroupId = source.TranslationGroupId; metadata.SourceArticleId = source.ArticleId; metadata.SourceVersionId = source.LastPublishedVersionIdFk; metadata.SourceVersionNumber = source.LastPublishedVersionIdFkNavigation?.VersionNumber; metadata.TranslationMethod = ArticleTranslationMethods.LinkedExisting; metadata.TranslationStatus = ArticleTranslationStatuses.NeedsVerification; metadata.LastTranslatedAt = audit.CreatedAt;
+        Audit(targetId, audit, ArticleAuditActions.TranslationLinked, new { sourceArticleId = sourceId }); await db.SaveChangesAsync(token); return ToData(target, metadata);
+    }, ct);
+    public async Task UnlinkAsync(Guid articleId, TranslationAuditData audit, CancellationToken ct) => await InTransaction(async token =>
+    {
+        var article = await Article(articleId, token); var previousTranslationGroupId = article.TranslationGroupId; var metadata = await db.ArticleTranslationMetadata.SingleOrDefaultAsync(x => x.ArticleId == articleId, token) ?? throw new ConflictException("The article has no translation metadata.");
+        if (metadata.SourceArticleId is null || await db.Articles.CountAsync(x => x.TranslationGroupId == article.TranslationGroupId, token) < 2) throw new ConflictException("Only a linked translation can be unlinked.");
+        var group = new ArticleTranslationGroup { TranslationGroupId = Guid.NewGuid(), CreatedAt = audit.CreatedAt }; db.ArticleTranslationGroups.Add(group); article.TranslationGroupId = group.TranslationGroupId; metadata.SourceArticleId = null; metadata.SourceVersionId = null; metadata.SourceVersionNumber = null; metadata.TranslationMethod = ArticleTranslationMethods.Original; metadata.TranslationStatus = ArticleTranslationStatuses.Original; metadata.AssignedTranslatorUserId = null; metadata.VerifiedAt = null; metadata.VerifiedByUserId = null;
+        Audit(articleId, audit, ArticleAuditActions.TranslationUnlinked, new { previousTranslationGroupId }); await db.SaveChangesAsync(token); return true;
+    }, ct);
+    public async Task<ArticleTranslationData> AssignAsync(Guid articleId, Guid? translatorId, TranslationAuditData audit, CancellationToken ct)
+    { var article = await Article(articleId, ct); var metadata = await Metadata(articleId, ct); if (translatorId is { } id && !await db.Users.AnyAsync(x => x.UserId == id && x.IsActive, ct)) throw new NotFoundException("The translator was not found or is inactive."); metadata.AssignedTranslatorUserId = translatorId; Audit(articleId, audit, ArticleAuditActions.TranslationTranslatorAssigned, new { translatorUserId = translatorId }); await db.SaveChangesAsync(ct); return ToData(article, metadata); }
+    public async Task<ArticleTranslationData> VerifyAsync(Guid articleId, TranslationAuditData audit, CancellationToken ct)
+    { var article = await Article(articleId, ct); var metadata = await Metadata(articleId, ct); if (metadata.SourceArticleId is null) throw new BusinessRuleException("Only a linked translation can be verified."); metadata.TranslationStatus = ArticleTranslationStatuses.Verified; metadata.VerifiedAt = audit.CreatedAt; metadata.VerifiedByUserId = audit.ActorId; metadata.LastTranslatedAt ??= audit.CreatedAt; Audit(articleId, audit, ArticleAuditActions.TranslationVerified, new { sourceArticleId = metadata.SourceArticleId }); await db.SaveChangesAsync(ct); return ToData(article, metadata); }
+    private async Task ValidateTarget(Article source, string locale, Guid categoryId, IReadOnlyList<Guid>? categories, CancellationToken ct) { if (source.LocaleCode == locale) throw new BusinessRuleException("Source and target articles must use different locales."); if (!await db.KbLanguages.AnyAsync(x => x.LocaleCode == locale && x.IsEnabled, ct)) throw new BusinessRuleException("The target language is not enabled."); if (await db.Articles.AnyAsync(x => x.TranslationGroupId == source.TranslationGroupId && x.LocaleCode == locale, ct)) throw new ConflictException("A translation already exists for that locale."); foreach (var id in new[] { categoryId }.Concat(categories ?? []).Distinct()) if (id == Guid.Empty || !await db.Categories.AnyAsync(x => x.CategoryId == id, ct)) throw new NotFoundException("One or more categories were not found."); }
+    private async Task<Article> Article(Guid id, CancellationToken ct) => await db.Articles.Include(x => x.LastPublishedVersionIdFkNavigation).SingleOrDefaultAsync(x => x.ArticleId == id && x.DeletedAt == null && x.Status != ArticleStatuses.Deleted, ct) ?? throw new NotFoundException("The article was not found.");
+    private async Task<ArticleTranslationMetadata> Metadata(Guid id, CancellationToken ct) => await db.ArticleTranslationMetadata.SingleOrDefaultAsync(x => x.ArticleId == id, ct) ?? throw new NotFoundException("Translation metadata was not found.");
+    private async Task<int> Position(Guid categoryId, CancellationToken ct) => (await db.Articles.Where(x => x.CategoryIdFk == categoryId && x.DeletedAt == null && x.Status != ArticleStatuses.Deleted && x.Status != ArticleStatuses.Archived).MaxAsync(x => (int?)x.Position, ct) ?? -1) + 1;
+    private async Task<string> Slug(string stem, CancellationToken ct) { stem = stem.Trim().ToLowerInvariant()[..Math.Min(350, stem.Trim().Length)]; for (var n = 1; ; n++) { var suffix = n == 1 ? string.Empty : $"-{n}"; var candidate = stem[..Math.Min(stem.Length, 350 - suffix.Length)] + suffix; if (!await db.Articles.AnyAsync(x => x.Slug == candidate && x.DeletedAt == null, ct)) return candidate; } }
+    private void AddCategories(Guid articleId, Guid primary, IReadOnlyList<Guid>? categories) => db.ArticleCategories.AddRange(new[] { primary }.Concat(categories ?? []).Distinct().Select((id, index) => new ArticleCategory { ArticleIdFk = articleId, CategoryIdFk = id, IsPrimary = id == primary, SortOrder = index }));
+    private void Audit(Guid articleId, TranslationAuditData audit, string action, object metadata) => db.ArticleAuditLogs.Add(new ArticleAuditLog { AuditLogId = db.Database.IsSqlServer() ? Guid.Empty : Guid.NewGuid(), ArticleIdFk = articleId, ActorIdFk = audit.ActorId, ActionType = action, EntityType = ArticleAuditEntityTypes.Article, EntityId = articleId, MetaDataJson = JsonSerializer.Serialize(metadata), CreatedAt = audit.CreatedAt });
+    private async Task<T> InTransaction<T>(Func<CancellationToken, Task<T>> action, CancellationToken ct) { await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct); try { var value = await action(ct); await tx.CommitAsync(ct); return value; } catch { await tx.RollbackAsync(CancellationToken.None); db.ChangeTracker.Clear(); throw; } }
+    private static readonly System.Linq.Expressions.Expression<Func<Article, ArticleTranslationData>> ToDataProjection = x => new(x.ArticleId, x.TranslationGroupId, x.LocaleCode, x.Title, x.Slug, x.Status, x.ArticleTranslationMetadata == null ? ArticleTranslationStatuses.Original : x.ArticleTranslationMetadata.TranslationStatus, x.ArticleTranslationMetadata == null ? ArticleTranslationMethods.Original : x.ArticleTranslationMetadata.TranslationMethod, x.ArticleTranslationMetadata == null ? null : x.ArticleTranslationMetadata.SourceArticleId, x.ArticleTranslationMetadata == null ? null : x.ArticleTranslationMetadata.SourceVersionId, x.ArticleTranslationMetadata == null ? null : x.ArticleTranslationMetadata.SourceVersionNumber, x.ArticleTranslationMetadata == null ? null : x.ArticleTranslationMetadata.AssignedTranslatorUserId, x.ArticleTranslationMetadata == null ? null : x.ArticleTranslationMetadata.LastTranslatedAt, x.ArticleTranslationMetadata == null ? null : x.ArticleTranslationMetadata.VerifiedAt, x.ArticleTranslationMetadata == null ? null : x.ArticleTranslationMetadata.VerifiedByUserId);
+    private static ArticleTranslationData ToData(Article a, ArticleTranslationMetadata m) => new(a.ArticleId, a.TranslationGroupId, a.LocaleCode, a.Title, a.Slug, a.Status, m.TranslationStatus, m.TranslationMethod, m.SourceArticleId, m.SourceVersionId, m.SourceVersionNumber, m.AssignedTranslatorUserId, m.LastTranslatedAt, m.VerifiedAt, m.VerifiedByUserId);
+}

@@ -233,13 +233,15 @@ public static class PermissionCodes
     public const string LocksManage = "locks.manage";
     public const string UsersManage = "users.manage";
     public const string RolesManage = "roles.manage";
+    public const string LanguagesManage = "languages.manage";
+    public const string ArticlesTranslate = "articles.translate";
 
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
         ArticlesCreate, ArticlesEditOwnDraft, ArticlesEditAnyDraft, ArticlesSubmitForReview,
         ArticlesReview, ArticlesPublish, ArticlesDelete, CommentsCreate, CommentsModerate, SuggestionsCreate,
         CategoriesManage, TemplatesManage, VersionsView, VersionsRestore, AuditLogsView,
-        LocksManage, UsersManage, RolesManage
+        LocksManage, UsersManage, RolesManage, LanguagesManage, ArticlesTranslate
     };
 }
 

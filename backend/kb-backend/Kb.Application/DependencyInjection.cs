@@ -13,6 +13,8 @@ using Kb.Application.Search;
 using Kb.Application.Public;
 using Kb.Application.Viewer;
 using Kb.Application.Users;
+using Kb.Application.Languages;
+using Kb.Application.Translations;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Kb.Application;
@@ -41,6 +43,8 @@ public static class DependencyInjection
         services.AddScoped<ViewerService>();
         services.AddScoped<ViewerDashboardSettingsService>();
         services.AddScoped<UserService>();
+        services.AddScoped<LanguageService>();
+        services.AddScoped<ArticleTranslationService>();
         return services;
     }
 }

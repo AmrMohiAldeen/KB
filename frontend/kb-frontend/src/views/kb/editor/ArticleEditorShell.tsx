@@ -36,6 +36,9 @@ import { createArticle, getArticleById } from '@/lib/api/articlesApi'
 import { getArticleDraft, saveArticleDraftContent } from '@/lib/api/articleDraftsApi'
 import { describeApiError } from '@/lib/api/http'
 import ArticleExportActions from '@/features/articleExport/ArticleExportActions'
+import ArticleTranslationsPanel from './ArticleTranslationsPanel'
+import type { ArticleDetailsResponse } from '@/types/apps/articleTypes'
+import type { ArticleDraftResponse } from '@/types/apps/articleDraftTypes'
 
 const EditorCanvas = dynamic<KnowledgeBaseEditorProps>(() => import('@/features/editor/core/KnowledgeBaseEditor'), {
   ssr: false
@@ -50,6 +53,7 @@ type ArticleEditorShellProps = {
   api?: ArticleDraftEditorApi
   mediaApi?: MediaLibraryApi
   commentsApi?: ArticleCommentsApi
+  sourceArticleId?: string
 }
 
 const saveLabel = {
@@ -67,7 +71,8 @@ const ArticleEditorShell = ({
   restoredFromVersion,
   api,
   mediaApi = mediaLibraryApi,
-  commentsApi
+  commentsApi,
+  sourceArticleId
 }: ArticleEditorShellProps) => {
   const router = useRouter()
   const [pendingMediaUploads, setPendingMediaUploads] = useState(0)
@@ -78,6 +83,9 @@ const ArticleEditorShell = ({
   const [secondaryBusy, setSecondaryBusy] = useState(false)
   const [secondaryMessages, setSecondaryMessages] = useState<string[]>([])
   const [workflowActionsTarget, setWorkflowActionsTarget] = useState<HTMLElement | null>(null)
+  const [articleDetails, setArticleDetails] = useState<ArticleDetailsResponse | null>(null)
+  const [comparisonSourceId, setComparisonSourceId] = useState<string | null>(sourceArticleId ?? null)
+  const [comparisonSource, setComparisonSource] = useState<{ article: ArticleDetailsResponse; draft: ArticleDraftResponse } | null>(null)
   const handleWorkflowActionsTarget = useCallback((node: HTMLElement | null) => {
     setWorkflowActionsTarget(node)
   }, [])
@@ -114,6 +122,23 @@ const ArticleEditorShell = ({
     `/editor/versions?articleId=${encodeURIComponent(articleId)}`,
     lang
   )
+
+  useEffect(() => {
+    if (!articleId) return
+    void getArticleById(articleId, accessToken).then(setArticleDetails).catch(() => setArticleDetails(null))
+  }, [accessToken, articleId])
+
+  useEffect(() => {
+    if (!comparisonSourceId || comparisonSourceId === articleId) {
+      setComparisonSource(null)
+      return
+    }
+    let active = true
+    void Promise.all([getArticleById(comparisonSourceId, accessToken), getArticleDraft(comparisonSourceId, accessToken)])
+      .then(([article, draft]) => { if (active) setComparisonSource({ article, draft }) })
+      .catch(error => { if (active) { setComparisonSource(null); setSecondaryMessages(describeApiError(error)) } })
+    return () => { active = false }
+  }, [accessToken, articleId, comparisonSourceId])
 
   useEffect(
     () => mediaController.subscribe(setPendingMediaUploads),
@@ -214,6 +239,17 @@ const ArticleEditorShell = ({
 
       <KbValidationSummary title='Draft editor' errors={[...editor.messages, ...mediaMessages, ...secondaryMessages]} />
 
+      <ArticleTranslationsPanel
+        articleId={articleId}
+        accessToken={accessToken}
+        article={articleDetails}
+        onCompare={setComparisonSourceId}
+        onOpenArticle={(targetArticleId, sourceId) => void editor.leave(() => router.push(getLocalizedUrl(
+          `/editor?articleId=${encodeURIComponent(targetArticleId)}${sourceId ? `&sourceArticleId=${encodeURIComponent(sourceId)}` : ''}`,
+          lang
+        )))}
+      />
+
       {restoredFromVersion && (
         <Alert severity='success'>
           A new editable draft was created from version {restoredFromVersion}. The currently published article is
@@ -261,7 +297,18 @@ const ArticleEditorShell = ({
                   bgcolor: 'background.default'
                 }}
               >
-                <Box sx={{ inlineSize: '100%', minInlineSize: 0 }}>
+                <Box sx={{ inlineSize: '100%', minInlineSize: 0, display: 'grid', gridTemplateColumns: comparisonSource ? { xs: '1fr', xl: 'repeat(2, minmax(0, 1fr))' } : '1fr', gap: 2 }}>
+                  {comparisonSource && (
+                    <Box sx={{ minInlineSize: 0, border: 1, borderColor: 'divider', borderRadius: 1, overflow: 'hidden' }}>
+                      <Box sx={{ px: 2, py: 1.25, bgcolor: 'action.hover' }}>
+                        <Typography variant='subtitle2'>Source · {comparisonSource.article.title}</Typography>
+                        <Typography variant='caption' color='text.secondary'>Read-only — source content cannot be changed here.</Typography>
+                      </Box>
+                      <EditorCanvas content={comparisonSource.draft.content} editable={false} changeDebounceMs={0} onChange={() => undefined} mediaContentLoader={loadMediaContent} />
+                    </Box>
+                  )}
+                  <Box sx={{ minInlineSize: 0 }}>
+                  {comparisonSource && <Box sx={{ px: 1, pb: 1 }}><Typography variant='subtitle2'>Translation · {articleDetails?.title ?? 'Current article'}</Typography></Box>}
                   <EditorCanvas
                     key={editor.editorKey}
                     content={editor.draft.content}
@@ -285,6 +332,7 @@ const ArticleEditorShell = ({
                       setActiveCommentThreadId(null)
                     }}
                   />
+                  </Box>
                 </Box>
                 <ArticleCommentsPanel
                   state={comments}

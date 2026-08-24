@@ -30,6 +30,11 @@ public static class ArticleAuditActions
     public const string CommentReopened = "ArticleCommentReopened";
     public const string CommentAnchorChanged = "ArticleCommentAnchorChanged";
     public const string VisibilityChanged = "ArticleVisibilityChanged";
+    public const string TranslationCreated = "ArticleTranslationCreated";
+    public const string TranslationLinked = "ArticleTranslationLinked";
+    public const string TranslationUnlinked = "ArticleTranslationUnlinked";
+    public const string TranslationTranslatorAssigned = "ArticleTranslationTranslatorAssigned";
+    public const string TranslationVerified = "ArticleTranslationVerified";
 }
 
 public static class ArticleAuditEntityTypes
@@ -38,4 +43,13 @@ public static class ArticleAuditEntityTypes
     public const string Draft = "ArticleDraft";
     public const string Version = "ArticleVersion";
     public const string Comment = "ArticleComment";
+    public const string Language = "KbLanguage";
+}
+
+public static class LanguageAuditActions
+{
+    public const string Configured = "LanguageConfigured";
+    public const string Enabled = "LanguageEnabled";
+    public const string Disabled = "LanguageDisabled";
+    public const string DefaultChanged = "LanguageDefaultChanged";
 }
