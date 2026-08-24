@@ -33,6 +33,8 @@ public partial class Category
 
     public virtual ICollection<ArticleCategory> ArticleCategories { get; set; } = new List<ArticleCategory>();
 
+    public virtual ICollection<CategoryLocalization> CategoryLocalizations { get; set; } = new List<CategoryLocalization>();
+
     public virtual ICollection<ExportJob> ExportJobs { get; set; } = new List<ExportJob>();
 
     public virtual ICollection<Category> InverseParentCategoryIdFkNavigation { get; set; } = new List<Category>();

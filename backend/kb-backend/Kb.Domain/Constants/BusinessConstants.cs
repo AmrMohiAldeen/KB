@@ -18,6 +18,31 @@ public static class ArticleStatuses
     };
 }
 
+public static class KbLocales
+{
+    // This is also the language seeded by the localization-foundation migration.
+    // Keep it in sync with the default value configured on ARTICLES.LocaleCode.
+    public const string DefaultLocaleCode = "en";
+}
+
+public static class ArticleTranslationMethods
+{
+    public const string Original = "Original";
+    public const string Manual = "Manual";
+    public const string Automatic = "Automatic";
+    public const string LinkedExisting = "LinkedExisting";
+    public const string Copied = "Copied";
+}
+
+public static class ArticleTranslationStatuses
+{
+    public const string Original = "Original";
+    public const string NeedsTranslation = "NeedsTranslation";
+    public const string NeedsVerification = "NeedsVerification";
+    public const string Verified = "Verified";
+    public const string OutOfDate = "OutOfDate";
+}
+
 public static class ArticleDraftStatuses
 {
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)

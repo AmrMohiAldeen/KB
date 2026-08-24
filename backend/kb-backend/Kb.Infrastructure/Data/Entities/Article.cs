@@ -25,6 +25,10 @@ public partial class Article
 
     public Guid? LastPublishedVersionIdFk { get; set; }
 
+    public string LocaleCode { get; set; } = Kb.Domain.Constants.KbLocales.DefaultLocaleCode;
+
+    public Guid TranslationGroupId { get; set; }
+
     public DateTime CreatedAt { get; set; }
 
     public DateTime UpdatedAt { get; set; }
@@ -45,6 +49,8 @@ public partial class Article
 
     public virtual ICollection<ArticleVersion> ArticleVersions { get; set; } = new List<ArticleVersion>();
 
+    public virtual ArticleTranslationMetadata? ArticleTranslationMetadata { get; set; }
+
     public virtual User AuthorIdFkNavigation { get; set; } = null!;
 
     public virtual Category? CategoryIdFkNavigation { get; set; }
@@ -54,6 +60,8 @@ public partial class Article
     public virtual ICollection<ExportJob> ExportJobs { get; set; } = new List<ExportJob>();
 
     public virtual ArticleVersion? LastPublishedVersionIdFkNavigation { get; set; }
+
+    public virtual ArticleTranslationGroup TranslationGroup { get; set; } = null!;
 
     public virtual ICollection<MediaReference> MediaReferences { get; set; } = new List<MediaReference>();
 

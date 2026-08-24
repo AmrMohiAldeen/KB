@@ -79,6 +79,10 @@ public partial class User
 
     public virtual ICollection<Article> Articles { get; set; } = new List<Article>();
 
+    public virtual ICollection<ArticleTranslationMetadata> AssignedArticleTranslations { get; set; } = new List<ArticleTranslationMetadata>();
+
+    public virtual ICollection<ArticleTranslationMetadata> VerifiedArticleTranslations { get; set; } = new List<ArticleTranslationMetadata>();
+
     public virtual ICollection<ContentBlock> ContentBlockCreatedByFkNavigations { get; set; } = new List<ContentBlock>();
 
     public virtual ICollection<ContentBlock> ContentBlockUpdatedByFkNavigations { get; set; } = new List<ContentBlock>();

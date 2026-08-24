@@ -35,7 +35,13 @@ public partial class KbDbContext : DbContext
 
     public virtual DbSet<ArticleVersion> ArticleVersions { get; set; }
 
+    public virtual DbSet<ArticleTranslationGroup> ArticleTranslationGroups { get; set; }
+
+    public virtual DbSet<ArticleTranslationMetadata> ArticleTranslationMetadata { get; set; }
+
     public virtual DbSet<Category> Categories { get; set; }
+
+    public virtual DbSet<CategoryLocalization> CategoryLocalizations { get; set; }
 
     public virtual DbSet<ContentBlock> ContentBlocks { get; set; }
 
@@ -50,6 +56,8 @@ public partial class KbDbContext : DbContext
     public virtual DbSet<MigrationJob> MigrationJobs { get; set; }
 
     public virtual DbSet<MigrationJobIssue> MigrationJobIssues { get; set; }
+
+    public virtual DbSet<KbLanguage> KbLanguages { get; set; }
 
     public virtual DbSet<Notification> Notifications { get; set; }
 
@@ -75,6 +83,7 @@ public partial class KbDbContext : DbContext
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
+        EnsureNewArticlesHaveLocalizationFoundation();
         EnsureAuditLogsAreAppendOnly();
         EnsureArticleVersionsAreAppendOnly();
         return base.SaveChanges(acceptAllChangesOnSuccess);
@@ -84,6 +93,7 @@ public partial class KbDbContext : DbContext
         bool acceptAllChangesOnSuccess,
         CancellationToken cancellationToken = default)
     {
+        EnsureNewArticlesHaveLocalizationFoundation();
         EnsureAuditLogsAreAppendOnly();
         EnsureArticleVersionsAreAppendOnly();
         return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
@@ -108,6 +118,10 @@ public partial class KbDbContext : DbContext
 
             entity.HasIndex(e => new { e.Status, e.UpdatedAt }, "IX_ARTICLES_Status").IsDescending(false, true);
 
+            entity.HasIndex(e => new { e.TranslationGroupId, e.LocaleCode },
+                    "UX_ARTICLES_TranslationGroupID_LocaleCode")
+                .IsUnique();
+
             entity.HasIndex(e => e.Slug, "UX_ARTICLES_Slug_Active")
                 .IsUnique()
                 .HasFilter("([DeletedAt] IS NULL)");
@@ -123,12 +137,16 @@ public partial class KbDbContext : DbContext
             entity.Property(e => e.CurrentDraftIdFk).HasColumnName("CurrentDraftID_FK");
             entity.Property(e => e.DeletedAt).HasPrecision(3);
             entity.Property(e => e.LastPublishedVersionIdFk).HasColumnName("LastPublishedVersionID_FK");
+            entity.Property(e => e.LocaleCode)
+                .HasMaxLength(35)
+                .HasDefaultValue(KbLocales.DefaultLocaleCode, "DF_ARTICLES_LocaleCode");
             entity.Property(e => e.Position).HasDefaultValue(0, "DF_ARTICLES_Position");
             entity.Property(e => e.Slug).HasMaxLength(350);
             entity.Property(e => e.Status)
                 .HasMaxLength(50)
                 .HasDefaultValue("Draft", "DF_ARTICLES_Status");
             entity.Property(e => e.Title).HasMaxLength(300);
+            entity.Property(e => e.TranslationGroupId).HasColumnName("TranslationGroupID");
             entity.Property(e => e.Visibility).HasMaxLength(20)
                 .HasDefaultValue(ContentVisibilities.Public, "DF_ARTICLES_Visibility");
             entity.Property(e => e.UpdatedAt)
@@ -151,6 +169,82 @@ public partial class KbDbContext : DbContext
             entity.HasOne(d => d.LastPublishedVersionIdFkNavigation).WithMany(p => p.Articles)
                 .HasForeignKey(d => d.LastPublishedVersionIdFk)
                 .HasConstraintName("FK_ARTICLES_LastPublishedVersion_ARTICLE_VERSIONS");
+
+            entity.HasOne(d => d.TranslationGroup).WithMany(p => p.Articles)
+                .HasForeignKey(d => d.TranslationGroupId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_ARTICLES_TranslationGroup_ARTICLE_TRANSLATION_GROUPS");
+
+            entity.HasOne<KbLanguage>().WithMany()
+                .HasPrincipalKey(language => language.LocaleCode)
+                .HasForeignKey(article => article.LocaleCode)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_ARTICLES_LocaleCode_KB_LANGUAGES");
+        });
+
+        modelBuilder.Entity<ArticleTranslationGroup>(entity =>
+        {
+            entity.ToTable("ARTICLE_TRANSLATION_GROUPS");
+            entity.HasKey(e => e.TranslationGroupId);
+            entity.Property(e => e.TranslationGroupId)
+                .HasColumnName("TranslationGroupID")
+                .HasDefaultValueSql("(newsequentialid())", "DF_ARTICLE_TRANSLATION_GROUPS_TranslationGroupID");
+            entity.Property(e => e.CreatedAt)
+                .HasPrecision(3)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_ARTICLE_TRANSLATION_GROUPS_CreatedAt");
+        });
+
+        modelBuilder.Entity<ArticleTranslationMetadata>(entity =>
+        {
+            entity.ToTable("ARTICLE_TRANSLATION_METADATA", table =>
+            {
+                table.HasCheckConstraint("CK_ARTICLE_TRANSLATION_METADATA_Method",
+                    "[TranslationMethod] IN ('Original', 'Manual', 'Automatic', 'LinkedExisting', 'Copied')");
+                table.HasCheckConstraint("CK_ARTICLE_TRANSLATION_METADATA_Status",
+                    "[TranslationStatus] IN ('Original', 'NeedsTranslation', 'NeedsVerification', 'Verified', 'OutOfDate')");
+                table.HasCheckConstraint("CK_ARTICLE_TRANSLATION_METADATA_SourceVersion",
+                    "[SourceVersionID] IS NULL OR [SourceArticleID] IS NOT NULL");
+            });
+            entity.HasKey(e => e.ArticleId);
+            entity.HasIndex(e => e.AssignedTranslatorUserId, "IX_ARTICLE_TRANSLATION_METADATA_AssignedTranslatorUserID")
+                .HasFilter("([AssignedTranslatorUserID] IS NOT NULL)");
+            entity.HasIndex(e => e.SourceArticleId, "IX_ARTICLE_TRANSLATION_METADATA_SourceArticleID")
+                .HasFilter("([SourceArticleID] IS NOT NULL)");
+            entity.HasIndex(e => e.VerifiedByUserId, "IX_ARTICLE_TRANSLATION_METADATA_VerifiedByUserID")
+                .HasFilter("([VerifiedByUserID] IS NOT NULL)");
+            entity.Property(e => e.ArticleId).HasColumnName("ArticleID");
+            entity.Property(e => e.AssignedTranslatorUserId).HasColumnName("AssignedTranslatorUserID");
+            entity.Property(e => e.LastTranslatedAt).HasPrecision(3);
+            entity.Property(e => e.SourceArticleId).HasColumnName("SourceArticleID");
+            entity.Property(e => e.SourceVersionId).HasColumnName("SourceVersionID");
+            entity.Property(e => e.TranslationMethod).HasMaxLength(30)
+                .HasDefaultValue(ArticleTranslationMethods.Original, "DF_ARTICLE_TRANSLATION_METADATA_Method");
+            entity.Property(e => e.TranslationStatus).HasMaxLength(30)
+                .HasDefaultValue(ArticleTranslationStatuses.Original, "DF_ARTICLE_TRANSLATION_METADATA_Status");
+            entity.Property(e => e.VerifiedAt).HasPrecision(3);
+            entity.Property(e => e.VerifiedByUserId).HasColumnName("VerifiedByUserID");
+
+            entity.HasOne(e => e.Article).WithOne(e => e.ArticleTranslationMetadata)
+                .HasForeignKey<ArticleTranslationMetadata>(e => e.ArticleId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("FK_ARTICLE_TRANSLATION_METADATA_ARTICLES");
+            entity.HasOne(e => e.SourceArticle).WithMany()
+                .HasForeignKey(e => e.SourceArticleId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_ARTICLE_TRANSLATION_METADATA_Source_ARTICLES");
+            entity.HasOne(e => e.SourceVersion).WithMany()
+                .HasPrincipalKey(e => new { e.ArticleIdFk, e.VersionId })
+                .HasForeignKey(e => new { e.SourceArticleId, e.SourceVersionId })
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_ARTICLE_TRANSLATION_METADATA_Source_ARTICLE_VERSIONS");
+            entity.HasOne(e => e.AssignedTranslatorUser).WithMany(e => e.AssignedArticleTranslations)
+                .HasForeignKey(e => e.AssignedTranslatorUserId)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("FK_ARTICLE_TRANSLATION_METADATA_AssignedTranslator_USERS");
+            entity.HasOne(e => e.VerifiedByUser).WithMany(e => e.VerifiedArticleTranslations)
+                .HasForeignKey(e => e.VerifiedByUserId)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("FK_ARTICLE_TRANSLATION_METADATA_VerifiedBy_USERS");
         });
 
         modelBuilder.Entity<ArticleAuditLog>(entity =>
@@ -372,6 +466,9 @@ public partial class KbDbContext : DbContext
         {
             entity.HasKey(e => e.VersionId);
 
+            entity.HasAlternateKey(nameof(ArticleVersion.ArticleIdFk), nameof(ArticleVersion.VersionId))
+                .HasName("AK_ARTICLE_VERSIONS_ArticleID_VersionID");
+
             entity.ToTable("ARTICLE_VERSIONS");
 
             entity.HasIndex(e => new { e.ArticleIdFk, e.CreatedAt }, "IX_ARTICLE_VERSIONS_ArticleID_CreatedAt").IsDescending(false, true);
@@ -453,6 +550,66 @@ public partial class KbDbContext : DbContext
                 .HasForeignKey(d => d.ViewerImageMediaIdFk)
                 .OnDelete(DeleteBehavior.SetNull)
                 .HasConstraintName("FK_CATEGORIES_ViewerImage_MEDIA_FILES");
+        });
+
+        modelBuilder.Entity<KbLanguage>(entity =>
+        {
+            entity.ToTable("KB_LANGUAGES", table =>
+            {
+                table.HasCheckConstraint("CK_KB_LANGUAGES_DefaultEnabled", "[IsDefault] = 0 OR [IsEnabled] = 1");
+                table.HasCheckConstraint("CK_KB_LANGUAGES_LocaleCode", "[LocaleCode] <> ''");
+                table.HasCheckConstraint("CK_KB_LANGUAGES_SortOrder", "[SortOrder] >= 0");
+            });
+            entity.HasKey(e => e.LanguageId);
+            entity.HasAlternateKey(nameof(KbLanguage.LocaleCode)).HasName("UX_KB_LANGUAGES_LocaleCode");
+            entity.HasIndex(e => e.IsDefault, "UX_KB_LANGUAGES_Default")
+                .IsUnique().HasFilter("([IsDefault] = (1))");
+            entity.Property(e => e.LanguageId)
+                .HasColumnName("LanguageID")
+                .HasDefaultValueSql("(newsequentialid())", "DF_KB_LANGUAGES_LanguageID");
+            entity.Property(e => e.CreatedAt).HasPrecision(3)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_KB_LANGUAGES_CreatedAt");
+            entity.Property(e => e.DisplayName).HasMaxLength(200);
+            entity.Property(e => e.LocaleCode).HasMaxLength(35);
+            entity.Property(e => e.NativeName).HasMaxLength(200);
+            entity.Property(e => e.IsDefault).HasDefaultValue(false, "DF_KB_LANGUAGES_IsDefault");
+            entity.Property(e => e.IsEnabled).HasDefaultValue(true, "DF_KB_LANGUAGES_IsEnabled");
+            entity.Property(e => e.IsRtl).HasDefaultValue(false, "DF_KB_LANGUAGES_IsRtl");
+            entity.Property(e => e.SortOrder).HasDefaultValue(0, "DF_KB_LANGUAGES_SortOrder");
+            entity.Property(e => e.UpdatedAt).HasPrecision(3)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_KB_LANGUAGES_UpdatedAt");
+            entity.HasData(new KbLanguage
+            {
+                LanguageId = new Guid("2fd39138-6f8e-40bf-962f-d43cc8350f0c"),
+                LocaleCode = KbLocales.DefaultLocaleCode,
+                DisplayName = "English",
+                NativeName = "English",
+                IsDefault = true,
+                IsEnabled = true,
+                IsRtl = false,
+                SortOrder = 0,
+                CreatedAt = new DateTime(2026, 8, 24, 0, 0, 0, DateTimeKind.Utc),
+                UpdatedAt = new DateTime(2026, 8, 24, 0, 0, 0, DateTimeKind.Utc)
+            });
+        });
+
+        modelBuilder.Entity<CategoryLocalization>(entity =>
+        {
+            entity.ToTable("CATEGORY_LOCALIZATIONS");
+            entity.HasKey(e => new { e.CategoryId, e.LocaleCode });
+            entity.Property(e => e.CategoryId).HasColumnName("CategoryID");
+            entity.Property(e => e.LocaleCode).HasMaxLength(35);
+            entity.Property(e => e.Name).HasMaxLength(200);
+            entity.Property(e => e.Description).HasMaxLength(1000);
+            entity.HasOne(e => e.Category).WithMany(e => e.CategoryLocalizations)
+                .HasForeignKey(e => e.CategoryId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("FK_CATEGORY_LOCALIZATIONS_CATEGORIES");
+            entity.HasOne(e => e.Language).WithMany(e => e.CategoryLocalizations)
+                .HasPrincipalKey(e => e.LocaleCode)
+                .HasForeignKey(e => e.LocaleCode)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_CATEGORY_LOCALIZATIONS_LocaleCode_KB_LANGUAGES");
         });
 
         modelBuilder.Entity<ArticleCategory>(entity =>
@@ -983,6 +1140,49 @@ public partial class KbDbContext : DbContext
         });
 
         OnModelCreatingPartial(modelBuilder);
+    }
+
+    private void EnsureNewArticlesHaveLocalizationFoundation()
+    {
+        var addedArticles = ChangeTracker.Entries<Article>()
+            .Where(entry => entry.State == EntityState.Added)
+            .Select(entry => entry.Entity)
+            .ToArray();
+        if (addedArticles.Length == 0) return;
+
+        var now = DateTime.UtcNow;
+        foreach (var article in addedArticles)
+        {
+            if (string.IsNullOrWhiteSpace(article.LocaleCode))
+                article.LocaleCode = KbLocales.DefaultLocaleCode;
+
+            if (article.TranslationGroupId == Guid.Empty)
+            {
+                var group = new ArticleTranslationGroup
+                {
+                    TranslationGroupId = Guid.NewGuid(),
+                    CreatedAt = article.CreatedAt == default ? now : article.CreatedAt
+                };
+                ArticleTranslationGroups.Add(group);
+                article.TranslationGroup = group;
+                article.TranslationGroupId = group.TranslationGroupId;
+            }
+
+            if (article.ArticleTranslationMetadata is not null ||
+                ChangeTracker.Entries<ArticleTranslationMetadata>().Any(entry =>
+                    entry.State != EntityState.Deleted && entry.Entity.ArticleId == article.ArticleId))
+                continue;
+
+            var metadata = new ArticleTranslationMetadata
+            {
+                Article = article,
+                TranslationMethod = ArticleTranslationMethods.Original,
+                TranslationStatus = ArticleTranslationStatuses.Original,
+                LastTranslatedAt = article.CreatedAt == default ? now : article.CreatedAt
+            };
+            article.ArticleTranslationMetadata = metadata;
+            ArticleTranslationMetadata.Add(metadata);
+        }
     }
 
     private void EnsureAuditLogsAreAppendOnly()

@@ -284,12 +284,16 @@ public sealed class CategorySliceTests
         public Task AddArticleAsync(Guid categoryId, bool softDeleted)
         {
             var id = Guid.NewGuid();
+            var translationGroupId = Guid.NewGuid();
             var now = DateTime.UtcNow;
             return Context.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO ARTICLE_TRANSLATION_GROUPS (TranslationGroupID, CreatedAt)
+                VALUES ({translationGroupId}, {now});
+
                 INSERT INTO ARTICLES
-                    (ArticleID, Title, Slug, CategoryID_FK, AuthorID_FK, Status, CreatedAt, UpdatedAt, DeletedAt)
-                VALUES ({id}, {"Article"}, {$"article-{id}"}, {categoryId}, {UserId}, {"Draft"}, {now}, {now},
-                    {(softDeleted ? now : (DateTime?)null)})
+                    (ArticleID, Title, Slug, CategoryID_FK, AuthorID_FK, Status, TranslationGroupID, CreatedAt, UpdatedAt, DeletedAt)
+                VALUES ({id}, {"Article"}, {$"article-{id}"}, {categoryId}, {UserId}, {"Draft"}, {translationGroupId},
+                    {now}, {now}, {(softDeleted ? now : (DateTime?)null)})
                 """);
         }
 
