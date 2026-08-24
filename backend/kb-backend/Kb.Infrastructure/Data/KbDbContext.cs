@@ -21,6 +21,10 @@ public partial class KbDbContext : DbContext
 
     public virtual DbSet<ViewerDashboardSettings> ViewerDashboardSettings { get; set; }
 
+    public virtual DbSet<ViewerDashboardCustomization> ViewerDashboardCustomizations { get; set; }
+
+    public virtual DbSet<ViewerDashboardCategoryCustomization> ViewerDashboardCategoryCustomizations { get; set; }
+
     public virtual DbSet<ArticleComment> ArticleComments { get; set; }
 
     public virtual DbSet<ArticleNotificationPreference> ArticleNotificationPreferences { get; set; }
@@ -485,6 +489,33 @@ public partial class KbDbContext : DbContext
             entity.Property(item => item.CategoryCardBackgroundColor).HasMaxLength(7);
             entity.Property(item => item.TextColor).HasMaxLength(7);
             entity.Property(item => item.UpdatedAt).HasPrecision(3);
+        });
+
+        modelBuilder.Entity<ViewerDashboardCustomization>(entity =>
+        {
+            entity.ToTable("VIEWER_DASHBOARD_CUSTOMIZATIONS");
+            entity.HasKey(item => item.RootCategoryId);
+            entity.Property(item => item.RootCategoryId).HasColumnName("RootCategoryID");
+            entity.Property(item => item.PrimaryColor).HasMaxLength(7);
+            entity.Property(item => item.PageBackgroundColor).HasMaxLength(7);
+            entity.Property(item => item.CategoryCardBackgroundColor).HasMaxLength(7);
+            entity.Property(item => item.TextColor).HasMaxLength(7);
+            entity.Property(item => item.UpdatedAt).HasPrecision(3);
+            entity.HasOne(item => item.RootCategory).WithMany().HasForeignKey(item => item.RootCategoryId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ViewerDashboardCategoryCustomization>(entity =>
+        {
+            entity.ToTable("VIEWER_DASHBOARD_CATEGORY_CUSTOMIZATIONS");
+            entity.HasKey(item => new { item.RootCategoryId, item.CategoryId });
+            entity.Property(item => item.RootCategoryId).HasColumnName("RootCategoryID");
+            entity.Property(item => item.CategoryId).HasColumnName("CategoryID");
+            entity.Property(item => item.ViewerImageMediaId).HasColumnName("ViewerImageMediaID_FK");
+            entity.Property(item => item.ViewerIcon).HasMaxLength(100);
+            entity.Property(item => item.DisplayColor).HasMaxLength(7);
+            entity.HasOne(item => item.Dashboard).WithMany(item => item.Categories).HasForeignKey(item => item.RootCategoryId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(item => item.Category).WithMany().HasForeignKey(item => item.CategoryId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(item => item.ViewerImageMedia).WithMany().HasForeignKey(item => item.ViewerImageMediaId).OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<ContentBlock>(entity =>

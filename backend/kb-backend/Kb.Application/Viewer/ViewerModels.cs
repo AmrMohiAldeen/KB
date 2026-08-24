@@ -23,6 +23,10 @@ public sealed record ViewerDashboardAppearanceData(string PrimaryColor, string P
 {
     public static readonly ViewerDashboardAppearanceData Default = new("#1976D2", "#F8FAFC", "#FFFFFF", "#1E293B");
 }
+public sealed record ViewerDashboardCategoryCustomizationData(Guid CategoryId, int SortOrder,
+    Guid? ViewerImageMediaId, string? ViewerIcon, string DisplayColor);
+public sealed record ViewerDashboardCustomizationData(Guid RootCategoryId, ViewerDashboardAppearanceData Appearance,
+    IReadOnlyList<ViewerDashboardCategoryCustomizationData> Categories);
 public sealed record ViewerPortalData(Guid SolutionId, string Slug, string Name, string? Description,
     ViewerDashboardAppearanceData? Appearance = null)
 {
@@ -31,10 +35,10 @@ public sealed record ViewerPortalData(Guid SolutionId, string Slug, string Name,
 }
 public sealed record ViewerCategoryData(Guid Id, Guid? ParentId, string Name, string Slug, string? Description,
     int SortOrder, string? Path, int Depth, int ArticleCount, bool HasViewerImage = false,
-    string? ViewerIcon = null);
+    string? ViewerIcon = null, string? DisplayColor = null);
 public sealed record ViewerCategoryNode(Guid Id, Guid? ParentId, string Name, string Slug, string? Description,
     int SortOrder, string? Path, int Depth, int ArticleCount, IReadOnlyList<ViewerCategoryNode> Children,
-    bool HasViewerImage = false, string? ViewerIcon = null);
+    bool HasViewerImage = false, string? ViewerIcon = null, string? DisplayColor = null);
 public sealed record ViewerCategoryImageSource(string StoragePath, string MimeType, string FileName);
 public sealed record ViewerCategoryImage(Stream Content, string MimeType, string FileName);
 public sealed record ViewerArticleSummary(Guid Id, string Title, string Slug, Guid CategoryId,
@@ -64,6 +68,10 @@ public interface IViewerRepository
     Task<ViewerDashboardAppearanceData> GetAppearanceAsync(CancellationToken cancellationToken);
     Task<ViewerDashboardAppearanceData> SaveAppearanceAsync(ViewerDashboardAppearanceData appearance, DateTime updatedAt,
         CancellationToken cancellationToken);
+    Task<ViewerDashboardCustomizationData> GetDashboardCustomizationAsync(Guid rootCategoryId,
+        CancellationToken cancellationToken);
+    Task<ViewerDashboardCustomizationData> SaveDashboardCustomizationAsync(ViewerDashboardCustomizationData customization,
+        DateTime updatedAt, CancellationToken cancellationToken);
     Task<IReadOnlyList<ViewerCategoryData>> GetCategoriesAsync(Guid sessionId, string solutionSlug,
         CancellationToken cancellationToken);
     Task<IReadOnlyList<ViewerArticleSummary>> GetArticlesAsync(Guid sessionId, string solutionSlug, string? search,

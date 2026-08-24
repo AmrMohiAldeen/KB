@@ -9,12 +9,26 @@ public sealed class ViewerDashboardSettingsService(IViewerRepository repository,
     public Task<ViewerDashboardAppearanceData> GetAsync(CancellationToken cancellationToken) =>
         repository.GetAppearanceAsync(cancellationToken);
 
+    public Task<ViewerDashboardCustomizationData> GetCustomizationAsync(Guid rootCategoryId,
+        CancellationToken cancellationToken) => repository.GetDashboardCustomizationAsync(rootCategoryId, cancellationToken);
+
     public Task<ViewerDashboardAppearanceData> UpdateAsync(ViewerDashboardAppearanceData appearance,
         CancellationToken cancellationToken)
     {
         if (!currentUser.IsAuthenticated) throw new UnauthorizedAccessException();
         Validate(appearance);
         return repository.SaveAppearanceAsync(appearance, timeProvider.GetUtcNow().UtcDateTime, cancellationToken);
+    }
+
+    public Task<ViewerDashboardCustomizationData> UpdateCustomizationAsync(Guid rootCategoryId,
+        ViewerDashboardCustomizationData customization, CancellationToken cancellationToken)
+    {
+        if (!currentUser.IsAuthenticated) throw new UnauthorizedAccessException();
+        if (rootCategoryId != customization.RootCategoryId) throw new BusinessRuleException("The dashboard root is invalid.");
+        Validate(customization.Appearance);
+        if (customization.Categories.Any(item => item.SortOrder < 0 || !IsHexColor(item.DisplayColor)))
+            throw new BusinessRuleException("Category display values are invalid.");
+        return repository.SaveDashboardCustomizationAsync(customization, timeProvider.GetUtcNow().UtcDateTime, cancellationToken);
     }
 
     private static void Validate(ViewerDashboardAppearanceData appearance)

@@ -186,7 +186,7 @@ public sealed class ViewerService(IViewerRepository repository, IViewerSearchCli
         ViewerCategoryNode Map(ViewerCategoryData item) => new(item.Id, item.Id == root.Id ? null : item.ParentId,
             item.Name, item.Slug, item.Description, item.SortOrder, item.Path, item.Depth - root.Depth,
             item.ArticleCount, children.TryGetValue(item.Id, out var values) ? values.Select(Map).ToArray() : [],
-            item.HasViewerImage, item.ViewerIcon);
+            item.HasViewerImage, item.ViewerIcon, item.DisplayColor);
         return [Map(root)];
     }
 

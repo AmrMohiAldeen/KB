@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
@@ -32,6 +32,7 @@ import {
   type ViewerCategoryNode,
   type ViewerPortal
 } from '@/lib/api/viewerKnowledgeBaseApi'
+import ViewerCategoryCards from './ViewerCategoryCards'
 
 type ViewerPortalPageProps =
   | { solutionSlug: string; categorySlug?: string; preview?: never }
@@ -122,6 +123,9 @@ export default function ViewerPortalPage({ solutionSlug, categorySlug, preview }
   const [searchError, setSearchError] = useState<unknown>()
   const rootSlug = preview?.categorySlug ?? solutionSlug!
   const rootPath = `/${rootSlug}`
+  const categoryImageLoader = useCallback((category: ViewerCategoryNode, signal: AbortSignal) => preview
+    ? getViewerPreviewCategoryImage(preview.categorySlug, category.categoryId, preview.accessToken, signal)
+    : getViewerCategoryImage(solutionSlug!, category.categoryId, signal), [preview, solutionSlug])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -292,38 +296,8 @@ export default function ViewerPortalPage({ solutionSlug, categorySlug, preview }
         <Typography id='categories-title' variant='overline' color='text.secondary' sx={{ fontWeight: 700, letterSpacing: '0.08em' }}>
           Browse categories
         </Typography>
-        <Box sx={{ mt: 2, display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(3, minmax(0, 1fr))' }, gap: 3 }}>
-          {currentCategory.children.map(category => <Card
-            key={category.categoryId}
-            component={Link}
-            href={`${rootPath}/categories/${category.slug}`}
-            variant='outlined'
-            sx={{
-              minBlockSize: 210,
-              p: 3,
-              display: 'flex',
-              flexDirection: 'column',
-              color: appearance.textColor,
-              bgcolor: appearance.categoryCardBackgroundColor,
-              textDecoration: 'none',
-              borderRadius: 3,
-              transition: 'border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease',
-              '&:hover': { borderColor: appearance.primaryColor, boxShadow: 4, transform: 'translateY(-3px)' },
-              '&:focus-visible': { outline: `3px solid ${appearance.primaryColor}`, outlineOffset: 3 }
-            }}
-          >
-            <CategoryArtwork category={category} solutionSlug={solutionSlug} preview={preview} />
-            <Box sx={{ mt: 3, flex: 1 }}>
-              <Typography variant='h6'>{category.name}</Typography>
-              {category.description && <Typography variant='body2' color='text.secondary' sx={{ mt: 0.75 }}>
-                {category.description}
-              </Typography>}
-            </Box>
-            <Stack direction='row' spacing={1} sx={{ alignItems: 'center', mt: 2, color: appearance.primaryColor }}>
-              <Typography variant='body2' sx={{ fontWeight: 600 }}>Explore</Typography><ArrowRight size={16} />
-            </Stack>
-          </Card>)}
-        </Box>
+        <ViewerCategoryCards categories={currentCategory.children} appearance={appearance} rootPath={rootPath}
+          getImage={categoryImageLoader} />
       </Box>}
 
       {directArticles.length > 0 && <Box component='section' aria-labelledby='articles-title'>

@@ -53,7 +53,7 @@ public sealed class ViewerKnowledgeBaseController(ViewerService viewers) : Contr
 
     private static ViewerCategoryNodeResponse Map(ViewerCategoryNode item) => new(item.Id, item.ParentId, item.Name,
         item.Slug, item.Description, item.SortOrder, item.Path, item.Depth, item.ArticleCount,
-        item.Children.Select(Map).ToArray(), item.HasViewerImage, item.ViewerIcon);
+        item.Children.Select(Map).ToArray(), item.HasViewerImage, item.ViewerIcon, item.DisplayColor);
     private static ViewerArticleSummaryResponse Map(ViewerArticleSummary item) => new(item.Id, item.Title,
         item.Slug, item.CategoryId, item.CategoryName, item.CategoryPath, item.UpdatedAt);
     private static ViewerArticleResponse Map(ViewerArticle item) => new(item.Id, item.Title, item.Slug,

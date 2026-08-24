@@ -25,6 +25,7 @@ export type ViewerCategoryNode = {
   articleCount: number
   hasViewerImage: boolean
   viewerIcon: string | null
+  displayColor?: string | null
   children: ViewerCategoryNode[]
 }
 export type ViewerArticleSummary = {

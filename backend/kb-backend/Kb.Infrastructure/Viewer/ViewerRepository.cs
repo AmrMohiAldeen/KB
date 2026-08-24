@@ -92,7 +92,7 @@ public sealed class ViewerRepository(KbDbContext db, TimeProvider timeProvider) 
     {
         var solution = await ResolveAuthorizedSolutionAsync(sessionId, solutionSlug, token);
         return new(solution.SolutionId, solution.Slug, solution.RootCategory.Name, solution.RootCategory.Description,
-            await GetAppearanceAsync(token));
+            (await GetDashboardCustomizationAsync(solution.RootCategoryIdFk, token)).Appearance);
     }
 
     public async Task<ViewerDashboardAppearanceData> GetAppearanceAsync(CancellationToken token)
@@ -121,11 +121,58 @@ public sealed class ViewerRepository(KbDbContext db, TimeProvider timeProvider) 
         return appearance;
     }
 
+    public async Task<ViewerDashboardCustomizationData> GetDashboardCustomizationAsync(Guid rootCategoryId,
+        CancellationToken token)
+    {
+        var customization = await db.ViewerDashboardCustomizations.AsNoTracking()
+            .Include(item => item.Categories).SingleOrDefaultAsync(item => item.RootCategoryId == rootCategoryId, token);
+        var appearance = customization is null ? await GetAppearanceAsync(token) : new ViewerDashboardAppearanceData(
+            customization.PrimaryColor, customization.PageBackgroundColor, customization.CategoryCardBackgroundColor,
+            customization.TextColor);
+        return new ViewerDashboardCustomizationData(rootCategoryId, appearance, customization?.Categories.Select(item =>
+            new ViewerDashboardCategoryCustomizationData(item.CategoryId, item.SortOrder, item.ViewerImageMediaId,
+                item.ViewerIcon, item.DisplayColor)).ToArray() ?? []);
+    }
+
+    public async Task<ViewerDashboardCustomizationData> SaveDashboardCustomizationAsync(
+        ViewerDashboardCustomizationData customization, DateTime updatedAt, CancellationToken token)
+    {
+        if (!await db.Categories.AsNoTracking().AnyAsync(item => item.CategoryId == customization.RootCategoryId, token))
+            throw new BusinessRuleException("The dashboard root category was not found.");
+        var childIds = customization.Categories.Select(item => item.CategoryId).ToHashSet();
+        var validChildIds = await db.Categories.AsNoTracking().Where(category =>
+                childIds.Contains(category.CategoryId) && category.ParentCategoryIdFk == customization.RootCategoryId)
+            .Select(category => category.CategoryId).ToHashSetAsync(token);
+        if (childIds.Count != customization.Categories.Count || !validChildIds.SetEquals(childIds))
+            throw new BusinessRuleException("Dashboard customizations may only target direct child categories.");
+
+        var entity = await db.ViewerDashboardCustomizations.Include(item => item.Categories)
+            .SingleOrDefaultAsync(item => item.RootCategoryId == customization.RootCategoryId, token);
+        if (entity is null)
+        {
+            entity = new ViewerDashboardCustomization { RootCategoryId = customization.RootCategoryId };
+            db.ViewerDashboardCustomizations.Add(entity);
+        }
+        entity.PrimaryColor = customization.Appearance.PrimaryColor;
+        entity.PageBackgroundColor = customization.Appearance.PageBackgroundColor;
+        entity.CategoryCardBackgroundColor = customization.Appearance.CategoryCardBackgroundColor;
+        entity.TextColor = customization.Appearance.TextColor;
+        entity.UpdatedAt = updatedAt;
+        db.ViewerDashboardCategoryCustomizations.RemoveRange(entity.Categories);
+        entity.Categories = customization.Categories.Select(item => new ViewerDashboardCategoryCustomization
+        {
+            RootCategoryId = customization.RootCategoryId, CategoryId = item.CategoryId, SortOrder = item.SortOrder,
+            ViewerImageMediaId = item.ViewerImageMediaId, ViewerIcon = item.ViewerIcon, DisplayColor = item.DisplayColor
+        }).ToList();
+        await db.SaveChangesAsync(token);
+        return customization;
+    }
+
     public async Task<IReadOnlyList<ViewerCategoryData>> GetCategoriesAsync(Guid sessionId, string solutionSlug,
         CancellationToken token)
     {
         var solution = await ResolveAuthorizedSolutionAsync(sessionId, solutionSlug, token);
-        return await GetCategoriesForRootAsync(RequiredRootPath(solution), token);
+        return await GetCategoriesForRootAsync(solution.RootCategoryIdFk, RequiredRootPath(solution), token);
     }
 
     public async Task<IReadOnlyList<ViewerArticleSummary>> GetArticlesAsync(Guid sessionId, string solutionSlug,
@@ -146,20 +193,21 @@ public sealed class ViewerRepository(KbDbContext db, TimeProvider timeProvider) 
         Guid categoryId, CancellationToken token)
     {
         var solution = await ResolveAuthorizedSolutionAsync(sessionId, solutionSlug, token);
-        return await GetCategoryImageForRootAsync(RequiredRootPath(solution), categoryId, token);
+        return await GetCategoryImageForRootAsync(solution.RootCategoryIdFk, RequiredRootPath(solution), categoryId, token);
     }
 
     public async Task<ViewerPortalData> GetPreviewPortalAsync(string rootCategorySlug, CancellationToken token)
     {
         var root = await ResolvePreviewRootAsync(rootCategorySlug, token);
-        return new(root.CategoryId, root.Slug, root.Name, root.Description, await GetAppearanceAsync(token));
+        return new(root.CategoryId, root.Slug, root.Name, root.Description,
+            (await GetDashboardCustomizationAsync(root.CategoryId, token)).Appearance);
     }
 
     public async Task<IReadOnlyList<ViewerCategoryData>> GetPreviewCategoriesAsync(string rootCategorySlug,
         CancellationToken token)
     {
         var root = await ResolvePreviewRootAsync(rootCategorySlug, token);
-        return await GetCategoriesForRootAsync(root.Path!, token);
+        return await GetCategoriesForRootAsync(root.CategoryId, root.Path!, token);
     }
 
     public async Task<IReadOnlyList<ViewerArticleSummary>> GetPreviewArticlesAsync(string rootCategorySlug,
@@ -180,7 +228,7 @@ public sealed class ViewerRepository(KbDbContext db, TimeProvider timeProvider) 
         Guid categoryId, CancellationToken token)
     {
         var root = await ResolvePreviewRootAsync(rootCategorySlug, token);
-        return await GetCategoryImageForRootAsync(root.Path!, categoryId, token);
+        return await GetCategoryImageForRootAsync(root.CategoryId, root.Path!, categoryId, token);
     }
 
     public async Task RecordArticleViewAsync(ICurrentViewer viewer, ViewerArticleSource article, string? ipAddress,
@@ -231,8 +279,10 @@ public sealed class ViewerRepository(KbDbContext db, TimeProvider timeProvider) 
         return root;
     }
 
-    private Task<List<ViewerCategoryData>> GetCategoriesForRootAsync(string rootPath, CancellationToken token) =>
-        VisibleCategories(rootPath).OrderBy(item => item.Depth).ThenBy(item => item.SortOrder)
+    private async Task<List<ViewerCategoryData>> GetCategoriesForRootAsync(Guid rootCategoryId, string rootPath,
+        CancellationToken token)
+    {
+        var categories = await VisibleCategories(rootPath).OrderBy(item => item.Depth).ThenBy(item => item.SortOrder)
             .ThenBy(item => item.Name).Select(category => new ViewerCategoryData(category.CategoryId,
                 category.ParentCategoryIdFk, category.Name, category.Slug, category.Description, category.SortOrder,
                 category.Path, category.Depth, category.ArticleCategories.Count(link =>
@@ -245,15 +295,36 @@ public sealed class ViewerRepository(KbDbContext db, TimeProvider timeProvider) 
                     category.ViewerImageMediaIdFkNavigation.Status == MediaStatuses.Active &&
                     category.ViewerImageMediaIdFkNavigation.MimeType.StartsWith("image/"), category.ViewerIcon))
             .ToListAsync(token);
+        var customizations = await db.ViewerDashboardCategoryCustomizations.AsNoTracking().Where(item =>
+            item.RootCategoryId == rootCategoryId).ToDictionaryAsync(item => item.CategoryId, token);
+        var imageIds = customizations.Values.Where(item => item.ViewerImageMediaId.HasValue)
+            .Select(item => item.ViewerImageMediaId!.Value).ToHashSet();
+        var activeImageIds = await db.MediaFiles.AsNoTracking().Where(item => imageIds.Contains(item.MediaId) &&
+            item.Status == MediaStatuses.Active && item.MimeType.StartsWith("image/")).Select(item => item.MediaId)
+            .ToHashSetAsync(token);
+        return categories.Select(item => customizations.TryGetValue(item.Id, out var custom) && item.ParentId == rootCategoryId
+            ? item with { SortOrder = custom.SortOrder, HasViewerImage = custom.ViewerImageMediaId.HasValue &&
+                activeImageIds.Contains(custom.ViewerImageMediaId.Value), ViewerIcon = custom.ViewerIcon,
+                DisplayColor = custom.DisplayColor } : item).ToList();
+    }
 
-    private Task<ViewerCategoryImageSource?> GetCategoryImageForRootAsync(string rootPath, Guid categoryId,
-        CancellationToken token) => VisibleCategories(rootPath).Where(category => category.CategoryId == categoryId &&
+    private async Task<ViewerCategoryImageSource?> GetCategoryImageForRootAsync(Guid rootCategoryId, string rootPath,
+        Guid categoryId, CancellationToken token)
+    {
+        var customization = await db.ViewerDashboardCategoryCustomizations.AsNoTracking().SingleOrDefaultAsync(item =>
+            item.RootCategoryId == rootCategoryId && item.CategoryId == categoryId, token);
+        if (customization?.ViewerImageMediaId is { } mediaId)
+            return await db.MediaFiles.AsNoTracking().Where(item => item.MediaId == mediaId &&
+                item.Status == MediaStatuses.Active && item.MimeType.StartsWith("image/")).Select(item =>
+                new ViewerCategoryImageSource(item.StoragePath, item.MimeType, item.OriginalFileName)).SingleOrDefaultAsync(token);
+        return await VisibleCategories(rootPath).Where(category => category.CategoryId == categoryId &&
             category.ViewerImageMediaIdFkNavigation != null &&
             category.ViewerImageMediaIdFkNavigation.Status == MediaStatuses.Active &&
             category.ViewerImageMediaIdFkNavigation.MimeType.StartsWith("image/"))
         .Select(category => new ViewerCategoryImageSource(category.ViewerImageMediaIdFkNavigation!.StoragePath,
             category.ViewerImageMediaIdFkNavigation.MimeType,
             category.ViewerImageMediaIdFkNavigation.OriginalFileName)).SingleOrDefaultAsync(token);
+    }
 
     private async Task<IReadOnlyList<ViewerArticleSummary>> GetArticlesForRootAsync(string rootPath, string? search,
         Guid? categoryId, CancellationToken token)

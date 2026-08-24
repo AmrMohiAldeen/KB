@@ -28,6 +28,22 @@ public sealed class ViewerDashboardSettingsController(ViewerDashboardSettingsSer
         return Ok(Map(appearance));
     }
 
+    [HttpGet("{rootCategoryId:guid}")]
+    public async Task<ActionResult<ViewerDashboardCustomizationResponse>> GetCustomization(Guid rootCategoryId,
+        CancellationToken cancellationToken) => Ok(Map(await settings.GetCustomizationAsync(rootCategoryId, cancellationToken)));
+
+    [HttpPut("{rootCategoryId:guid}")]
+    public async Task<ActionResult<ViewerDashboardCustomizationResponse>> UpdateCustomization(Guid rootCategoryId,
+        UpdateViewerDashboardCustomizationRequest request, CancellationToken cancellationToken) =>
+        Ok(Map(await settings.UpdateCustomizationAsync(rootCategoryId, new(rootCategoryId,
+            new(request.Appearance.PrimaryColor, request.Appearance.PageBackgroundColor,
+                request.Appearance.CategoryCardBackgroundColor, request.Appearance.TextColor),
+            request.Categories.Select(item => new ViewerDashboardCategoryCustomizationData(item.CategoryId,
+                item.SortOrder, item.ViewerImageMediaId, item.ViewerIcon, item.DisplayColor)).ToArray()), cancellationToken)));
+
     private static ViewerDashboardAppearanceResponse Map(ViewerDashboardAppearanceData value) => new(
         value.PrimaryColor, value.PageBackgroundColor, value.CategoryCardBackgroundColor, value.TextColor);
+    private static ViewerDashboardCustomizationResponse Map(ViewerDashboardCustomizationData value) => new(value.RootCategoryId,
+        Map(value.Appearance), value.Categories.Select(item => new ViewerDashboardCategoryCustomizationResponse(item.CategoryId,
+            item.SortOrder, item.ViewerImageMediaId, item.ViewerIcon, item.DisplayColor)).ToArray());
 }
