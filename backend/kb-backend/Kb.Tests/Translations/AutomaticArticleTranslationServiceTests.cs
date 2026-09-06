@@ -133,7 +133,8 @@ public sealed class AutomaticArticleTranslationServiceTests
 
     private static LocalizationSyncPlan SyncPlan(IReadOnlyList<LocalizationSyncTargetSnapshot> targets) => new(
         new(SourceId, Guid.NewGuid(), "en", "GamaLearn guide", "guide", "Public", Guid.NewGuid(), [],
-            Guid.NewGuid(), 7, "source.json", new DateTime(2026, 8, 25, 12, 0, 0, DateTimeKind.Utc)), targets);
+            Guid.NewGuid(), 7, Guid.NewGuid(), [7, 7, 7], "source.json",
+            new DateTime(2026, 8, 25, 12, 0, 0, DateTimeKind.Utc)), targets);
 
     private static AutomaticTranslationSnapshot Snapshot() => new(SourceId, "en", "GamaLearn guide",
         new DateTime(2026, 8, 24, 12, 0, 0, DateTimeKind.Utc), Guid.NewGuid(), 3, null, null, string.Empty,

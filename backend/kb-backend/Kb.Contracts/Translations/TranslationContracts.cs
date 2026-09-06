@@ -14,11 +14,6 @@ public sealed class CreateArticleTranslationRequest
     [NonEmptyGuid] public Guid? AssignedTranslatorUserId { get; init; }
 }
 
-public sealed class LinkArticleTranslationRequest
-{
-    [NonEmptyGuid] public Guid ArticleId { get; init; }
-}
-
 public sealed class AssignTranslatorRequest
 {
     [NonEmptyGuid] public Guid? TranslatorUserId { get; init; }
@@ -46,11 +41,11 @@ public sealed record LocalizationSyncPreviewItemResponse(string TargetLocaleCode
     string State, string Operation, bool MayReplaceManualDraftContent);
 
 public sealed record LocalizationSyncPreviewResponse(Guid SourceArticleId, string SourceLocaleCode,
-    Guid SourceVersionId, int SourceVersionNumber, string Scope, string Mode,
+    Guid? SourceVersionId, int? SourceVersionNumber, string Scope, string Mode,
     IReadOnlyList<LocalizationSyncPreviewItemResponse> Items);
 
 public sealed record LocalizationSyncOutcomeResponse(string TargetLocaleCode, Guid? TargetArticleId,
     string Operation, string Outcome, Guid? TargetDraftId, string? TranslationStatus, string? Error);
 
-public sealed record LocalizationSyncResultResponse(Guid SourceArticleId, Guid SourceVersionId,
-    int SourceVersionNumber, IReadOnlyList<LocalizationSyncOutcomeResponse> Outcomes);
+public sealed record LocalizationSyncResultResponse(Guid SourceArticleId, Guid? SourceVersionId,
+    int? SourceVersionNumber, IReadOnlyList<LocalizationSyncOutcomeResponse> Outcomes);

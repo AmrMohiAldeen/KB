@@ -27,19 +27,6 @@ public sealed class ArticleTranslationRepository(KbDbContext db) : IArticleTrans
         var draft = new ArticleDraft { DraftId = Guid.NewGuid(), ArticleIdFk = id, DraftNumber = 1, ContentJsonStoragePath = string.Empty, ContentSizeBytes = 0, IsLocked = false, CreatedByFk = audit.ActorId, UpdatedByFk = audit.ActorId, CreatedAt = audit.CreatedAt, UpdatedAt = audit.CreatedAt, Status = ArticleStatuses.Draft, RowVersion = db.Database.IsSqlServer() ? null! : Guid.NewGuid().ToByteArray() };
         db.ArticleDrafts.Add(draft); await db.SaveChangesAsync(token); article.CurrentDraftIdFk = draft.DraftId; Audit(id, audit, ArticleAuditActions.TranslationCreated, new { sourceArticleId = source.ArticleId, localeCode = request.LocaleCode }); await db.SaveChangesAsync(token); return ToData(article, metadata);
     }, ct);
-    public Task<ArticleTranslationData> LinkAsync(Guid sourceId, Guid targetId, TranslationAuditData audit, CancellationToken ct) => InTransaction(async token =>
-    {
-        var source = await Article(sourceId, token); var target = await Article(targetId, token);
-        if (source.LocaleCode == target.LocaleCode) throw new BusinessRuleException("Source and target articles must use different locales.");
-        if (!await db.KbLanguages.AnyAsync(x => x.LocaleCode == target.LocaleCode && x.IsEnabled, token)) throw new BusinessRuleException("The target language is not enabled.");
-        if (await db.Articles.AnyAsync(x => x.TranslationGroupId == source.TranslationGroupId && x.LocaleCode == target.LocaleCode && x.ArticleId != target.ArticleId, token)) throw new ConflictException("A translation already exists for that locale.");
-        if (await db.Articles.CountAsync(x => x.TranslationGroupId == target.TranslationGroupId, token) != 1) throw new ConflictException("Only an unlinked article can be linked.");
-        var metadata = await db.ArticleTranslationMetadata.SingleOrDefaultAsync(x => x.ArticleId == targetId, token);
-        if (metadata is not null && metadata.SourceArticleId is not null) throw new ConflictException("Only an unlinked article can be linked.");
-        metadata ??= new ArticleTranslationMetadata { ArticleId = targetId }; if (db.Entry(metadata).State == EntityState.Detached) db.ArticleTranslationMetadata.Add(metadata);
-        target.TranslationGroupId = source.TranslationGroupId; metadata.SourceArticleId = source.ArticleId; metadata.SourceArticle = source; metadata.SourceVersionId = source.LastPublishedVersionIdFk; metadata.SourceVersionNumber = source.LastPublishedVersionIdFkNavigation?.VersionNumber; metadata.TranslationMethod = ArticleTranslationMethods.LinkedExisting; metadata.TranslationStatus = ArticleTranslationStatuses.NeedsVerification; metadata.LastTranslatedAt = audit.CreatedAt;
-        Audit(targetId, audit, ArticleAuditActions.TranslationLinked, new { sourceArticleId = sourceId }); await db.SaveChangesAsync(token); return ToData(target, metadata);
-    }, ct);
     public async Task UnlinkAsync(Guid articleId, TranslationAuditData audit, CancellationToken ct) => await InTransaction(async token =>
     {
         var article = await Article(articleId, token); var previousTranslationGroupId = article.TranslationGroupId; var metadata = await db.ArticleTranslationMetadata.SingleOrDefaultAsync(x => x.ArticleId == articleId, token) ?? throw new ConflictException("The article has no translation metadata.");

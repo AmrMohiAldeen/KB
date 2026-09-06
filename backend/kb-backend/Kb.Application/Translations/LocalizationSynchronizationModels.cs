@@ -34,19 +34,20 @@ public sealed record LocalizationSyncPreviewItemData(string TargetLocaleCode, Gu
     string State, string Operation, bool MayReplaceManualDraftContent);
 
 public sealed record LocalizationSyncPreviewData(Guid SourceArticleId, string SourceLocaleCode,
-    Guid SourceVersionId, int SourceVersionNumber, string Scope, string Mode,
+    Guid? SourceVersionId, int? SourceVersionNumber, string Scope, string Mode,
     IReadOnlyList<LocalizationSyncPreviewItemData> Items);
 
 public sealed record LocalizationSyncOutcomeData(string TargetLocaleCode, Guid? TargetArticleId,
     string Operation, string Outcome, Guid? TargetDraftId, string? TranslationStatus, string? Error);
 
-public sealed record LocalizationSyncResultData(Guid SourceArticleId, Guid SourceVersionId,
-    int SourceVersionNumber, IReadOnlyList<LocalizationSyncOutcomeData> Outcomes);
+public sealed record LocalizationSyncResultData(Guid SourceArticleId, Guid? SourceVersionId,
+    int? SourceVersionNumber, IReadOnlyList<LocalizationSyncOutcomeData> Outcomes);
 
 public sealed record LocalizationSyncSourceSnapshot(Guid SourceArticleId, Guid TranslationGroupId,
     string SourceLocaleCode, string SourceTitle, string SourceSlug, string Visibility, Guid? CategoryId,
-    IReadOnlyList<Guid> CategoryIds, Guid SourceVersionId, int SourceVersionNumber,
-    string SourceContentJsonPath, DateTime SourceUpdatedAt);
+    IReadOnlyList<Guid> CategoryIds, Guid? SourceVersionId, int? SourceVersionNumber,
+    Guid SourceDraftId, byte[] SourceDraftRowVersion, string SourceContentJsonPath,
+    DateTime SourceUpdatedAt);
 
 public sealed record LocalizationSyncTargetSnapshot(string TargetLocaleCode, Guid? TargetArticleId,
     string State, Guid? TargetCurrentDraftId, byte[]? TargetDraftRowVersion);

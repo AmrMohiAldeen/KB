@@ -18,6 +18,7 @@ public sealed class LocalizationSynchronizationRepository(KbDbContext db)
     {
         var source = await db.Articles.AsNoTracking()
             .Include(x => x.ArticleTranslationMetadata)
+            .Include(x => x.CurrentDraftIdFkNavigation)
             .Include(x => x.LastPublishedVersionIdFkNavigation)
             .Include(x => x.ArticleCategories)
             .SingleOrDefaultAsync(x => x.ArticleId == sourceArticleId && x.DeletedAt == null &&
@@ -29,8 +30,9 @@ public sealed class LocalizationSynchronizationRepository(KbDbContext db)
         if (!string.Equals(source.LocaleCode, defaultLocale, StringComparison.OrdinalIgnoreCase) ||
             source.ArticleTranslationMetadata?.SourceArticleId is not null)
             throw new BusinessRuleException("Synchronization must start from an original article in the default language.");
-        var version = source.LastPublishedVersionIdFkNavigation
-            ?? throw new ConflictException("Publish the source article before synchronizing translations.");
+        var draft = source.CurrentDraftIdFkNavigation
+            ?? throw new ConflictException("Save a source draft before synchronizing translations.");
+        var version = source.LastPublishedVersionIdFkNavigation;
 
         var locales = targetLocaleCodes.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var enabled = await db.KbLanguages.AsNoTracking()
@@ -47,7 +49,8 @@ public sealed class LocalizationSynchronizationRepository(KbDbContext db)
             {
                 x.ArticleId, x.LocaleCode, x.CurrentDraftIdFk,
                 RowVersion = x.CurrentDraftIdFkNavigation == null ? null : x.CurrentDraftIdFkNavigation.RowVersion,
-                SourceVersionId = x.ArticleTranslationMetadata == null ? null : x.ArticleTranslationMetadata.SourceVersionId
+                SourceVersionId = x.ArticleTranslationMetadata == null ? null : x.ArticleTranslationMetadata.SourceVersionId,
+                LastTranslatedAt = x.ArticleTranslationMetadata == null ? null : x.ArticleTranslationMetadata.LastTranslatedAt
             }).ToListAsync(ct);
         var targets = locales.Select(locale =>
         {
@@ -55,7 +58,7 @@ public sealed class LocalizationSynchronizationRepository(KbDbContext db)
                 StringComparison.OrdinalIgnoreCase));
             if (target is null) return new LocalizationSyncTargetSnapshot(locale, null,
                 LocalizationSyncStates.Missing, null, null);
-            var state = target.SourceVersionId == version.VersionId
+            var state = target.SourceVersionId == version?.VersionId && target.LastTranslatedAt >= draft.UpdatedAt
                 ? LocalizationSyncStates.Current : LocalizationSyncStates.OutOfDate;
             return new LocalizationSyncTargetSnapshot(target.LocaleCode, target.ArticleId, state,
                 target.CurrentDraftIdFk, target.RowVersion?.ToArray());
@@ -63,8 +66,8 @@ public sealed class LocalizationSynchronizationRepository(KbDbContext db)
         var categoryIds = source.ArticleCategories.OrderBy(x => x.SortOrder).Select(x => x.CategoryIdFk).ToArray();
         if (categoryIds.Length == 0 && source.CategoryIdFk is { } primary) categoryIds = [primary];
         return new(new(source.ArticleId, source.TranslationGroupId, source.LocaleCode, source.Title, source.Slug,
-            source.Visibility, source.CategoryIdFk, categoryIds, version.VersionId, version.VersionNumber,
-            version.ContentJsonStoragePath, source.UpdatedAt), targets);
+            source.Visibility, source.CategoryIdFk, categoryIds, version?.VersionId, version?.VersionNumber,
+            draft.DraftId, draft.RowVersion.ToArray(), draft.ContentJsonStoragePath, source.UpdatedAt), targets);
     }
 
     public async Task<LocalizationSyncCommitResult> CommitAsync(LocalizationSyncCommit command,
@@ -73,13 +76,17 @@ public sealed class LocalizationSynchronizationRepository(KbDbContext db)
         await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
         try
         {
-            var source = await db.Articles.SingleOrDefaultAsync(x => x.ArticleId == command.Source.SourceArticleId &&
+            var source = await db.Articles.Include(x => x.CurrentDraftIdFkNavigation)
+                .SingleOrDefaultAsync(x => x.ArticleId == command.Source.SourceArticleId &&
                 x.DeletedAt == null && x.Status != ArticleStatuses.Deleted, ct)
                 ?? throw new NotFoundException("The source article was not found.");
             if (source.LastPublishedVersionIdFk != command.Source.SourceVersionId ||
+                source.CurrentDraftIdFk != command.Source.SourceDraftId ||
+                source.CurrentDraftIdFkNavigation?.RowVersion.AsSpan()
+                    .SequenceEqual(command.Source.SourceDraftRowVersion) != true ||
                 source.UpdatedAt != command.Source.SourceUpdatedAt ||
                 source.TranslationGroupId != command.Source.TranslationGroupId)
-                throw new ConcurrencyConflictException("The published source changed after synchronization preview.");
+                throw new ConcurrencyConflictException("The source draft changed after synchronization preview.");
             if (!await db.KbLanguages.AnyAsync(x => x.LocaleCode == command.TargetLocaleCode && x.IsEnabled, ct))
                 throw new BusinessRuleException("The target language is no longer enabled.");
             await ValidateMediaAsync(command.MediaIds, ct);

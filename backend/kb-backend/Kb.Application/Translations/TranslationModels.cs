@@ -12,7 +12,6 @@ public interface IArticleTranslationRepository
 {
     Task<IReadOnlyList<ArticleTranslationData>> GetAllAsync(Guid articleId, CancellationToken ct);
     Task<ArticleTranslationData> CreateAsync(Guid sourceArticleId, NewArticleTranslationData request, TranslationAuditData audit, CancellationToken ct);
-    Task<ArticleTranslationData> LinkAsync(Guid sourceArticleId, Guid targetArticleId, TranslationAuditData audit, CancellationToken ct);
     Task UnlinkAsync(Guid articleId, TranslationAuditData audit, CancellationToken ct);
     Task<ArticleTranslationData> AssignAsync(Guid articleId, Guid? translatorId, TranslationAuditData audit, CancellationToken ct);
     Task<ArticleTranslationData> VerifyAsync(Guid articleId, TranslationAuditData audit, CancellationToken ct);

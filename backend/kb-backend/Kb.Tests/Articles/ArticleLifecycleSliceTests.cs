@@ -1022,6 +1022,27 @@ public sealed class ArticleLifecycleSliceTests
     }
 
     [Fact]
+    public async Task Localization_sync_uses_the_current_saved_draft_when_the_source_is_unpublished()
+    {
+        await using var f = await Fixture.CreateAsync();
+        var now = DateTime.UtcNow;
+        f.Context.KbLanguages.Add(new KbLanguage
+        {
+            LanguageId = Guid.NewGuid(), LocaleCode = "fr", DisplayName = "French", NativeName = "Français",
+            IsEnabled = true, SortOrder = 2, CreatedAt = now, UpdatedAt = now
+        });
+        await f.Context.SaveChangesAsync();
+
+        var plan = await new LocalizationSynchronizationRepository(f.Context)
+            .GetPlanAsync(f.ArticleId, ["fr"], default);
+
+        Assert.Null(plan.Source.SourceVersionId);
+        Assert.Equal(f.DraftId, plan.Source.SourceDraftId);
+        Assert.Equal(f.DraftContentPath, plan.Source.SourceContentJsonPath);
+        Assert.Equal(LocalizationSyncStates.Missing, Assert.Single(plan.Targets).State);
+    }
+
+    [Fact]
     public async Task Localization_sync_creates_a_missing_unpublished_copy_atomically()
     {
         await using var f = await Fixture.CreatePublishedAsync();

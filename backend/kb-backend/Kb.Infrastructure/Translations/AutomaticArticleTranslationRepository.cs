@@ -45,12 +45,11 @@ public sealed class AutomaticArticleTranslationRepository(KbDbContext db) : IAut
             throw new ConflictException("The target article does not have translation metadata.");
 
         var version = source.LastPublishedVersionIdFkNavigation;
-        var sourceDraft = version is null ? source.CurrentDraftIdFkNavigation : null;
-        if (version is null && sourceDraft is null)
-            throw new ConflictException("The source article has neither a published version nor a current draft.");
+        var sourceDraft = source.CurrentDraftIdFkNavigation
+            ?? throw new ConflictException("The source article does not have a current saved draft.");
         return new(source.ArticleId, source.LocaleCode, source.Title, source.UpdatedAt,
-            version?.VersionId, version?.VersionNumber, sourceDraft?.DraftId, sourceDraft?.RowVersion.ToArray(),
-            version?.ContentJsonStoragePath ?? sourceDraft?.ContentJsonStoragePath ?? string.Empty,
+            version?.VersionId, version?.VersionNumber, sourceDraft.DraftId, sourceDraft.RowVersion.ToArray(),
+            sourceDraft.ContentJsonStoragePath,
             target.ArticleId, target.LocaleCode, targetDraft.DraftId, targetDraft.RowVersion.ToArray(),
             targetDraft.ContentJsonStoragePath, targetDraft.RenderedHtmlStoragePath, targetDraft.PlainTextStoragePath);
     }
@@ -69,10 +68,9 @@ public sealed class AutomaticArticleTranslationRepository(KbDbContext db) : IAut
             if (source.Title != snapshot.SourceTitle || source.UpdatedAt != snapshot.SourceUpdatedAt ||
                 source.LastPublishedVersionIdFk != snapshot.SourceVersionId)
                 throw new ConcurrencyConflictException("The source article changed during translation.");
-            if (snapshot.SourceVersionId is null &&
-                (source.CurrentDraftIdFkNavigation?.DraftId != snapshot.SourceDraftId ||
-                 source.CurrentDraftIdFkNavigation?.RowVersion.AsSpan()
-                     .SequenceEqual(snapshot.SourceDraftRowVersion ?? []) != true))
+            if (source.CurrentDraftIdFkNavigation?.DraftId != snapshot.SourceDraftId ||
+                source.CurrentDraftIdFkNavigation?.RowVersion.AsSpan()
+                    .SequenceEqual(snapshot.SourceDraftRowVersion ?? []) != true)
                 throw new ConcurrencyConflictException("The source draft changed during translation.");
 
             var target = await db.Articles.Include(x => x.CurrentDraftIdFkNavigation)

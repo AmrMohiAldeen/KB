@@ -8,7 +8,7 @@ import { getCategoryTree } from '@/lib/api/categories'
 
 vi.mock('@/lib/api/translationsApi', () => ({
   assignArticleTranslator: vi.fn(), createArticleTranslation: vi.fn(), getArticleTranslations: vi.fn(),
-  getTranslationLanguages: vi.fn(), linkArticleTranslation: vi.fn(), previewLocalizationSync: vi.fn(),
+  getTranslationLanguages: vi.fn(), previewLocalizationSync: vi.fn(),
   synchronizeLocalizations: vi.fn(), unlinkArticleTranslation: vi.fn(), verifyArticleTranslation: vi.fn()
 }))
 vi.mock('@/lib/api/categories', () => ({ getCategoryTree: vi.fn() }))
@@ -82,6 +82,8 @@ describe('ArticleTranslationsPanel', () => {
 
     const addButton = Array.from(container.querySelectorAll('button')).find(item => item.textContent?.includes('Add Translation'))
     await act(async () => addButton?.click())
+
+    expect(document.body.textContent).not.toContain('Link Existing')
     const workflow = document.body.querySelector('[role="combobox"]') as HTMLElement
     await act(async () => {
       workflow.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))

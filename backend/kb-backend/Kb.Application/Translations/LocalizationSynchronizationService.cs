@@ -43,7 +43,9 @@ public sealed class LocalizationSynchronizationService(
 
         var plan = await repository.GetPlanAsync(sourceArticleId, request.TargetLocaleCodes, ct);
         var preview = ToPreview(plan, request);
-        var sourceContent = await DownloadAsync(plan.Source.SourceContentJsonPath, ct);
+        var sourceContent = string.IsNullOrWhiteSpace(plan.Source.SourceContentJsonPath)
+            ? "{\"type\":\"doc\",\"content\":[]}"
+            : await DownloadAsync(plan.Source.SourceContentJsonPath, ct);
         var outcomes = new List<LocalizationSyncOutcomeData>(preview.Items.Count);
         foreach (var item in preview.Items)
         {
@@ -166,7 +168,7 @@ public sealed class LocalizationSynchronizationService(
         }
         catch (OperationCanceledException) { throw; }
         catch (BusinessRuleException) { throw; }
-        catch (Exception exception) { throw new ExternalServiceException("Published source content could not be loaded.", exception); }
+        catch (Exception exception) { throw new ExternalServiceException("Saved source draft content could not be loaded.", exception); }
     }
 
     private void ValidateDocument(byte[] bytes)
