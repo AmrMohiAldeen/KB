@@ -224,6 +224,19 @@ public sealed class AddLocalizationPersistenceFoundation : Migration
             """);
 
         migrationBuilder.Sql("""
+            INSERT INTO [ROLE_PERMISSIONS] ([RoleID_FK], [PermissionCode])
+            SELECT [role].[RoleID], N'articles.translate'
+            FROM [ROLES] AS [role]
+            WHERE [role].[RoleName] = N'Admin'
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM [ROLE_PERMISSIONS] AS [rolePermission]
+                  WHERE [rolePermission].[RoleID_FK] = [role].[RoleID]
+                    AND [rolePermission].[PermissionCode] = N'articles.translate'
+              );
+            """);
+
+        migrationBuilder.Sql("""
             CREATE TRIGGER [TR_KB_LANGUAGES_RequireOneEnabledDefault]
             ON [KB_LANGUAGES]
             AFTER INSERT, UPDATE, DELETE

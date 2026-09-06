@@ -1,5 +1,6 @@
 // View Imports
 import ArticleEditorShell from '@/views/kb/editor/ArticleEditorShell'
+import { getServerAccessToken } from '@/lib/auth/serverAccessToken'
 
 export default async function Page({
   params,
@@ -10,11 +11,7 @@ export default async function Page({
 }) {
   const { lang } = await params
   const { articleId = '', restoredFromVersion, sourceArticleId } = await searchParams
-  const accessToken = process.env.KB_DEV_ACCESS_TOKEN
-
-  if (!accessToken) {
-    throw new Error("KB_DEV_ACCESS_TOKEN is not set");
-  }
+  const accessToken = await getServerAccessToken()
 
   return (
     <ArticleEditorShell
