@@ -1,7 +1,7 @@
 'use client'
 
 // React Imports
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 // MUI Imports
 import Box from '@mui/material/Box'
@@ -23,12 +23,91 @@ import KbFormGrid from '@/views/shared/forms/KbFormGrid'
 import KbFormSection from '@/views/shared/forms/KbFormSection'
 import PageHeader from '../shared/components/PageHeader'
 import StatusChip from '../shared/components/StatusChip'
+import KbValidationSummary from '@/views/shared/forms/KbValidationSummary'
+import { useAccessToken } from '@/lib/auth/accessTokenContext'
+import { createLanguage, disableLanguage, enableLanguage, getLanguages, setDefaultLanguage } from '@/lib/api/languagesApi'
+import { describeApiError } from '@/lib/api/http'
+import type { LanguageResponse } from '@/types/apps/translationTypes'
 
 const SettingsPage = () => {
+  const accessToken = useAccessToken()
   // States
   const [reviewRequired, setReviewRequired] = useState(true)
   const [publicSearch, setPublicSearch] = useState(true)
   const [webhooksEnabled, setWebhooksEnabled] = useState(false)
+  const [languages, setLanguages] = useState<LanguageResponse[]>([])
+  const [languageErrors, setLanguageErrors] = useState<string[]>([])
+  const [loadingLanguages, setLoadingLanguages] = useState(true)
+  const [savingLanguage, setSavingLanguage] = useState(false)
+  const [localeCode, setLocaleCode] = useState('')
+  const [displayName, setDisplayName] = useState('')
+  const [nativeName, setNativeName] = useState('')
+  const [isRtl, setIsRtl] = useState(false)
+
+  const loadLanguages = useCallback(async (signal?: AbortSignal) => {
+    const values = await getLanguages(accessToken, signal)
+    setLanguages(values)
+  }, [accessToken])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    void getLanguages(accessToken, controller.signal)
+      .then(values => setLanguages(values))
+      .catch(error => setLanguageErrors(describeApiError(error)))
+      .finally(() => setLoadingLanguages(false))
+    return () => controller.abort()
+  }, [accessToken])
+
+  const addLanguage = async () => {
+    if (savingLanguage || !localeCode.trim() || !displayName.trim() || !nativeName.trim()) return
+    setSavingLanguage(true)
+    setLanguageErrors([])
+    try {
+      const created = await createLanguage({
+        localeCode: localeCode.trim(), displayName: displayName.trim(), nativeName: nativeName.trim(),
+        isRtl, sortOrder: languages.length
+      }, accessToken)
+      await enableLanguage(created.languageId, accessToken)
+      setLocaleCode('')
+      setDisplayName('')
+      setNativeName('')
+      setIsRtl(false)
+      await loadLanguages()
+    } catch (error) {
+      setLanguageErrors(describeApiError(error))
+    } finally {
+      setSavingLanguage(false)
+    }
+  }
+
+  const changeLanguageState = async (language: LanguageResponse) => {
+    if (savingLanguage) return
+    setSavingLanguage(true)
+    setLanguageErrors([])
+    try {
+      if (language.isEnabled) await disableLanguage(language.languageId, accessToken)
+      else await enableLanguage(language.languageId, accessToken)
+      await loadLanguages()
+    } catch (error) {
+      setLanguageErrors(describeApiError(error))
+    } finally {
+      setSavingLanguage(false)
+    }
+  }
+
+  const changeDefaultLanguage = async (languageId: string) => {
+    if (!languageId || savingLanguage) return
+    setSavingLanguage(true)
+    setLanguageErrors([])
+    try {
+      await setDefaultLanguage(languageId, accessToken)
+      await loadLanguages()
+    } catch (error) {
+      setLanguageErrors(describeApiError(error))
+    } finally {
+      setSavingLanguage(false)
+    }
+  }
 
   // Handlers
   const handleSave = () => {
@@ -54,11 +133,8 @@ const SettingsPage = () => {
           <KbFormSection title='General' description='Knowledge base defaults.'>
             <KbFormGrid>
               <CustomTextField label='Knowledge Base Name' placeholder='Knowledge base name' fullWidth />
-              <CustomTextField label='Default Language' select defaultValue='' fullWidth>
-                <MenuItem value=''>Not selected</MenuItem>
-                <MenuItem value='en'>English</MenuItem>
-                <MenuItem value='fr'>French</MenuItem>
-                <MenuItem value='ar'>Arabic</MenuItem>
+              <CustomTextField label='Default Language' select value={languages.find(language => language.isDefault)?.languageId ?? ''} onChange={event => void changeDefaultLanguage(event.target.value)} disabled={loadingLanguages || savingLanguage || !languages.some(language => language.isEnabled)} fullWidth>
+                {languages.filter(language => language.isEnabled).map(language => <MenuItem key={language.languageId} value={language.languageId}>{language.nativeName} ({language.displayName})</MenuItem>)}
               </CustomTextField>
               <CustomTextField label='Public Base URL' placeholder='Public help center URL' fullWidth />
               <CustomTextField label='Autosave Interval' placeholder='Autosave interval' fullWidth />
@@ -73,6 +149,21 @@ const SettingsPage = () => {
                 label='Allow public search on published articles'
               />
             </Stack>
+          </KbFormSection>
+
+          <KbFormSection title='Translation languages' description='Add and enable the languages editors can select when creating article translations.'>
+            <KbFormGrid>
+              <CustomTextField label='Locale code' placeholder='e.g. es or pt-BR' value={localeCode} onChange={event => setLocaleCode(event.target.value)} fullWidth />
+              <CustomTextField label='Display name' placeholder='e.g. Spanish' value={displayName} onChange={event => setDisplayName(event.target.value)} fullWidth />
+              <CustomTextField label='Native name' placeholder='e.g. Español' value={nativeName} onChange={event => setNativeName(event.target.value)} fullWidth />
+              <FormControlLabel control={<Switch checked={isRtl} onChange={event => setIsRtl(event.target.checked)} />} label='Right-to-left language' />
+            </KbFormGrid>
+            <Stack direction='row' spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+              <Button variant='outlined' onClick={() => void addLanguage()} disabled={savingLanguage || !localeCode.trim() || !displayName.trim() || !nativeName.trim()}>Add and enable language</Button>
+              <Typography variant='caption' color='text.secondary'>Global language settings require the Manage languages permission.</Typography>
+            </Stack>
+            <KbValidationSummary title='Translation languages' errors={languageErrors} />
+            {loadingLanguages ? <Typography color='text.secondary'>Loading languages…</Typography> : <Stack spacing={1}>{languages.map(language => <Stack key={language.languageId} direction='row' spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}><Box><Typography variant='body2' sx={{ fontWeight: 700 }}>{language.nativeName} ({language.displayName})</Typography><Typography variant='caption' color='text.secondary'>{language.localeCode}{language.isDefault ? ' · default' : ''}</Typography></Box><Stack direction='row' spacing={1} sx={{ alignItems: 'center' }}><StatusChip label={language.isEnabled ? 'Enabled' : 'Disabled'} color={language.isEnabled ? 'success' : 'secondary'} /><Button size='small' onClick={() => void changeLanguageState(language)} disabled={savingLanguage || language.isDefault}>{language.isEnabled ? 'Disable' : 'Enable'}</Button></Stack></Stack>)}</Stack>}
           </KbFormSection>
 
           <KbFormSection

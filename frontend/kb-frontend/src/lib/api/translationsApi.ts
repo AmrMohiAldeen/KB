@@ -1,8 +1,8 @@
 import { apiRequest } from './http'
-import type { ArticleTranslationResponse, CreateArticleTranslationRequest, LanguageResponse, LocalizationSyncPreview, LocalizationSyncRequest, LocalizationSyncResult } from '@/types/apps/translationTypes'
+import type { ArticleTranslationResponse, CreateArticleTranslationRequest, LocalizationSyncPreview, LocalizationSyncRequest, LocalizationSyncResult, TranslationLanguageResponse } from '@/types/apps/translationTypes'
 
 const path = (articleId: string) => `/api/articles/${encodeURIComponent(articleId)}/translations`
-export const getLanguages = (accessToken: string, signal?: AbortSignal) => apiRequest<LanguageResponse[]>('/api/languages', accessToken, { signal })
+export const getTranslationLanguages = (accessToken: string, signal?: AbortSignal) => apiRequest<TranslationLanguageResponse[]>('/api/languages/translation-targets', accessToken, { signal })
 export const getArticleTranslations = (articleId: string, accessToken: string, signal?: AbortSignal) => apiRequest<ArticleTranslationResponse[]>(path(articleId), accessToken, { signal })
 export const createArticleTranslation = (articleId: string, request: CreateArticleTranslationRequest, accessToken: string) => apiRequest<ArticleTranslationResponse>(path(articleId), accessToken, { method: 'POST', body: JSON.stringify(request) })
 export const linkArticleTranslation = (articleId: string, targetArticleId: string, accessToken: string) => apiRequest<ArticleTranslationResponse>(`${path(articleId)}/link`, accessToken, { method: 'POST', body: JSON.stringify({ articleId: targetArticleId }) })

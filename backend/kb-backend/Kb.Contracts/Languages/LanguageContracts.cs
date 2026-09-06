@@ -22,3 +22,5 @@ public sealed class UpdateLanguageRequest
 
 public sealed record LanguageResponse(Guid LanguageId, string LocaleCode, string DisplayName, string NativeName,
     bool IsDefault, bool IsEnabled, bool IsRtl, int SortOrder, DateTime CreatedAt, DateTime UpdatedAt);
+
+public sealed record TranslationLanguageResponse(string LocaleCode, string DisplayName, string NativeName, bool IsRtl);

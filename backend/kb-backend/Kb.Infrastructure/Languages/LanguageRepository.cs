@@ -12,6 +12,9 @@ public sealed class LanguageRepository(KbDbContext db) : ILanguageRepository
 {
     public async Task<IReadOnlyList<LanguageData>> GetAllAsync(CancellationToken ct) => await db.KbLanguages.AsNoTracking()
         .OrderByDescending(x => x.IsDefault).ThenBy(x => x.SortOrder).ThenBy(x => x.DisplayName).Select(ToDataProjection).ToListAsync(ct);
+    public async Task<IReadOnlyList<LanguageData>> GetEnabledAsync(CancellationToken ct) => await db.KbLanguages.AsNoTracking()
+        .Where(x => x.IsEnabled).OrderByDescending(x => x.IsDefault).ThenBy(x => x.SortOrder).ThenBy(x => x.DisplayName)
+        .Select(ToDataProjection).ToListAsync(ct);
     public async Task<LanguageData> CreateAsync(NewLanguageData value, LanguageAuditData audit, CancellationToken ct)
     {
         if (await db.KbLanguages.AnyAsync(x => x.LocaleCode == value.LocaleCode, ct)) throw new ConflictException("That locale is already configured.");

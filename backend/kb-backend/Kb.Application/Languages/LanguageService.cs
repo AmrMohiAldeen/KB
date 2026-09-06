@@ -8,6 +8,11 @@ public sealed class LanguageService(ILanguageRepository repository, ICurrentUser
     IPermissionChecker permissions, TimeProvider timeProvider)
 {
     public async Task<IReadOnlyList<LanguageData>> GetAllAsync(CancellationToken ct) { await RequireManageAsync(ct); return await repository.GetAllAsync(ct); }
+    public async Task<IReadOnlyList<LanguageData>> GetEnabledForTranslationAsync(CancellationToken ct)
+    {
+        await RequireTranslationAsync(ct);
+        return await repository.GetEnabledAsync(ct);
+    }
     public async Task<LanguageData> CreateAsync(NewLanguageData request, CancellationToken ct)
     { await RequireManageAsync(ct); return await repository.CreateAsync(new(NormalizeLocale(request.LocaleCode), Required(request.DisplayName, "Display name", 200), Required(request.NativeName, "Native name", 200), request.IsRtl, Sort(request.SortOrder)), Audit(), ct); }
     public async Task<LanguageData> UpdateAsync(Guid id, UpdateLanguageData request, CancellationToken ct)
@@ -17,6 +22,7 @@ public sealed class LanguageService(ILanguageRepository repository, ICurrentUser
     public async Task<LanguageData> SetDefaultAsync(Guid id, CancellationToken ct)
     { await RequireManageAsync(ct); Id(id, "Language"); return await repository.SetDefaultAsync(id, Audit(), ct); }
     private async Task RequireManageAsync(CancellationToken ct) { if (!currentUser.IsAuthenticated) throw new UnauthorizedAccessException(); if (!await permissions.HasPermissionAsync(currentUser.UserId, PermissionCodes.LanguagesManage, ct)) throw new ForbiddenException("You do not have permission to manage languages."); }
+    private async Task RequireTranslationAsync(CancellationToken ct) { if (!currentUser.IsAuthenticated) throw new UnauthorizedAccessException(); if (!await permissions.HasPermissionAsync(currentUser.UserId, PermissionCodes.ArticlesTranslate, ct)) throw new ForbiddenException("You do not have permission to manage article translations."); }
     private LanguageAuditData Audit() => new(currentUser.UserId, timeProvider.GetUtcNow().UtcDateTime);
     private static int Sort(int value) => value >= 0 ? value : throw new BusinessRuleException("Sort order cannot be negative.");
     private static void Id(Guid id, string name) { if (id == Guid.Empty) throw new BusinessRuleException($"{name} is required."); }

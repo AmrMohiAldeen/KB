@@ -9,6 +9,7 @@ public sealed record LanguageAuditData(Guid ActorId, DateTime CreatedAt);
 public interface ILanguageRepository
 {
     Task<IReadOnlyList<LanguageData>> GetAllAsync(CancellationToken cancellationToken);
+    Task<IReadOnlyList<LanguageData>> GetEnabledAsync(CancellationToken cancellationToken);
     Task<LanguageData> CreateAsync(NewLanguageData language, LanguageAuditData audit, CancellationToken cancellationToken);
     Task<LanguageData> UpdateAsync(Guid id, UpdateLanguageData language, LanguageAuditData audit, CancellationToken cancellationToken);
     Task<LanguageData> SetEnabledAsync(Guid id, bool enabled, LanguageAuditData audit, CancellationToken cancellationToken);
