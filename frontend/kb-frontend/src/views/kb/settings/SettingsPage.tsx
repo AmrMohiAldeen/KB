@@ -24,13 +24,11 @@ import KbFormSection from '@/views/shared/forms/KbFormSection'
 import PageHeader from '../shared/components/PageHeader'
 import StatusChip from '../shared/components/StatusChip'
 import KbValidationSummary from '@/views/shared/forms/KbValidationSummary'
-import { useAccessToken } from '@/lib/auth/accessTokenContext'
 import { createLanguage, disableLanguage, enableLanguage, getLanguages, setDefaultLanguage } from '@/lib/api/languagesApi'
 import { describeApiError } from '@/lib/api/http'
 import type { LanguageResponse } from '@/types/apps/translationTypes'
 
-const SettingsPage = () => {
-  const accessToken = useAccessToken()
+const SettingsPage = ({ accessToken }: { accessToken: string }) => {
   // States
   const [reviewRequired, setReviewRequired] = useState(true)
   const [publicSearch, setPublicSearch] = useState(true)
