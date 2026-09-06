@@ -558,6 +558,9 @@ public partial class KbDbContext : DbContext
         {
             entity.ToTable("KB_LANGUAGES", table =>
             {
+                // This table has an enabled SQL Server trigger. SQL Server does not permit
+                // DML with OUTPUT (without INTO) against such a table.
+                table.UseSqlOutputClause(false);
                 table.HasCheckConstraint("CK_KB_LANGUAGES_DefaultEnabled", "[IsDefault] = 0 OR [IsEnabled] = 1");
                 table.HasCheckConstraint("CK_KB_LANGUAGES_LocaleCode", "[LocaleCode] <> ''");
                 table.HasCheckConstraint("CK_KB_LANGUAGES_SortOrder", "[SortOrder] >= 0");

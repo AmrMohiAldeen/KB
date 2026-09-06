@@ -28,6 +28,37 @@ import { createLanguage, disableLanguage, enableLanguage, getLanguages, setDefau
 import { describeApiError } from '@/lib/api/http'
 import type { LanguageResponse } from '@/types/apps/translationTypes'
 
+type SupportedLanguage = {
+  localeCode: string
+  displayName: string
+  nativeName: string
+  isRtl: boolean
+}
+
+const supportedLanguages: SupportedLanguage[] = [
+  { localeCode: 'en', displayName: 'English', nativeName: 'English', isRtl: false },
+  { localeCode: 'ar', displayName: 'Arabic', nativeName: 'العربية', isRtl: true },
+  { localeCode: 'fr', displayName: 'French', nativeName: 'Français', isRtl: false },
+  { localeCode: 'es', displayName: 'Spanish', nativeName: 'Español', isRtl: false },
+  { localeCode: 'de', displayName: 'German', nativeName: 'Deutsch', isRtl: false },
+  { localeCode: 'it', displayName: 'Italian', nativeName: 'Italiano', isRtl: false },
+  { localeCode: 'pt', displayName: 'Portuguese', nativeName: 'Português', isRtl: false },
+  { localeCode: 'hi', displayName: 'Hindi', nativeName: 'हिन्दी', isRtl: false },
+  { localeCode: 'ru', displayName: 'Russian', nativeName: 'Русский', isRtl: false },
+  { localeCode: 'tr', displayName: 'Turkish', nativeName: 'Türkçe', isRtl: false },
+  { localeCode: 'zh', displayName: 'Chinese', nativeName: '中文', isRtl: false },
+  { localeCode: 'ja', displayName: 'Japanese', nativeName: '日本語', isRtl: false },
+  { localeCode: 'ko', displayName: 'Korean', nativeName: '한국어', isRtl: false },
+  { localeCode: 'nl', displayName: 'Dutch', nativeName: 'Nederlands', isRtl: false },
+  { localeCode: 'pl', displayName: 'Polish', nativeName: 'Polski', isRtl: false },
+  { localeCode: 'uk', displayName: 'Ukrainian', nativeName: 'Українська', isRtl: false },
+  { localeCode: 'fa', displayName: 'Persian', nativeName: 'فارسی', isRtl: true },
+  { localeCode: 'he', displayName: 'Hebrew', nativeName: 'עברית', isRtl: true },
+  { localeCode: 'id', displayName: 'Indonesian', nativeName: 'Bahasa Indonesia', isRtl: false },
+  { localeCode: 'vi', displayName: 'Vietnamese', nativeName: 'Tiếng Việt', isRtl: false },
+  { localeCode: 'ur', displayName: 'Urdu', nativeName: 'اردو', isRtl: true }
+]
+
 const SettingsPage = ({ accessToken }: { accessToken: string }) => {
   // States
   const [reviewRequired, setReviewRequired] = useState(true)
@@ -37,10 +68,7 @@ const SettingsPage = ({ accessToken }: { accessToken: string }) => {
   const [languageErrors, setLanguageErrors] = useState<string[]>([])
   const [loadingLanguages, setLoadingLanguages] = useState(true)
   const [savingLanguage, setSavingLanguage] = useState(false)
-  const [localeCode, setLocaleCode] = useState('')
-  const [displayName, setDisplayName] = useState('')
-  const [nativeName, setNativeName] = useState('')
-  const [isRtl, setIsRtl] = useState(false)
+  const [selectedLocale, setSelectedLocale] = useState('')
 
   const loadLanguages = useCallback(async (signal?: AbortSignal) => {
     const values = await getLanguages(accessToken, signal)
@@ -57,19 +85,20 @@ const SettingsPage = ({ accessToken }: { accessToken: string }) => {
   }, [accessToken])
 
   const addLanguage = async () => {
-    if (savingLanguage || !localeCode.trim() || !displayName.trim() || !nativeName.trim()) return
+    const selectedLanguage = supportedLanguages.find(language => language.localeCode === selectedLocale)
+    if (savingLanguage || !selectedLanguage) return
+    if (languages.some(language => language.localeCode.toLowerCase() === selectedLanguage.localeCode.toLowerCase())) {
+      setLanguageErrors(['That locale is already configured.'])
+      return
+    }
     setSavingLanguage(true)
     setLanguageErrors([])
     try {
       const created = await createLanguage({
-        localeCode: localeCode.trim(), displayName: displayName.trim(), nativeName: nativeName.trim(),
-        isRtl, sortOrder: languages.length
+        ...selectedLanguage, sortOrder: languages.length
       }, accessToken)
       await enableLanguage(created.languageId, accessToken)
-      setLocaleCode('')
-      setDisplayName('')
-      setNativeName('')
-      setIsRtl(false)
+      setSelectedLocale('')
       await loadLanguages()
     } catch (error) {
       setLanguageErrors(describeApiError(error))
@@ -151,13 +180,16 @@ const SettingsPage = ({ accessToken }: { accessToken: string }) => {
 
           <KbFormSection title='Translation languages' description='Add and enable the languages editors can select when creating article translations.'>
             <KbFormGrid>
-              <CustomTextField label='Locale code' placeholder='e.g. es or pt-BR' value={localeCode} onChange={event => setLocaleCode(event.target.value)} fullWidth />
-              <CustomTextField label='Display name' placeholder='e.g. Spanish' value={displayName} onChange={event => setDisplayName(event.target.value)} fullWidth />
-              <CustomTextField label='Native name' placeholder='e.g. Español' value={nativeName} onChange={event => setNativeName(event.target.value)} fullWidth />
-              <FormControlLabel control={<Switch checked={isRtl} onChange={event => setIsRtl(event.target.checked)} />} label='Right-to-left language' />
+              <CustomTextField select label='Language' value={selectedLocale} onChange={event => setSelectedLocale(event.target.value)} fullWidth>
+                <MenuItem value=''>Select a language</MenuItem>
+                {supportedLanguages.map(language => {
+                  const alreadyConfigured = languages.some(item => item.localeCode.toLowerCase() === language.localeCode.toLowerCase())
+                  return <MenuItem key={language.localeCode} value={language.localeCode} disabled={alreadyConfigured}>{language.nativeName} ({language.displayName}){alreadyConfigured ? ' — already added' : ''}</MenuItem>
+                })}
+              </CustomTextField>
             </KbFormGrid>
             <Stack direction='row' spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
-              <Button variant='outlined' onClick={() => void addLanguage()} disabled={savingLanguage || !localeCode.trim() || !displayName.trim() || !nativeName.trim()}>Add and enable language</Button>
+              <Button variant='outlined' onClick={() => void addLanguage()} disabled={savingLanguage || !selectedLocale}>Add and enable language</Button>
               <Typography variant='caption' color='text.secondary'>Global language settings require the Manage languages permission.</Typography>
             </Stack>
             <KbValidationSummary title='Translation languages' errors={languageErrors} />
