@@ -153,9 +153,9 @@ public sealed class AddLocalizationPersistenceFoundation : Migration
                     item => new { item.SourceArticleID, item.SourceVersionID }, "ARTICLE_VERSIONS",
                     principalColumns: new[] { "ArticleID_FK", "VersionID" }, onDelete: ReferentialAction.Restrict);
                 table.ForeignKey("FK_ARTICLE_TRANSLATION_METADATA_AssignedTranslator_USERS", item => item.AssignedTranslatorUserID,
-                    "USERS", "UserID", onDelete: ReferentialAction.SetNull);
+                    "USERS", "UserID", onDelete: ReferentialAction.NoAction);
                 table.ForeignKey("FK_ARTICLE_TRANSLATION_METADATA_VerifiedBy_USERS", item => item.VerifiedByUserID,
-                    "USERS", "UserID", onDelete: ReferentialAction.SetNull);
+                    "USERS", "UserID", onDelete: ReferentialAction.NoAction);
             });
 
         migrationBuilder.CreateTable(

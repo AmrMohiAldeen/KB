@@ -241,11 +241,11 @@ public partial class KbDbContext : DbContext
                 .HasConstraintName("FK_ARTICLE_TRANSLATION_METADATA_Source_ARTICLE_VERSIONS");
             entity.HasOne(e => e.AssignedTranslatorUser).WithMany(e => e.AssignedArticleTranslations)
                 .HasForeignKey(e => e.AssignedTranslatorUserId)
-                .OnDelete(DeleteBehavior.SetNull)
+                .OnDelete(DeleteBehavior.NoAction)
                 .HasConstraintName("FK_ARTICLE_TRANSLATION_METADATA_AssignedTranslator_USERS");
             entity.HasOne(e => e.VerifiedByUser).WithMany(e => e.VerifiedArticleTranslations)
                 .HasForeignKey(e => e.VerifiedByUserId)
-                .OnDelete(DeleteBehavior.SetNull)
+                .OnDelete(DeleteBehavior.NoAction)
                 .HasConstraintName("FK_ARTICLE_TRANSLATION_METADATA_VerifiedBy_USERS");
         });
 
