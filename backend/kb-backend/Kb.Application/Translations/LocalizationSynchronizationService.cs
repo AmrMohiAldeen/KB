@@ -6,6 +6,7 @@ using Kb.Application.Abstractions.Storage;
 using Kb.Application.Drafts;
 using Kb.Application.Exceptions;
 using Kb.Domain.Constants;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Kb.Application.Translations;
@@ -18,6 +19,7 @@ public sealed class LocalizationSynchronizationService(
     ICurrentUser currentUser,
     IPermissionChecker permissions,
     TimeProvider timeProvider,
+    ILogger<LocalizationSynchronizationService> logger,
     IOptions<DraftContentOptions> draftOptions)
 {
     private readonly DraftContentOptions options = draftOptions.Value;
@@ -84,6 +86,9 @@ public sealed class LocalizationSynchronizationService(
             catch (Exception exception)
             {
                 if (!string.IsNullOrWhiteSpace(stagedPath)) await DeleteBestEffortAsync(stagedPath);
+                logger.LogWarning("Localization synchronization failed for source {SourceArticleId}, target " +
+                    "locale {TargetLocaleCode}, operation {Operation}. Failure: {FailureType}",
+                    sourceArticleId, item.TargetLocaleCode, item.Operation, exception.GetType().Name);
                 outcomes.Add(new(item.TargetLocaleCode, item.TargetArticleId, item.Operation,
                     "Failed", null, null, exception.Message));
             }

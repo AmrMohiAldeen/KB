@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Kb.Application.Exceptions;
 using Kb.Application.Translations;
 
@@ -75,6 +76,176 @@ public sealed class TiptapTranslationProcessorTests
             "GamaLearn", "{\"type\":\"doc\",\"content\":[]}", "en", "fr", ["GamaLearn"],
             CancellationToken.None));
         Assert.Contains("protected-term", exception.Message);
+    }
+
+    [Fact]
+    public async Task Preserves_inline_marks_links_nested_lists_tables_and_surrounding_whitespace()
+    {
+        const string json = """
+            {"type":"doc","attrs":{"dir":"rtl","documentId":"doc-7"},"content":[
+              {"type":"heading","attrs":{"level":2,"id":"account-settings"},"content":[{"type":"text","text":"Account Settings"}]},
+              {"type":"paragraph","content":[
+                {"type":"text","text":"Hello "},
+                {"type":"text","text":"bold","marks":[{"type":"bold"}]},
+                {"type":"text","text":" and "},
+                {"type":"text","text":"italic","marks":[{"type":"italic"}]},
+                {"type":"text","text":" link","marks":[{"type":"link","attrs":{"href":"/articles/reset-password","target":"_blank","rel":"noopener"}}]}
+              ]},
+              {"type":"bulletList","attrs":{"listStyleType":"disc"},"content":[{"type":"listItem","attrs":{"itemId":"li-1"},"content":[
+                {"type":"paragraph","content":[{"type":"text","text":"Parent"}]},
+                {"type":"orderedList","attrs":{"start":3},"content":[{"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"Child"}]}]}]}
+              ]}]},
+              {"type":"table","attrs":{"caption":"Plan comparison","widthPct":80},"content":[
+                {"type":"tableRow","attrs":{"rowHeight":44},"content":[
+                  {"type":"tableHeader","attrs":{"colspan":2,"rowspan":1,"colwidth":[120,140]},"content":[{"type":"paragraph","content":[{"type":"text","text":"Feature"}]}]},
+                  {"type":"tableCell","attrs":{"colspan":1,"rowspan":2,"backgroundColor":"#fff"},"content":[{"type":"paragraph","content":[{"type":"text","text":"Available"}]}]}
+                ]}
+              ]}
+            ]}
+            """;
+        var provider = new FakeProvider(texts => texts.Select(text => $"T:{text.Trim()}").ToArray());
+
+        var result = await new TiptapTranslationProcessor(provider).TranslateAsync(
+            "Guide", json, "en", "ar", [], default);
+
+        using var translated = JsonDocument.Parse(result.ContentJson);
+        var root = translated.RootElement;
+        var content = root.GetProperty("content");
+        Assert.Equal("rtl", root.GetProperty("attrs").GetProperty("dir").GetString());
+        Assert.Equal("doc-7", root.GetProperty("attrs").GetProperty("documentId").GetString());
+        Assert.Equal("account-settings", content[0].GetProperty("attrs").GetProperty("id").GetString());
+        var inline = content[1].GetProperty("content");
+        Assert.Equal("T:Hello ", inline[0].GetProperty("text").GetString());
+        Assert.Equal("Hello", provider.LastRequest!.Texts[2]);
+        Assert.Equal("and", provider.LastRequest.Texts[4]);
+        Assert.Equal("T:bold", inline[1].GetProperty("text").GetString());
+        Assert.Equal("bold", inline[1].GetProperty("marks")[0].GetProperty("type").GetString());
+        Assert.Equal(" T:and ", inline[2].GetProperty("text").GetString());
+        Assert.Equal("T:italic", inline[3].GetProperty("text").GetString());
+        Assert.Equal("italic", inline[3].GetProperty("marks")[0].GetProperty("type").GetString());
+        Assert.Equal(" T:link", inline[4].GetProperty("text").GetString());
+        Assert.Equal("/articles/reset-password",
+            inline[4].GetProperty("marks")[0].GetProperty("attrs").GetProperty("href").GetString());
+        Assert.Equal("li-1", content[2].GetProperty("content")[0].GetProperty("attrs").GetProperty("itemId").GetString());
+        Assert.Equal(3, content[2].GetProperty("content")[0].GetProperty("content")[1]
+            .GetProperty("attrs").GetProperty("start").GetInt32());
+        var tableAttrs = content[3].GetProperty("attrs");
+        Assert.Equal("T:Plan comparison", tableAttrs.GetProperty("caption").GetString());
+        Assert.Equal(80, tableAttrs.GetProperty("widthPct").GetInt32());
+        var headerAttrs = content[3].GetProperty("content")[0].GetProperty("content")[0].GetProperty("attrs");
+        Assert.Equal(2, headerAttrs.GetProperty("colspan").GetInt32());
+        Assert.Equal([120, 140], headerAttrs.GetProperty("colwidth").EnumerateArray().Select(x => x.GetInt32()).ToArray());
+    }
+
+    [Fact]
+    public async Task Uses_positions_for_duplicate_segments_and_keeps_html_looking_output_as_text()
+    {
+        const string json = """
+            {"type":"doc","content":[
+              {"type":"paragraph","content":[{"type":"text","text":"Duplicate"}]},
+              {"type":"paragraph","content":[{"type":"text","text":"Duplicate"}]},
+              {"type":"image","attrs":{"src":"/media/login.png","mediaId":"media-1","alt":"Login screen","data-owner":"team-1"}}
+            ]}
+            """;
+        var provider = new FakeProvider(texts => texts.Select((_, index) => $"<script>segment-{index}</script>").ToArray());
+
+        var result = await new TiptapTranslationProcessor(provider).TranslateAsync(
+            "Title", json, "en", "fr", [], default);
+
+        var root = JsonNode.Parse(result.ContentJson)!.AsObject();
+        var content = root["content"]!.AsArray();
+        Assert.Equal("<script>segment-0</script>", result.Title);
+        Assert.Equal("<script>segment-1</script>", content[0]!["content"]![0]!["text"]!.GetValue<string>());
+        Assert.Equal("<script>segment-2</script>", content[1]!["content"]![0]!["text"]!.GetValue<string>());
+        Assert.Equal("<script>segment-3</script>", content[2]!["attrs"]!["alt"]!.GetValue<string>());
+        Assert.Equal("/media/login.png", content[2]!["attrs"]!["src"]!.GetValue<string>());
+        Assert.Equal("media-1", content[2]!["attrs"]!["mediaId"]!.GetValue<string>());
+        Assert.Equal("team-1", content[2]!["attrs"]!["data-owner"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task Translates_realistic_imported_helpjuice_content_without_changing_custom_structure()
+    {
+        const string json = """
+            {"type":"doc","content":[
+              {"type":"codeBlock","attrs":{"language":"bash"},"content":[{"type":"text","text":"npm run build"}]},
+              {"type":"pre","content":[{"type":"text","text":"PRE_VALUE=1"}]},
+              {"type":"script","attrs":{"src":"/scripts/app.js"},"content":[{"type":"text","text":"alert('x')"}]},
+              {"type":"style","content":[{"type":"text","text":".thing { color: red; }"}]},
+              {"type":"paragraph","content":[{"type":"text","text":"INLINE_CODE","marks":[{"type":"code"}]}]},
+              {"type":"callout","attrs":{"variant":"warning","id":"callout-1","title":"Important"},"content":[{"type":"paragraph","content":[{"type":"text","text":"Check this setting"}]}]},
+              {"type":"tabs","attrs":{"defaultTab":"tab-2"},"content":[{"type":"tabItem","attrs":{"itemId":"tab-2","label":"Details","ariaLabel":"Details tab"},"content":[{"type":"paragraph","content":[{"type":"text","text":"Tab body"}]}]}]},
+              {"type":"accordion","content":[{"type":"accordionItem","attrs":{"itemId":"acc-1","title":"Troubleshooting","open":true},"content":[{"type":"paragraph","content":[{"type":"text","text":"Accordion body"}]}]}]},
+              {"type":"glossary","attrs":{"id":"term-1","term":"Workspace","definition":"Your private area"}},
+              {"type":"figure","attrs":{"caption":"Login flow","layout":"wide"},"content":[{"type":"image","attrs":{"src":"/media/flow.png","alt":"Flow diagram","fileName":"flow.png","mimeType":"image/png"}}]}
+            ]}
+            """;
+        var provider = new FakeProvider(texts => texts.Select(text => $"AR:{text}").ToArray());
+
+        var result = await new TiptapTranslationProcessor(provider).TranslateAsync(
+            "Technical guide", json, "en", "ar", [], default);
+
+        using var translated = JsonDocument.Parse(result.ContentJson);
+        var content = translated.RootElement.GetProperty("content");
+        Assert.Equal("npm run build", Text(content[0]));
+        Assert.Equal("PRE_VALUE=1", Text(content[1]));
+        Assert.Equal("alert('x')", Text(content[2]));
+        Assert.Equal(".thing { color: red; }", Text(content[3]));
+        Assert.Equal("INLINE_CODE", Text(content[4]));
+        Assert.Equal("warning", content[5].GetProperty("attrs").GetProperty("variant").GetString());
+        Assert.Equal("AR:Important", content[5].GetProperty("attrs").GetProperty("title").GetString());
+        Assert.Equal("AR:Check this setting", Text(content[5].GetProperty("content")[0]));
+        Assert.Equal("tab-2", content[6].GetProperty("attrs").GetProperty("defaultTab").GetString());
+        var tabAttrs = content[6].GetProperty("content")[0].GetProperty("attrs");
+        Assert.Equal("tab-2", tabAttrs.GetProperty("itemId").GetString());
+        Assert.Equal("AR:Details", tabAttrs.GetProperty("label").GetString());
+        Assert.Equal("AR:Details tab", tabAttrs.GetProperty("ariaLabel").GetString());
+        var accordionAttrs = content[7].GetProperty("content")[0].GetProperty("attrs");
+        Assert.True(accordionAttrs.GetProperty("open").GetBoolean());
+        Assert.Equal("AR:Troubleshooting", accordionAttrs.GetProperty("title").GetString());
+        Assert.Equal("AR:Accordion body", Text(content[7].GetProperty("content")[0].GetProperty("content")[0]));
+        Assert.Equal("AR:Workspace", content[8].GetProperty("attrs").GetProperty("term").GetString());
+        Assert.Equal("AR:Your private area", content[8].GetProperty("attrs").GetProperty("definition").GetString());
+        Assert.Equal("AR:Login flow", content[9].GetProperty("attrs").GetProperty("caption").GetString());
+        var imageAttrs = content[9].GetProperty("content")[0].GetProperty("attrs");
+        Assert.Equal("AR:Flow diagram", imageAttrs.GetProperty("alt").GetString());
+        Assert.Equal("flow.png", imageAttrs.GetProperty("fileName").GetString());
+        Assert.Equal("image/png", imageAttrs.GetProperty("mimeType").GetString());
+        Assert.Equal("wide", content[9].GetProperty("attrs").GetProperty("layout").GetString());
+    }
+
+    [Fact]
+    public async Task Masks_urls_routes_paths_filenames_mime_types_and_environment_variables_inside_text()
+    {
+        const string source =
+            "Open https://example.test/a?x=1, then use /api/articles/7 with image/png from C:\\media\\login.png and $KB_TOKEN in appsettings.json.";
+        var provider = new FakeProvider(texts =>
+        {
+            Assert.DoesNotContain(texts, text => text.Contains("https://", StringComparison.Ordinal));
+            Assert.DoesNotContain(texts, text => text.Contains("/api/articles/7", StringComparison.Ordinal));
+            Assert.DoesNotContain(texts, text => text.Contains("image/png", StringComparison.Ordinal));
+            Assert.DoesNotContain(texts, text => text.Contains("C:\\media\\login.png", StringComparison.Ordinal));
+            Assert.DoesNotContain(texts, text => text.Contains("$KB_TOKEN", StringComparison.Ordinal));
+            Assert.DoesNotContain(texts, text => text.Contains("appsettings.json", StringComparison.Ordinal));
+            return texts.Select(text => $"AR:{text}").ToArray();
+        });
+        var json = JsonSerializer.Serialize(new
+        {
+            type = "doc",
+            content = new[] { new { type = "paragraph", content = new[] { new { type = "text", text = source } } } }
+        });
+
+        var result = await new TiptapTranslationProcessor(provider).TranslateAsync(
+            "Guide", json, "en", "ar", [], default);
+
+        using var translated = JsonDocument.Parse(result.ContentJson);
+        var output = Text(translated.RootElement.GetProperty("content")[0]);
+        Assert.Contains("https://example.test/a?x=1", output);
+        Assert.Contains("/api/articles/7", output);
+        Assert.Contains("image/png", output);
+        Assert.Contains("C:\\media\\login.png", output);
+        Assert.Contains("$KB_TOKEN", output);
+        Assert.Contains("appsettings.json", output);
     }
 
     private static string? Text(JsonElement node) => node.GetProperty("content")[0].GetProperty("text").GetString();

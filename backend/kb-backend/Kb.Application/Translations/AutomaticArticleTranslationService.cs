@@ -6,6 +6,7 @@ using Kb.Application.Abstractions.Storage;
 using Kb.Application.Drafts;
 using Kb.Application.Exceptions;
 using Kb.Domain.Constants;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Kb.Application.Translations;
@@ -18,6 +19,7 @@ public sealed class AutomaticArticleTranslationService(
     ICurrentUser currentUser,
     IPermissionChecker permissions,
     TimeProvider timeProvider,
+    ILogger<AutomaticArticleTranslationService> logger,
     IOptions<DraftContentOptions> draftOptions)
 {
     private static readonly string EmptyDocument = JsonSerializer.Serialize(new
@@ -41,8 +43,21 @@ public sealed class AutomaticArticleTranslationService(
             : await DownloadAsync(snapshot.SourceContentJsonPath, ct);
         var terms = await protectedTerms.GetEnabledAsync(snapshot.TargetLocaleCode, ct);
         var processor = new TiptapTranslationProcessor(provider);
-        var translated = await processor.TranslateAsync(snapshot.SourceTitle, content,
-            snapshot.SourceLocaleCode, snapshot.TargetLocaleCode, terms, ct);
+        TiptapTranslationResult translated;
+        try
+        {
+            translated = await processor.TranslateAsync(snapshot.SourceTitle, content,
+                snapshot.SourceLocaleCode, snapshot.TargetLocaleCode, terms, ct);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception exception)
+        {
+            logger.LogWarning("Automatic translation generation failed for source {SourceArticleId}, target " +
+                "{TargetArticleId}, locale {TargetLocaleCode}, provider {ProviderName}. Failure: {FailureType}",
+                sourceArticleId, targetArticleId, snapshot.TargetLocaleCode, provider.Name,
+                exception.GetType().Name);
+            throw;
+        }
         if (string.IsNullOrWhiteSpace(translated.Title) || translated.Title.Length > 300)
             throw new BusinessRuleException("The translated article title must contain between 1 and 300 characters.");
         var bytes = Encoding.UTF8.GetBytes(translated.ContentJson);
@@ -64,7 +79,11 @@ public sealed class AutomaticArticleTranslationService(
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception exception)
-        { throw new ExternalServiceException("Translated draft content could not be staged.", exception); }
+        {
+            logger.LogWarning("Translated content staging failed for target {TargetArticleId}. Failure: {FailureType}",
+                targetArticleId, exception.GetType().Name);
+            throw new ExternalServiceException("Translated draft content could not be staged.", exception);
+        }
 
         AutomaticTranslationCommitResult committed;
         try
@@ -73,9 +92,13 @@ public sealed class AutomaticArticleTranslationService(
                 Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(), bytes.LongLength, mediaIds,
                 provider.Name, translated.TranslatedSegmentCount, currentUser.UserId, now), ct);
         }
-        catch
+        catch (Exception exception)
         {
             await DeleteBestEffortAsync([storedPath]);
+            if (exception is not OperationCanceledException)
+                logger.LogWarning("Automatic translation commit failed for source {SourceArticleId} and target " +
+                    "{TargetArticleId}. Failure: {FailureType}", sourceArticleId, targetArticleId,
+                    exception.GetType().Name);
             throw;
         }
 
@@ -113,7 +136,11 @@ public sealed class AutomaticArticleTranslationService(
         catch (OperationCanceledException) { throw; }
         catch (BusinessRuleException) { throw; }
         catch (Exception exception)
-        { throw new ExternalServiceException("Source content could not be loaded.", exception); }
+        {
+            logger.LogWarning("Automatic translation source loading failed. Failure: {FailureType}",
+                exception.GetType().Name);
+            throw new ExternalServiceException("Source content could not be loaded.", exception);
+        }
     }
 
     private static IReadOnlyCollection<Guid> ExtractMediaIds(string contentJson)

@@ -9,19 +9,28 @@ public sealed record TiptapTranslationResult(string Title, string ContentJson, i
 
 public sealed class TiptapTranslationProcessor(ITranslationProvider provider)
 {
+    private static readonly IReadOnlySet<string> NonTranslatableNodeTypes = new HashSet<string>(
+        ["code", "codeBlock", "code_block", "pre", "script", "style"], StringComparer.OrdinalIgnoreCase);
+
     private static readonly IReadOnlyDictionary<string, IReadOnlySet<string>> TranslatableAttributes =
         new Dictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal)
         {
             ["tabItem"] = new HashSet<string>(["label"], StringComparer.Ordinal),
             ["accordionItem"] = new HashSet<string>(["title"], StringComparer.Ordinal),
+            ["callout"] = new HashSet<string>(["title"], StringComparer.Ordinal),
             ["image"] = new HashSet<string>(["alt", "title"], StringComparer.Ordinal),
             ["inlineImage"] = new HashSet<string>(["alt", "title"], StringComparer.Ordinal),
             ["video"] = new HashSet<string>(["title"], StringComparer.Ordinal),
             ["documentEmbed"] = new HashSet<string>(["title"], StringComparer.Ordinal),
             ["externalEmbed"] = new HashSet<string>(["title"], StringComparer.Ordinal),
+            ["youtube"] = new HashSet<string>(["title"], StringComparer.Ordinal),
             ["figure"] = new HashSet<string>(["caption"], StringComparer.Ordinal),
-            ["table"] = new HashSet<string>(["caption"], StringComparer.Ordinal)
+            ["table"] = new HashSet<string>(["caption"], StringComparer.Ordinal),
+            ["glossary"] = new HashSet<string>(["term", "definition"], StringComparer.Ordinal)
         };
+
+    private static readonly IReadOnlySet<string> AccessibilityAttributes = new HashSet<string>(
+        ["aria-label", "ariaLabel", "accessibilityLabel"], StringComparer.Ordinal);
 
     public async Task<TiptapTranslationResult> TranslateAsync(string title, string contentJson,
         string sourceLocaleCode, string targetLocaleCode, IReadOnlyList<string> protectedTerms,
@@ -35,7 +44,7 @@ public sealed class TiptapTranslationProcessor(ITranslationProvider provider)
         if (root is not JsonObject document || document["type"]?.GetValue<string>() != "doc")
             throw new BusinessRuleException("Source content must be a Tiptap JSON document with a 'doc' root.");
 
-        var segments = new List<Segment> { new(title, value => title = value) };
+        var segments = new List<Segment> { Segment.Create(title, value => title = value) };
         Collect(document, false, segments);
         var translatable = segments.Where(x => !string.IsNullOrWhiteSpace(x.Value)).ToArray();
         if (translatable.Length == 0)
@@ -56,8 +65,15 @@ public sealed class TiptapTranslationProcessor(ITranslationProvider provider)
         if (translated.Count != translatable.Length)
             throw new ExternalServiceException("The translation provider returned an incomplete batch.");
 
+        var restored = new string[translatable.Length];
         for (var index = 0; index < translatable.Length; index++)
-            translatable[index].Set(masks[index].Restore(translated[index]));
+        {
+            if (translated[index] is null)
+                throw new ExternalServiceException("The translation provider returned a null text segment.");
+            restored[index] = masks[index].Restore(translated[index]);
+        }
+        for (var index = 0; index < translatable.Length; index++)
+            translatable[index].Set(restored[index]);
 
         return new(title, document.ToJsonString(new JsonSerializerOptions { WriteIndented = false }),
             translatable.Length);
@@ -66,18 +82,20 @@ public sealed class TiptapTranslationProcessor(ITranslationProvider provider)
     private static void Collect(JsonObject node, bool insideCodeBlock, ICollection<Segment> segments)
     {
         var type = node["type"]?.GetValue<string>() ?? string.Empty;
-        var skipChildren = insideCodeBlock || type is "codeBlock" or "code_block";
+        var skipChildren = insideCodeBlock || NonTranslatableNodeTypes.Contains(type);
         if (type == "text" && !skipChildren && !HasCodeMark(node) &&
             node["text"] is JsonValue textValue && textValue.TryGetValue<string>(out var text))
-            segments.Add(new(text, value => node["text"] = value));
+            segments.Add(Segment.Create(text, value => node["text"] = value));
 
-        if (!skipChildren && TranslatableAttributes.TryGetValue(type, out var attributeNames) &&
-            node["attrs"] is JsonObject attributes)
+        if (!skipChildren && node["attrs"] is JsonObject attributes)
         {
+            var attributeNames = TranslatableAttributes.TryGetValue(type, out var configured)
+                ? configured.Concat(AccessibilityAttributes)
+                : AccessibilityAttributes;
             foreach (var name in attributeNames)
                 if (attributes[name] is JsonValue value && value.TryGetValue<string>(out var attributeText) &&
                     !string.IsNullOrWhiteSpace(attributeText))
-                    segments.Add(new(attributeText, translated => attributes[name] = translated));
+                    segments.Add(Segment.Create(attributeText, translated => attributes[name] = translated));
         }
 
         if (skipChildren || node["content"] is not JsonArray content) return;
@@ -87,7 +105,19 @@ public sealed class TiptapTranslationProcessor(ITranslationProvider provider)
     private static bool HasCodeMark(JsonObject node) => node["marks"] is JsonArray marks &&
         marks.OfType<JsonObject>().Any(mark => mark["type"]?.GetValue<string>() == "code");
 
-    private sealed record Segment(string Value, Action<string> Set);
+    private sealed record Segment(string Value, Action<string> Set)
+    {
+        public static Segment Create(string value, Action<string> set)
+        {
+            var first = 0;
+            while (first < value.Length && char.IsWhiteSpace(value[first])) first++;
+            var last = value.Length;
+            while (last > first && char.IsWhiteSpace(value[last - 1])) last--;
+            var leading = value[..first];
+            var trailing = value[last..];
+            return new(value[first..last], translated => set(leading + translated + trailing));
+        }
+    }
 
     private sealed class ProtectedTermMask
     {
@@ -101,8 +131,8 @@ public sealed class TiptapTranslationProcessor(ITranslationProvider provider)
         {
             var usable = terms.Where(x => !string.IsNullOrEmpty(x)).Distinct(StringComparer.Ordinal)
                 .OrderByDescending(x => x.Length).ToArray();
-            if (usable.Length == 0) return new(text, new Dictionary<string, string>());
-            var regex = new Regex(string.Join('|', usable.Select(Regex.Escape)),
+            var patterns = usable.Select(Regex.Escape).Concat([TechnicalTokenPattern]);
+            var regex = new Regex(string.Join('|', patterns),
                 RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
             var replacements = new Dictionary<string, string>(StringComparer.Ordinal);
             var sequence = 0;
@@ -114,6 +144,16 @@ public sealed class TiptapTranslationProcessor(ITranslationProvider provider)
             });
             return new(masked, replacements);
         }
+
+        // Technical values can occur inside otherwise human-readable text. Mask them so the provider never
+        // receives authority to rewrite routes, URLs, paths, filenames, MIME types, or environment variables.
+        private const string TechnicalTokenPattern =
+            @"(?:https?://|mailto:|tel:)[^\s<>\""']+|" +
+            @"(?<![\p{L}\p{N}])(?:/[A-Za-z0-9._~%!$&'()*+,;=:@-]+)+(?:\?[A-Za-z0-9._~%!$&'()*+,;=:@/?-]*)?(?:#[A-Za-z0-9._~-]*)?|" +
+            @"[A-Za-z]:\\(?:[^\\\s<>:\""|?*]+\\)*[^\\\s<>:\""|?*]*|" +
+            @"\b[a-z][a-z0-9.+-]*/[a-z0-9][a-z0-9.+-]*\b|" +
+            @"\$\{?[A-Z_][A-Z0-9_]*\}?|%[A-Z_][A-Z0-9_]*%|" +
+            @"\b[A-Za-z0-9_-]+\.[A-Za-z0-9]{1,12}\b";
 
         public string Restore(string translated)
         {

@@ -4,6 +4,7 @@ using Kb.Application.Drafts;
 using Kb.Application.Exceptions;
 using Kb.Application.Translations;
 using Kb.Domain.Constants;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
 namespace Kb.Tests.Translations;
@@ -25,6 +26,23 @@ public sealed class AutomaticArticleTranslationServiceTests
         await Assert.ThrowsAsync<ExternalServiceException>(() =>
             service.TranslateAsync(SourceId, TargetId, CancellationToken.None));
 
+        Assert.Equal(0, repository.CommitCount);
+        Assert.Equal(0, storage.UploadCount);
+        Assert.Empty(storage.DeletedPaths);
+    }
+
+    [Fact]
+    public async Task Provider_api_failure_does_not_stage_or_overwrite_the_target_draft()
+    {
+        var repository = new FakeAutomaticRepository(Snapshot());
+        var storage = new FakeStorage();
+        var service = Service(repository, storage, new FakeProvider(_ =>
+            throw new ExternalServiceException("Translation API unavailable.")));
+
+        var exception = await Assert.ThrowsAsync<ExternalServiceException>(() =>
+            service.TranslateAsync(SourceId, TargetId, CancellationToken.None));
+
+        Assert.Equal("Translation API unavailable.", exception.Message);
         Assert.Equal(0, repository.CommitCount);
         Assert.Equal(0, storage.UploadCount);
         Assert.Empty(storage.DeletedPaths);
@@ -104,11 +122,13 @@ public sealed class AutomaticArticleTranslationServiceTests
     private static AutomaticArticleTranslationService Service(FakeAutomaticRepository repository,
         FakeStorage storage, ITranslationProvider provider) => new(repository, new FakeTerms(), provider, storage,
         new CurrentUser(), new AllowPermissions(), TimeProvider.System,
+        NullLogger<AutomaticArticleTranslationService>.Instance,
         Options.Create(new DraftContentOptions { ContainerName = "article-content", MaxContentSizeBytes = 1024 * 1024 }));
 
     private static LocalizationSynchronizationService SyncService(FakeSyncRepository repository,
         FakeStorage storage, ITranslationProvider provider) => new(repository, new FakeTerms(), provider, storage,
         new CurrentUser(), new AllowPermissions(), TimeProvider.System,
+        NullLogger<LocalizationSynchronizationService>.Instance,
         Options.Create(new DraftContentOptions { ContainerName = "article-content", MaxContentSizeBytes = 1024 * 1024 }));
 
     private static LocalizationSyncPlan SyncPlan(IReadOnlyList<LocalizationSyncTargetSnapshot> targets) => new(
