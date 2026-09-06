@@ -100,6 +100,30 @@ public sealed class CategorySliceTests
     }
 
     [Fact]
+    public async Task Category_localizations_are_managed_per_enabled_language_and_default_label_is_preserved()
+    {
+        await using var f = await Fixture.CreateAsync();
+        var now = DateTime.UtcNow;
+        f.Context.KbLanguages.Add(new KbLanguage { LanguageId = Guid.NewGuid(), LocaleCode = "ar", DisplayName = "Arabic",
+            NativeName = "العربية", IsEnabled = true, IsRtl = true, SortOrder = 1, CreatedAt = now, UpdatedAt = now });
+        await f.Context.SaveChangesAsync();
+        var category = await f.Service.CreateAsync(new(null, "Support", "Default label", 0), default);
+
+        var updated = await f.Service.SetLocalizationsAsync(category.Id,
+            [new("en", null, null), new("ar", "الدعم", "مقالات الدعم")], default);
+
+        var localizations = Assert.IsAssignableFrom<IReadOnlyList<CategoryLocalizationData>>(updated.Localizations);
+        var english = localizations.Single(item => item.LocaleCode == "en");
+        var arabic = localizations.Single(item => item.LocaleCode == "ar");
+        Assert.Equal("Support", english.Name);
+        Assert.Equal("Default label", english.Description);
+        Assert.Equal("الدعم", arabic.Name);
+        Assert.Equal("مقالات الدعم", arabic.Description);
+        Assert.Contains(await f.Context.ArticleAuditLogs.ToListAsync(), item =>
+            item.ActionType == CategoryAuditActions.LocalizationsUpdated);
+    }
+
+    [Fact]
     public async Task Viewer_artwork_uses_active_library_images_or_supported_icons()
     {
         await using var f = await Fixture.CreateAsync();
@@ -238,7 +262,7 @@ public sealed class CategorySliceTests
     public void Write_actions_require_manage_and_reads_require_authentication()
     {
         Assert.NotNull(typeof(CategoriesController).GetCustomAttribute<AuthorizeAttribute>());
-        foreach (var action in new[] { "Create", "Update", "Move", "Delete", "Archive", "Unarchive" })
+        foreach (var action in new[] { "Create", "Update", "UpdateLocalizations", "Move", "Delete", "Archive", "Unarchive", "GetLocalizationLanguages" })
         {
             var authorize = typeof(CategoriesController).GetMethod(action)!.GetCustomAttribute<AuthorizeAttribute>();
             Assert.Equal(PermissionPolicy.For(PermissionCodes.CategoriesManage), authorize!.Policy);

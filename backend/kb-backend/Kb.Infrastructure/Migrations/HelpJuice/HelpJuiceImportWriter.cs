@@ -79,6 +79,10 @@ public sealed class HelpJuiceImportWriter(KbDbContext db, TimeProvider timeProvi
         return mappings.ToDictionary(item => item.ExternalId, item => item.Slug, StringComparer.OrdinalIgnoreCase);
     }
 
+    public async Task<IReadOnlySet<string>> GetConfiguredLocaleCodesAsync(CancellationToken ct) =>
+        (await db.KbLanguages.AsNoTracking().Select(language => language.LocaleCode).ToListAsync(ct))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
     public async Task<IReadOnlyDictionary<string, HelpJuiceAuthorMapping>> ResolveHelpJuiceAuthorsAsync(
         IReadOnlyCollection<string> helpJuiceUserIds, CancellationToken ct)
     {
@@ -109,7 +113,9 @@ public sealed class HelpJuiceImportWriter(KbDbContext db, TimeProvider timeProvi
         string behavior, Guid actorId, CancellationToken ct)
     {
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
-        var mapping = await FindMappingAsync("Category", source.ExternalId, ct);
+        var canonicalExternalId = source.CanonicalExternalId ?? source.ExternalId;
+        var mapping = await FindMappingAsync("Category", canonicalExternalId, ct) ??
+            await FindMappingAsync("Category", source.ExternalId, ct);
         var existing = mapping is null
             ? source.ExternalId == HelpJuiceSourceParser.FallbackCategoryExternalId
                 ? await db.Categories.OrderByDescending(category => category.Name == "Need category" &&
@@ -120,19 +126,25 @@ public sealed class HelpJuiceImportWriter(KbDbContext db, TimeProvider timeProvi
             : await db.Categories.SingleOrDefaultAsync(x => x.CategoryId == mapping.InternalId, ct)
                 ?? throw new ConflictException($"Mapped HelpJuice category '{source.ExternalId}' no longer exists.");
         if (existing is not null && (mapping is not null && !behavior.Equals(MigrationConflictBehaviors.UpdateExisting, StringComparison.OrdinalIgnoreCase) || behavior.Equals(MigrationConflictBehaviors.Skip, StringComparison.OrdinalIgnoreCase)))
-        { if(mapping is null)AddMapping("Category",source.ExternalId,existing.CategoryId,null,new{source.Name,existing.Slug});AddAudit(actorId,"MigrationCategorySkipped","Category",existing.CategoryId,null,operationId); await SaveAsync(ct); await tx.CommitAsync(ct); return new(existing.CategoryId,MigrationWriteDisposition.Skipped); }
+        { await AddCategoryMappingAndLocalizationAsync(existing,source,ct); AddAudit(actorId,"MigrationCategorySkipped","Category",existing.CategoryId,null,operationId); await SaveAsync(ct); await tx.CommitAsync(ct); return new(existing.CategoryId,MigrationWriteDisposition.Skipped); }
         if (existing is not null && behavior.Equals(MigrationConflictBehaviors.UpdateExisting,StringComparison.OrdinalIgnoreCase))
         {
-            existing.Name=Normalize(source.Name,200); existing.ParentCategoryIdFk=source.ParentId; existing.Depth=source.Depth;
-            existing.SortOrder=source.SortOrder; existing.Visibility=source.Visibility;
-            existing.Path=await BuildCategoryPath(source.ParentId,existing.CategoryId,ct);
-            if(mapping is null)AddMapping("Category",source.ExternalId,existing.CategoryId,null,new{source.Name,source.Depth});
+            if (canonicalExternalId.Equals(source.ExternalId, StringComparison.OrdinalIgnoreCase))
+            {
+                existing.Name=Normalize(source.Name,200); existing.ParentCategoryIdFk=source.ParentId; existing.Depth=source.Depth;
+                existing.SortOrder=source.SortOrder; existing.Visibility=source.Visibility;
+                existing.Path=await BuildCategoryPath(source.ParentId,existing.CategoryId,ct);
+            }
+            await AddCategoryMappingAndLocalizationAsync(existing,source,ct);
             await SearchIndexJobQueue.EnqueueCategoryAsync(db,existing.CategoryId,SearchIndexJobTypes.Upsert,timeProvider.GetUtcNow().UtcDateTime,ct);
             AddAudit(actorId,"MigrationCategoryUpdated","Category",existing.CategoryId,null,operationId); await SaveAsync(ct); await tx.CommitAsync(ct); return new(existing.CategoryId,MigrationWriteDisposition.Updated);
         }
         var slug=await AllocateCategorySlugAsync(source.Slug,ct); var id=Guid.NewGuid();
         var category=new Category{CategoryId=id,Name=Normalize(source.Name,200),Slug=slug,ParentCategoryIdFk=source.ParentId,Depth=source.Depth,SortOrder=source.SortOrder,Visibility=source.Visibility,Path=await BuildCategoryPath(source.ParentId,id,ct)};
-        db.Categories.Add(category); AddMapping("Category",source.ExternalId,id,null,new { source.Name, source.Depth }); AddAudit(actorId,"MigrationCategoryImported","Category",id,null,operationId);
+        db.Categories.Add(category); AddMapping("Category",canonicalExternalId,id,null,new { source.Name, source.Depth });
+        if (!canonicalExternalId.Equals(source.ExternalId, StringComparison.OrdinalIgnoreCase))
+            AddMapping("Category",source.ExternalId,id,null,new { source.Name, source.Depth, canonicalExternalId });
+        await AddCategoryLocalizationAsync(category,source,ct); AddAudit(actorId,"MigrationCategoryImported","Category",id,null,operationId);
         await SearchIndexJobQueue.EnqueueCategoryAsync(db,id,SearchIndexJobTypes.Upsert,timeProvider.GetUtcNow().UtcDateTime,ct);
         await SaveAsync(ct); await tx.CommitAsync(ct); return new(id,MigrationWriteDisposition.Imported);
     }
@@ -168,6 +180,8 @@ public sealed class HelpJuiceImportWriter(KbDbContext db, TimeProvider timeProvi
         string behavior, CancellationToken ct)
     {
         await using var tx=await db.Database.BeginTransactionAsync(IsolationLevel.Serializable,ct);
+        await EnsureTranslationGroupAsync(source.TranslationGroupId, source.CreatedAt, ct);
+        await EnsureLocaleAsync(source.LocaleCode, source.CreatedAt, ct);
         var mapping=await FindMappingAsync("Article",source.ExternalId,ct);
         var existing=mapping is null
             ? await db.Articles.Include(x=>x.CurrentDraftIdFkNavigation).SingleOrDefaultAsync(x=>x.Slug==source.Slug&&x.DeletedAt==null,ct)
@@ -177,8 +191,9 @@ public sealed class HelpJuiceImportWriter(KbDbContext db, TimeProvider timeProvi
         if(existing is not null&&(mapping is not null&&!behavior.Equals(MigrationConflictBehaviors.UpdateExisting,StringComparison.OrdinalIgnoreCase)||behavior.Equals(MigrationConflictBehaviors.Skip,StringComparison.OrdinalIgnoreCase)))
         {
             var categoryChanged = await SynchronizeArticleCategoriesAsync(existing, source, ct);
+            var localizationChanged = await SynchronizeArticleLocalizationAsync(existing, source, ct);
             var authorChanged = source.AuthorResolved && Reattribute(existing,source.AuthorId);
-            if(categoryChanged || authorChanged)
+            if(categoryChanged || localizationChanged || authorChanged)
             {
                 await SearchIndexJobQueue.EnqueueArticleAsync(db,existing.ArticleId,SearchIndexJobTypes.Upsert,timeProvider.GetUtcNow().UtcDateTime,ct);
                 AddAudit(source.ActorId,"MigrationArticleAuthorReconciled","Article",existing.ArticleId,existing.ArticleId,operationId);
@@ -194,13 +209,14 @@ public sealed class HelpJuiceImportWriter(KbDbContext db, TimeProvider timeProvi
         {
             disposition=MigrationWriteDisposition.Updated; article=existing; draft=existing.CurrentDraftIdFkNavigation??throw new ConflictException("The destination article has no current draft.");
             article.Title=Normalize(source.Title,300);article.CategoryIdFk=source.CategoryId;article.UpdatedAt=source.UpdatedAt;article.Status=source.Status;article.Position=source.Position;article.Visibility=source.Visibility;
+            await SynchronizeArticleLocalizationAsync(article,source,ct);
             if(source.AuthorResolved)Reattribute(article,source.AuthorId);
             draft.ContentJsonStoragePath=source.Content.JsonPath;draft.RenderedHtmlStoragePath=source.Content.HtmlPath;draft.PlainTextStoragePath=source.Content.TextPath;draft.ContentHash=source.Content.Hash;draft.ContentSizeBytes=source.Content.Size;draft.UpdatedAt=source.UpdatedAt;draft.Status=DraftStatus(source.Status);Touch(draft);
         }
         else
         {
             var slug=await AllocateArticleSlugAsync(source.Slug,source.ExternalId,ct);var articleId=Guid.NewGuid();var draftId=Guid.NewGuid();
-            article=new Article{ArticleId=articleId,Title=Normalize(source.Title,300),Slug=slug,CategoryIdFk=source.CategoryId,AuthorIdFk=source.AuthorId,Status=source.Status,Visibility=source.Visibility,Position=source.Position,CreatedAt=source.CreatedAt,UpdatedAt=source.UpdatedAt,CurrentDraftIdFk=null};
+            article=new Article{ArticleId=articleId,Title=Normalize(source.Title,300),Slug=slug,CategoryIdFk=source.CategoryId,AuthorIdFk=source.AuthorId,Status=source.Status,Visibility=source.Visibility,Position=source.Position,LocaleCode=source.LocaleCode ?? KbLocales.DefaultLocaleCode,TranslationGroupId=source.TranslationGroupId ?? Guid.Empty,CreatedAt=source.CreatedAt,UpdatedAt=source.UpdatedAt,CurrentDraftIdFk=null};
             draft=new ArticleDraft{DraftId=draftId,ArticleIdFk=articleId,DraftNumber=1,ContentJsonStoragePath=source.Content.JsonPath,RenderedHtmlStoragePath=source.Content.HtmlPath,PlainTextStoragePath=source.Content.TextPath,ContentHash=source.Content.Hash,ContentSizeBytes=source.Content.Size,IsLocked=false,CreatedByFk=source.AuthorId,UpdatedByFk=source.AuthorId,CreatedAt=source.CreatedAt,UpdatedAt=source.UpdatedAt,Status=DraftStatus(source.Status)};Touch(draft);
             db.Articles.Add(article);await db.SaveChangesAsync(ct);
             if(db.Database.IsSqlServer()){db.ArticleDrafts.Add(draft);await db.SaveChangesAsync(ct);}
@@ -243,6 +259,70 @@ public sealed class HelpJuiceImportWriter(KbDbContext db, TimeProvider timeProvi
         await SearchIndexJobQueue.EnqueueArticleAsync(db,article.ArticleId,SearchIndexJobTypes.Upsert,timeProvider.GetUtcNow().UtcDateTime,ct);
         AddAudit(source.ActorId,disposition==MigrationWriteDisposition.Updated?"MigrationArticleUpdated":"MigrationArticleImported","Article",article.ArticleId,article.ArticleId,operationId);
         await SaveAsync(ct);await tx.CommitAsync(ct);return new(article.ArticleId,disposition,draft.DraftId,versionId);
+    }
+
+    private async Task AddCategoryMappingAndLocalizationAsync(Category category, ImportedCategoryData source,
+        CancellationToken ct)
+    {
+        if (await FindMappingAsync("Category", source.ExternalId, ct) is null)
+            AddMapping("Category", source.ExternalId, category.CategoryId, null,
+                new { source.Name, source.Depth, source.CanonicalExternalId });
+        await AddCategoryLocalizationAsync(category, source, ct);
+    }
+
+    private async Task AddCategoryLocalizationAsync(Category category, ImportedCategoryData source, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(source.LocaleCode) ||
+            source.LocaleCode.Equals(KbLocales.DefaultLocaleCode, StringComparison.OrdinalIgnoreCase)) return;
+        var localization = await db.CategoryLocalizations.SingleOrDefaultAsync(item =>
+            item.CategoryId == category.CategoryId && item.LocaleCode == source.LocaleCode, ct);
+        if (localization is null)
+            db.CategoryLocalizations.Add(new CategoryLocalization { CategoryId = category.CategoryId,
+                LocaleCode = source.LocaleCode, Name = Normalize(source.Name, 200) });
+        else
+            localization.Name = Normalize(source.Name, 200);
+    }
+
+    private async Task EnsureTranslationGroupAsync(Guid? groupId, DateTime createdAt, CancellationToken ct)
+    {
+        if (groupId is not { } id || id == Guid.Empty ||
+            await db.ArticleTranslationGroups.AnyAsync(group => group.TranslationGroupId == id, ct)) return;
+        db.ArticleTranslationGroups.Add(new ArticleTranslationGroup
+        {
+            TranslationGroupId = id, CreatedAt = createdAt == default ? timeProvider.GetUtcNow().UtcDateTime : createdAt
+        });
+        await db.SaveChangesAsync(ct);
+    }
+
+    private async Task EnsureLocaleAsync(string? localeCode, DateTime createdAt, CancellationToken ct)
+    {
+        var locale = string.IsNullOrWhiteSpace(localeCode) ? KbLocales.DefaultLocaleCode : localeCode;
+        if (await db.KbLanguages.AnyAsync(language => language.LocaleCode == locale, ct)) return;
+        db.KbLanguages.Add(new KbLanguage
+        {
+            LanguageId = Guid.NewGuid(), LocaleCode = locale, DisplayName = locale, NativeName = locale,
+            IsDefault = false, IsEnabled = false, IsRtl = locale.StartsWith("ar", StringComparison.OrdinalIgnoreCase),
+            SortOrder = await db.KbLanguages.MaxAsync(language => (int?)language.SortOrder, ct) ?? 0,
+            CreatedAt = createdAt == default ? timeProvider.GetUtcNow().UtcDateTime : createdAt,
+            UpdatedAt = timeProvider.GetUtcNow().UtcDateTime
+        });
+        await db.SaveChangesAsync(ct);
+    }
+
+    private async Task<bool> SynchronizeArticleLocalizationAsync(Article article, ImportedArticleData source,
+        CancellationToken ct)
+    {
+        var locale = source.LocaleCode ?? article.LocaleCode;
+        var group = source.TranslationGroupId ?? article.TranslationGroupId;
+        if (group == Guid.Empty) return false;
+        if (await db.Articles.AnyAsync(candidate => candidate.ArticleId != article.ArticleId &&
+                candidate.TranslationGroupId == group && candidate.LocaleCode == locale, ct))
+            throw new ConflictException($"The HelpJuice localization target '{locale}' already exists in this translation group.");
+        var changed = !article.LocaleCode.Equals(locale, StringComparison.OrdinalIgnoreCase) ||
+            article.TranslationGroupId != group;
+        article.LocaleCode = locale;
+        article.TranslationGroupId = group;
+        return changed;
     }
 
     private static bool Reattribute(Article article,Guid authorId)

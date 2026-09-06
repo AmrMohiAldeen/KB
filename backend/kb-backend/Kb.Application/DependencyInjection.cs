@@ -47,6 +47,7 @@ public static class DependencyInjection
         services.AddScoped<ArticleTranslationService>();
         services.AddScoped<ProtectedTranslationTermService>();
         services.AddScoped<AutomaticArticleTranslationService>();
+        services.AddScoped<LocalizationSynchronizationService>();
         return services;
     }
 }

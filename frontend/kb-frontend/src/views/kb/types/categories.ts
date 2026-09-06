@@ -12,5 +12,6 @@ export type KbCategoryNode = {
   visibility?: 'Public' | 'Internal'
   viewerImageMediaId?: string | null
   viewerIcon?: string | null
+  localizations?: Array<{ localeCode: string; name: string; description: string | null }>
   children: KbCategoryNode[]
 }

@@ -16,12 +16,18 @@ public sealed record ViewerDashboardCustomizationResponse(Guid RootCategoryId, V
     IReadOnlyList<ViewerDashboardCategoryCustomizationResponse> Categories);
 public sealed record UpdateViewerDashboardCustomizationRequest(ViewerDashboardAppearanceResponse Appearance,
     IReadOnlyList<ViewerDashboardCategoryCustomizationResponse> Categories);
+public sealed record ViewerLanguageResponse(string LocaleCode, string DisplayName, string NativeName,
+    bool IsDefault, bool IsRtl);
 public sealed record ViewerPortalResponse(Guid SolutionId, string Slug, string Name, string? Description,
+    ViewerLanguageResponse ActiveLanguage, IReadOnlyList<ViewerLanguageResponse> Languages,
     ViewerDashboardAppearanceResponse Appearance);
 public sealed record ViewerCategoryNodeResponse(Guid CategoryId, Guid? ParentCategoryId, string Name, string Slug,
     string? Description, int SortOrder, string? Path, int Depth, int ArticleCount,
     IReadOnlyList<ViewerCategoryNodeResponse> Children, bool HasViewerImage, string? ViewerIcon, string? DisplayColor = null);
 public sealed record ViewerArticleSummaryResponse(Guid ArticleId, string Title, string Slug, Guid CategoryId,
     string CategoryName, string CategoryPath, DateTime UpdatedAt);
+public sealed record ViewerArticleTranslationResponse(Guid ArticleId, string LocaleCode, string Slug);
 public sealed record ViewerArticleResponse(Guid ArticleId, string Title, string Slug, Guid CategoryId,
-    string CategoryName, string CategoryPath, DateTime UpdatedAt, JsonElement Content);
+    string CategoryName, string CategoryPath, DateTime UpdatedAt, JsonElement Content,
+    ViewerLanguageResponse ActiveLanguage, IReadOnlyList<ViewerLanguageResponse> Languages,
+    IReadOnlyList<ViewerArticleTranslationResponse> AvailableTranslations);

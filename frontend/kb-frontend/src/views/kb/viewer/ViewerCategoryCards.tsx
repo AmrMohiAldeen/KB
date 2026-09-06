@@ -44,7 +44,7 @@ export function ViewerCategoryArtwork({ category, getImage }: {
 }
 
 export default function ViewerCategoryCards({ categories, appearance, rootPath, getImage, draggable = false,
-  onDragStart, onDragOver, onDrop, onEdit }: {
+  onDragStart, onDragOver, onDrop, onEdit, isRtl = false, exploreLabel }: {
   categories: ViewerCategoryNode[]
   appearance: ViewerDashboardAppearance
   rootPath?: string
@@ -54,6 +54,8 @@ export default function ViewerCategoryCards({ categories, appearance, rootPath, 
   onDragOver?: (categoryId: string) => void
   onDrop?: (categoryId: string) => void
   onEdit?: (category: ViewerCategoryNode) => void
+  isRtl?: boolean
+  exploreLabel?: string
 }) {
   return <Box sx={{ mt: 2, display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(3, minmax(0, 1fr))' }, gap: 3 }}>
     {categories.map(category => <Card key={category.categoryId}
@@ -72,7 +74,7 @@ export default function ViewerCategoryCards({ categories, appearance, rootPath, 
         {category.description && <Typography variant='body2' color='text.secondary' sx={{ mt: 0.75 }}>{category.description}</Typography>}
       </Box>
       <Stack direction='row' spacing={1} sx={{ alignItems: 'center', mt: 2, color: appearance.primaryColor }}>
-        <Typography variant='body2' sx={{ fontWeight: 600 }}>{draggable ? 'Drag to reorder · Click to edit' : 'Explore'}</Typography><ArrowRight size={16} />
+        <Typography variant='body2' sx={{ fontWeight: 600 }}>{draggable ? 'Drag to reorder · Click to edit' : exploreLabel}</Typography><ArrowRight size={16} style={{ transform: isRtl ? 'scaleX(-1)' : undefined }} />
       </Stack>
     </Card>)}
   </Box>

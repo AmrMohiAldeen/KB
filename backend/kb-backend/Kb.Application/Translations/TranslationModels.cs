@@ -3,7 +3,8 @@ namespace Kb.Application.Translations;
 public sealed record ArticleTranslationData(Guid ArticleId, Guid TranslationGroupId, string LocaleCode, string Title,
     string Slug, string WorkflowStatus, string TranslationStatus, string TranslationMethod, Guid? SourceArticleId,
     Guid? SourceVersionId, int? SourceVersionNumber, Guid? AssignedTranslatorUserId, DateTime? LastTranslatedAt,
-    DateTime? VerifiedAt, Guid? VerifiedByUserId);
+    DateTime? VerifiedAt, Guid? VerifiedByUserId, Guid? CurrentSourceVersionId = null,
+    int? CurrentSourceVersionNumber = null, bool? IsCurrent = null);
 public sealed record NewArticleTranslationData(string LocaleCode, string Title, Guid CategoryId, IReadOnlyList<Guid>? CategoryIds,
     string? Slug, string Visibility, Guid? AssignedTranslatorUserId);
 public sealed record TranslationAuditData(Guid ActorId, DateTime CreatedAt);

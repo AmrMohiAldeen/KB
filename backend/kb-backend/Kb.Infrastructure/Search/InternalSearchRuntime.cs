@@ -35,7 +35,10 @@ internal sealed record InternalSearchDocument(
     [property: JsonPropertyName("is_archived")] bool IsArchived = false,
     [property: JsonPropertyName("is_deleted")] bool IsDeleted = false,
     [property: JsonPropertyName("category_ancestor_ids")] string[]? CategoryAncestorIds = null,
-    [property: JsonPropertyName("category_ids")] string[]? CategoryIds = null);
+    [property: JsonPropertyName("category_ids")] string[]? CategoryIds = null,
+    // A translation is a separate article record. Keeping the locale on the document
+    // makes it impossible for a Viewer query to accidentally cross language boundaries.
+    [property: JsonPropertyName("locale_code")] string? LocaleCode = null);
 
 internal interface ITypesenseInternalIndex
 {

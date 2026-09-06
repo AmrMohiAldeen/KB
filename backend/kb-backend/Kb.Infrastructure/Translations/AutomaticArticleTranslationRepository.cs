@@ -82,28 +82,34 @@ public sealed class AutomaticArticleTranslationRepository(KbDbContext db) : IAut
                 ?? throw new NotFoundException("The target article was not found.");
             if (target.TranslationGroupId != source.TranslationGroupId || target.LocaleCode != snapshot.TargetLocaleCode)
                 throw new ConcurrencyConflictException("The translation relationship changed during translation.");
-            var draft = target.CurrentDraftIdFkNavigation;
-            if (draft is null || draft.DraftId != snapshot.TargetDraftId ||
-                !draft.RowVersion.AsSpan().SequenceEqual(snapshot.TargetDraftRowVersion))
+            var previousDraft = target.CurrentDraftIdFkNavigation;
+            if (previousDraft is null || previousDraft.DraftId != snapshot.TargetDraftId ||
+                !previousDraft.RowVersion.AsSpan().SequenceEqual(snapshot.TargetDraftRowVersion))
                 throw new ConcurrencyConflictException("The target draft changed during translation.");
-            if (draft.IsLocked)
+            if (previousDraft.IsLocked)
                 throw new ConflictException("The target draft was locked during translation.");
-            if (draft.Status is not (ArticleStatuses.Draft or ArticleStatuses.ChangesRequested))
+            if (previousDraft.Status is not (ArticleStatuses.Draft or ArticleStatuses.ChangesRequested))
                 throw new ConflictException("The target draft is no longer editable.");
             var metadata = target.ArticleTranslationMetadata
                 ?? throw new ConflictException("The target article does not have translation metadata.");
 
+            var nextDraftNumber = (await db.ArticleDrafts.Where(x => x.ArticleIdFk == target.ArticleId)
+                .MaxAsync(x => (int?)x.DraftNumber, ct) ?? 0) + 1;
+            var draft = new ArticleDraft
+            {
+                DraftId = Guid.NewGuid(), ArticleIdFk = target.ArticleId, DraftNumber = nextDraftNumber,
+                ContentJsonStoragePath = command.ContentJsonPath, ContentHash = command.ContentHash,
+                ContentSizeBytes = command.ContentSizeBytes, RowVersion = db.Database.IsSqlServer()
+                    ? null! : Guid.NewGuid().ToByteArray(), IsLocked = false, CreatedByFk = command.ActorId,
+                UpdatedByFk = command.ActorId, CreatedAt = command.TranslatedAt,
+                UpdatedAt = command.TranslatedAt, Status = ArticleStatuses.Draft
+            };
+            await AddDraftAsync(draft, ct);
             await SynchronizeMediaReferencesAsync(target.ArticleId, draft.DraftId, command.MediaIds, ct);
             target.Title = command.TranslatedTitle;
             target.UpdatedAt = command.TranslatedAt;
-            draft.ContentJsonStoragePath = command.ContentJsonPath;
-            draft.RenderedHtmlStoragePath = null;
-            draft.PlainTextStoragePath = null;
-            draft.ContentHash = command.ContentHash;
-            draft.ContentSizeBytes = command.ContentSizeBytes;
-            draft.UpdatedByFk = command.ActorId;
-            draft.UpdatedAt = command.TranslatedAt;
-            if (!db.Database.IsSqlServer()) draft.RowVersion = Guid.NewGuid().ToByteArray();
+            target.CurrentDraftIdFk = draft.DraftId;
+            if (target.Status != ArticleStatuses.Published) target.Status = ArticleStatuses.Draft;
             metadata.SourceArticleId = source.ArticleId;
             metadata.SourceVersionId = snapshot.SourceVersionId;
             metadata.SourceVersionNumber = snapshot.SourceVersionNumber;
@@ -145,6 +151,23 @@ public sealed class AutomaticArticleTranslationRepository(KbDbContext db) : IAut
             db.ChangeTracker.Clear();
             throw;
         }
+    }
+
+    private async Task AddDraftAsync(ArticleDraft draft, CancellationToken ct)
+    {
+        if (db.Database.IsSqlServer())
+        {
+            db.ArticleDrafts.Add(draft);
+            return;
+        }
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO ARTICLE_DRAFTS
+                (DraftID, ArticleID_FK, DraftNumber, ContentJsonStoragePath, ContentHash, ContentSizeBytes,
+                 RowVersion, IsLocked, CreatedBy_FK, UpdatedBy_FK, CreatedAt, UpdatedAt, Status)
+            VALUES ({draft.DraftId}, {draft.ArticleIdFk}, {draft.DraftNumber}, {draft.ContentJsonStoragePath},
+                    {draft.ContentHash}, {draft.ContentSizeBytes}, {draft.RowVersion}, {false},
+                    {draft.CreatedByFk}, {draft.UpdatedByFk}, {draft.CreatedAt}, {draft.UpdatedAt}, {draft.Status})
+            """, ct);
     }
 
     private async Task SynchronizeMediaReferencesAsync(Guid articleId, Guid draftId,

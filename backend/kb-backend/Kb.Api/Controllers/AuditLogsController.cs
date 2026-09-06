@@ -48,7 +48,8 @@ public sealed class AuditLogsController(AuditLogService auditLogs) : ControllerB
         log.ArticleId,
         log.Article is null
             ? null
-            : new AuditArticleSummaryResponse(log.Article.Id, log.Article.Title, log.Article.Slug),
+            : new AuditArticleSummaryResponse(log.Article.Id, log.Article.Title, log.Article.Slug,
+                log.Article.LocaleCode),
         log.Actor is null
             ? null
             : new UserSummaryResponse(log.Actor.Id, log.Actor.Name),

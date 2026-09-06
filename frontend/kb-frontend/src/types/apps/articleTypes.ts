@@ -37,6 +37,10 @@ export type ArticleListItemResponse = {
   lockedBy: UserSummaryResponse | null
   position: number
   visibility?: ContentVisibility
+  translationStatus?: 'Original' | 'NeedsTranslation' | 'NeedsVerification' | 'Verified' | 'OutOfDate'
+  sourceVersionNumber?: number | null
+  currentSourceVersionNumber?: number | null
+  isTranslationCurrent?: boolean | null
 }
 
 export type ArticleDraftMetadataResponse = {

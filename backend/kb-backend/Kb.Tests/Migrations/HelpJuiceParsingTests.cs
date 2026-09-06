@@ -75,6 +75,25 @@ public sealed class HelpJuiceParsingTests
     }
 
     [Fact]
+    public async Task Exported_languages_and_translation_ids_produce_deterministic_groups_without_guessing()
+    {
+        using var package = Package(
+            "id,codename,name,is_published,language_id,translation_id\nq-en,guide,Guide,TRUE,1,\nq-ar,guide-ar,دليل,TRUE,2,q-en\nq-unknown,other,Other,TRUE,99,missing",
+            "id,question_id,body\na-en,q-en,<p>English</p>\na-ar,q-ar,<p>Arabic</p>\na-unknown,q-unknown,<p>Other</p>",
+            languages: "id,locale_code\n1,en\n2,ar");
+        var source = await HelpJuiceSourceParser.ParseAndValidateAsync(package, new(), TimeProvider.System);
+        var plan = HelpJuiceLocalizationPlan.Build(source);
+
+        Assert.Equal("ar", plan.ArticleLocales["q-ar"]);
+        Assert.Equal("und-x-hj-99", plan.ArticleLocales["q-unknown"]);
+        Assert.Equal(plan.ArticleGroups["q-en"], plan.ArticleGroups["q-ar"]);
+        Assert.NotNull(plan.ArticleGroups["q-en"]);
+        Assert.Null(plan.ArticleGroups["q-unknown"]);
+        Assert.Contains(plan.Diagnostics, item => item.Code == "LANGUAGE_ID_UNMAPPED" && item.ExternalId == "q-unknown");
+        Assert.Contains(plan.Diagnostics, item => item.Code == "TRANSLATION_RELATIONSHIP_UNRESOLVED" && item.ExternalId == "q-unknown");
+    }
+
+    [Fact]
     public async Task Validation_reports_media_missing_from_the_backup()
     {
         using var package=Package("id,codename,name,is_published\nq1,one,One,TRUE",
@@ -845,5 +864,5 @@ public sealed class HelpJuiceParsingTests
 
     private static string TempFile(string content){var path=Path.Combine(Path.GetTempPath(),$"hj-{Guid.NewGuid():N}.csv");File.WriteAllText(path,content,new UTF8Encoding(false));return path;}
     private static int Count(string value,string needle){var count=0;for(var index=0;(index=value.IndexOf(needle,index,StringComparison.Ordinal))>=0;index+=needle.Length)count++;return count;}
-    private static PackageContents Package(string questions,string answers,string? categories=null,string? categorizations=null,string? uploads=null,IReadOnlyList<string>? mediaNames=null,string? users=null,string? passes=null){var root=Path.Combine(Path.GetTempPath(),$"hj-{Guid.NewGuid():N}");Directory.CreateDirectory(root);var q=Path.Combine(root,"questions.csv");var a=Path.Combine(root,"answers.csv");File.WriteAllText(q,questions);File.WriteAllText(a,answers);var files=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase){{"questions.csv",q},{"answers.csv",a}};if(categories is not null){var c=Path.Combine(root,"categories.csv");File.WriteAllText(c,categories);files["categories.csv"]=c;}if(categorizations is not null){var c=Path.Combine(root,"categorizations.csv");File.WriteAllText(c,categorizations);files["categorizations.csv"]=c;}if(uploads is not null){var u=Path.Combine(root,"uploads.csv");File.WriteAllText(u,uploads);files["uploads.csv"]=u;}if(users is not null){var u=Path.Combine(root,"users.csv");File.WriteAllText(u,users);files["users.csv"]=u;}if(passes is not null){var p=Path.Combine(root,"passes.csv");File.WriteAllText(p,passes);files["passes.csv"]=p;}var media=(mediaNames??[]).Select(name=>{var path=Path.Combine(root,name);File.WriteAllBytes(path,[1,2,3]);return path;}).ToArray();return new(root,files,media,files.Keys.Concat(mediaNames??[]).ToArray(),[]);}
+    private static PackageContents Package(string questions,string answers,string? categories=null,string? categorizations=null,string? uploads=null,IReadOnlyList<string>? mediaNames=null,string? users=null,string? passes=null,string? languages=null){var root=Path.Combine(Path.GetTempPath(),$"hj-{Guid.NewGuid():N}");Directory.CreateDirectory(root);var q=Path.Combine(root,"questions.csv");var a=Path.Combine(root,"answers.csv");File.WriteAllText(q,questions);File.WriteAllText(a,answers);var files=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase){{"questions.csv",q},{"answers.csv",a}};if(categories is not null){var c=Path.Combine(root,"categories.csv");File.WriteAllText(c,categories);files["categories.csv"]=c;}if(categorizations is not null){var c=Path.Combine(root,"categorizations.csv");File.WriteAllText(c,categorizations);files["categorizations.csv"]=c;}if(uploads is not null){var u=Path.Combine(root,"uploads.csv");File.WriteAllText(u,uploads);files["uploads.csv"]=u;}if(users is not null){var u=Path.Combine(root,"users.csv");File.WriteAllText(u,users);files["users.csv"]=u;}if(passes is not null){var p=Path.Combine(root,"passes.csv");File.WriteAllText(p,passes);files["passes.csv"]=p;}if(languages is not null){var l=Path.Combine(root,"languages.csv");File.WriteAllText(l,languages);files["languages.csv"]=l;}var media=(mediaNames??[]).Select(name=>{var path=Path.Combine(root,name);File.WriteAllBytes(path,[1,2,3]);return path;}).ToArray();return new(root,files,media,files.Keys.Concat(mediaNames??[]).ToArray(),[]);}
 }

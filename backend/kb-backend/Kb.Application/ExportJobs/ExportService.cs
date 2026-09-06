@@ -35,11 +35,11 @@ public sealed class ExportService(
     }
 
     public async Task<ExportJobData> RequestCategoryAsync(Guid categoryId, string exportType,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, string? localeCode = null)
     {
         EnsureRequest(categoryId, exportType);
         var job = await repository.CreateCategoryAsync(categoryId, NormalizeType(exportType), UserId(),
-            timeProvider.GetUtcNow().UtcDateTime, cancellationToken);
+            timeProvider.GetUtcNow().UtcDateTime, cancellationToken, localeCode);
         jobSignal.Notify();
         logger.LogInformation("Requested {ExportType} category export job {ExportJobId} for category {CategoryId}",
             job.ExportType, job.Id, categoryId);
@@ -210,7 +210,9 @@ public sealed partial class ExportDocumentBuilder(
             AppendArticle(body, article, bodies[article.ArticleId], 1);
         }
 
-        return "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">" +
+        var locale = string.IsNullOrWhiteSpace(snapshot.LocaleCode) ? "en" : snapshot.LocaleCode;
+        var direction = snapshot.IsRtl ? "rtl" : "ltr";
+        return $"<!doctype html><html lang=\"{E(locale)}\" dir=\"{direction}\"><head><meta charset=\"utf-8\">" +
                "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">" +
                $"<title>{E(snapshot.Title)}</title><style>{Styles}</style></head><body>" + body +
                "</body></html>";

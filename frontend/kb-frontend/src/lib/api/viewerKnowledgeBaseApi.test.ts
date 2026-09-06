@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  getViewerArticle,
   getViewerCategoryImage,
   getViewerPortal,
   getViewerPreviewCategoryImage,
@@ -51,5 +52,15 @@ describe('viewer knowledge base authorization paths', () => {
       'https://kb-api.example.test/api/viewer/preview/synopsis/categories/category-2/image'
     )
     expect(new Headers(fetchMock.mock.calls[1][1]?.headers).get('Authorization')).toBe('Bearer internal.jwt')
+  })
+
+  it('sends the active URL locale to localized viewer endpoints', async () => {
+    await getViewerPortal('swiftassess', 'ar')
+    await getViewerArticle('swiftassess', 'start-here', 'ar')
+
+    expect(fetchMock.mock.calls[0][0]).toBe('https://kb-api.example.test/api/viewer/swiftassess?locale=ar')
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      'https://kb-api.example.test/api/viewer/swiftassess/articles/start-here?locale=ar'
+    )
   })
 })

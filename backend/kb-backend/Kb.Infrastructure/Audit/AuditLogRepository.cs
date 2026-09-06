@@ -51,7 +51,8 @@ public sealed class AuditLogRepository(KbDbContext dbContext) : IAuditLogReposit
                     : new AuditArticleData(
                         log.ArticleIdFkNavigation.ArticleId,
                         log.ArticleIdFkNavigation.Title,
-                        log.ArticleIdFkNavigation.Slug),
+                        log.ArticleIdFkNavigation.Slug,
+                        log.ArticleIdFkNavigation.LocaleCode),
                 log.ActorIdFkNavigation == null
                     ? null
                     : new AuditUserData(

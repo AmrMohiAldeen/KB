@@ -82,6 +82,7 @@ public static class DependencyInjection
         services.AddScoped<IArticleTranslationRepository, ArticleTranslationRepository>();
         services.AddScoped<IProtectedTranslationTermRepository, ProtectedTranslationTermRepository>();
         services.AddScoped<IAutomaticArticleTranslationRepository, AutomaticArticleTranslationRepository>();
+        services.AddScoped<ILocalizationSynchronizationRepository, LocalizationSynchronizationRepository>();
         services.Configure<AzureTranslationOptions>(configuration.GetSection("Translation:Azure"));
         services.AddHttpClient<AzureTranslationProvider>(client =>
             client.Timeout = TimeSpan.FromSeconds(configuration.GetValue<int?>("Translation:TimeoutSeconds") ?? 60));

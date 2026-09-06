@@ -55,7 +55,7 @@ public sealed class NotificationRepository(KbDbContext dbContext) : INotificatio
     public Task<ArticleNotificationContextData?> GetArticleContextAsync(Guid articleId,
         CancellationToken cancellationToken) =>
         dbContext.Articles.AsNoTracking().Where(article => article.ArticleId == articleId)
-            .Select(article => new ArticleNotificationContextData(article.Title, article.AuthorIdFk))
+            .Select(article => new ArticleNotificationContextData(article.Title, article.AuthorIdFk, article.LocaleCode))
             .SingleOrDefaultAsync(cancellationToken);
 
     public async Task<IReadOnlyList<Guid>> GetActiveUserIdsWithPermissionAsync(string permission,

@@ -82,7 +82,7 @@ public sealed class NotificationService(
         var additional = requestedAdditional.Length == 0
             ? []
             : await repository.GetActiveUserIdsAsync(requestedAdditional, cancellationToken);
-        var (title, message) = WorkflowCopy(type, article.Title, detail);
+        var (title, message) = WorkflowCopy(type, LocalizedArticleLabel(article), detail);
         await InsertForRecipientsAsync(articleId, type, title, message,
             recipients.Concat(subscribers), actorId, cancellationToken, additional);
     }
@@ -124,7 +124,7 @@ public sealed class NotificationService(
             NotificationTypes.ArticleLockForceReleased => "force-unlocked",
             _ => "unlocked"
         };
-        await InsertForRecipientsAsync(articleId, type, title, $"“{article.Title}” was {verb}.",
+        await InsertForRecipientsAsync(articleId, type, title, $"“{LocalizedArticleLabel(article)}” was {verb}.",
             new[] { article.AuthorId, previousOwnerId }.OfType<Guid>().Distinct(), actorId, cancellationToken);
     }
 
@@ -168,6 +168,9 @@ public sealed class NotificationService(
             _ => ("Article updated", $"“{articleTitle}” was updated.{suffix}")
         };
     }
+
+    private static string LocalizedArticleLabel(ArticleNotificationContextData article) =>
+        $"{article.Title} [{article.LocaleCode}]";
 
     private Guid RequireUser()
     {

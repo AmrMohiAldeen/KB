@@ -26,6 +26,17 @@ public sealed class CategoriesController(CategoryService categories) : Controlle
         return Ok(tree.Select(ToTreeResponse).ToArray());
     }
 
+    [HttpGet("localization-languages")]
+    [Authorize(Policy = ManagePolicy)]
+    [ProducesResponseType<IReadOnlyList<CategoryLocalizationLanguageResponse>>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<IReadOnlyList<CategoryLocalizationLanguageResponse>>> GetLocalizationLanguages(
+        CancellationToken cancellationToken)
+    {
+        var languages = await categories.GetLocalizationLanguagesAsync(cancellationToken);
+        return Ok(languages.Select(language => new CategoryLocalizationLanguageResponse(language.LocaleCode,
+            language.DisplayName, language.NativeName, language.IsDefault, language.IsRtl, language.SortOrder)).ToArray());
+    }
+
     [HttpGet("{id:guid}", Name = "GetCategoryById")]
 
     [ProducesResponseType<CategoryDetailsResponse>(StatusCodes.Status200OK)]
@@ -61,6 +72,18 @@ public sealed class CategoriesController(CategoryService categories) : Controlle
         var updated = await categories.UpdateAsync(id,
             new(request.Name, request.Description, request.SortOrder, request.Slug, request.Visibility,
                 request.ViewerImageMediaId, request.ViewerIcon), cancellationToken);
+        return Ok(ToDetailsResponse(updated));
+    }
+
+    [HttpPut("{id:guid}/localizations")]
+    [Authorize(Policy = ManagePolicy)]
+    [ProducesResponseType<CategoryDetailsResponse>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<CategoryDetailsResponse>> UpdateLocalizations(Guid id,
+        UpdateCategoryLocalizationsRequest request, CancellationToken cancellationToken)
+    {
+        var updated = await categories.SetLocalizationsAsync(id, request.Localizations
+            .Select(localization => new CategoryLocalizationWrite(localization.LocaleCode, localization.Name,
+                localization.Description)).ToArray(), cancellationToken);
         return Ok(ToDetailsResponse(updated));
     }
 
@@ -107,10 +130,16 @@ public sealed class CategoriesController(CategoryService categories) : Controlle
     private static CategoryDetailsResponse ToDetailsResponse(CategoryData category) => new(category.Id,
         category.ParentCategoryId, category.Name, category.Slug, category.Description, category.SortOrder,
         category.Path, category.Depth, category.ArticleCount, category.Status, category.Visibility,
-        category.ViewerImageMediaId, category.ViewerIcon);
+        category.ViewerImageMediaId, category.ViewerIcon, ToLocalizationResponses(category.Localizations));
 
     private static CategoryTreeNodeResponse ToTreeResponse(CategoryTreeNode category) => new(category.Id,
         category.ParentCategoryId, category.Name, category.Slug, category.Description, category.SortOrder,
         category.Path, category.Depth, category.ArticleCount, category.Children.Select(ToTreeResponse).ToArray(),
-        category.Status, category.Visibility, category.ViewerImageMediaId, category.ViewerIcon);
+        category.Status, category.Visibility, category.ViewerImageMediaId, category.ViewerIcon,
+        ToLocalizationResponses(category.Localizations));
+
+    private static IReadOnlyList<CategoryLocalizationResponse> ToLocalizationResponses(
+        IReadOnlyList<CategoryLocalizationData>? localizations) => (localizations ?? [])
+        .Select(localization => new CategoryLocalizationResponse(localization.LocaleCode, localization.Name,
+            localization.Description)).ToArray();
 }

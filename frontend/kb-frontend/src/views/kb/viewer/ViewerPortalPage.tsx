@@ -12,11 +12,10 @@ import InputAdornment from '@mui/material/InputAdornment'
 import Skeleton from '@mui/material/Skeleton'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
-import { ArrowRight, ChevronRight, FileText, Search } from 'lucide-react'
+import { ChevronRight, FileText, Search } from 'lucide-react'
 
 import CustomTextField from '@core/components/mui/TextField'
 import { ApiError, describeApiError } from '@/lib/api/http'
-import { renderCategoryViewerIcon } from '@/views/kb/categories/categoryViewerIcons'
 import {
   getViewerArticles,
   getViewerCategories,
@@ -33,10 +32,13 @@ import {
   type ViewerPortal
 } from '@/lib/api/viewerKnowledgeBaseApi'
 import ViewerCategoryCards from './ViewerCategoryCards'
+import ViewerLanguageSwitcher from './ViewerLanguageSwitcher'
+import { getViewerPath, getViewerRootPath } from './viewerLocaleRouting'
+import { formatViewerMessage, getViewerMessages } from './viewerMessages'
 
-type ViewerPortalPageProps =
+type ViewerPortalPageProps = { activeLocale?: string; articleUnavailable?: boolean } & (
   | { solutionSlug: string; categorySlug?: string; preview?: never }
-  | { solutionSlug?: never; categorySlug?: string; preview: { categorySlug: string; accessToken: string } }
+  | { solutionSlug?: never; categorySlug?: string; preview: { categorySlug: string; accessToken: string } })
 
 const flattenCategories = (categories: ViewerCategoryNode[]): ViewerCategoryNode[] =>
   categories.flatMap(category => [category, ...flattenCategories(category.children)])
@@ -50,58 +52,7 @@ const findTrail = (category: ViewerCategoryNode, categoryId: string): ViewerCate
   return null
 }
 
-const CategoryArtwork = ({ category, solutionSlug, preview }: {
-  category: ViewerCategoryNode
-  solutionSlug?: string
-  preview?: { categorySlug: string; accessToken: string }
-}) => {
-  const [source, setSource] = useState('')
-  const [failed, setFailed] = useState(false)
-  useEffect(() => {
-    if (!category.hasViewerImage) return
-    const controller = new AbortController()
-    let objectUrl = ''
-    const request = preview
-      ? getViewerPreviewCategoryImage(preview.categorySlug, category.categoryId, preview.accessToken,
-          controller.signal)
-      : getViewerCategoryImage(solutionSlug!, category.categoryId, controller.signal)
-    request.then(blob => {
-      if (controller.signal.aborted) return
-      objectUrl = URL.createObjectURL(blob)
-      setSource(objectUrl)
-    }).catch(error => {
-      if (!(error instanceof DOMException && error.name === 'AbortError')) setFailed(true)
-    })
-    return () => {
-      controller.abort()
-      if (objectUrl) URL.revokeObjectURL(objectUrl)
-    }
-  }, [category.categoryId, category.hasViewerImage, preview, solutionSlug])
-
-  if (category.hasViewerImage && !source && !failed)
-    return <Skeleton variant='rounded' sx={{ inlineSize: 72, blockSize: 72, borderRadius: 2 }} />
-
-  if (source && !failed) return <Box
-    component='img'
-    src={source}
-    alt=''
-    loading='lazy'
-    onError={() => setFailed(true)}
-    sx={{ inlineSize: 84, blockSize: 84, borderRadius: 2, objectFit: 'cover' }}
-  />
-
-  return <Box sx={{
-    inlineSize: 72,
-    blockSize: 72,
-    borderRadius: 2,
-    display: 'grid',
-    placeItems: 'center',
-    bgcolor: 'action.hover',
-    color: 'primary.main'
-  }}>{renderCategoryViewerIcon(category.viewerIcon, { size: 34, strokeWidth: 1.8 })}</Box>
-}
-
-const ViewerLoading = () => <Stack spacing={5} aria-label='Loading knowledge base'>
+const ViewerLoading = ({ label }: { label: string }) => <Stack spacing={5} aria-label={label}>
   <Stack spacing={2} sx={{ alignItems: 'center', py: 5 }}>
     <Skeleton width='48%' height={54} />
     <Skeleton width='68%' height={58} sx={{ borderRadius: 2 }} />
@@ -111,7 +62,8 @@ const ViewerLoading = () => <Stack spacing={5} aria-label='Loading knowledge bas
   </Box>
 </Stack>
 
-export default function ViewerPortalPage({ solutionSlug, categorySlug, preview }: ViewerPortalPageProps) {
+export default function ViewerPortalPage({ solutionSlug, categorySlug, preview, activeLocale,
+  articleUnavailable }: ViewerPortalPageProps) {
   const [portal, setPortal] = useState<ViewerPortal | null>(null)
   const [categories, setCategories] = useState<ViewerCategoryNode[]>([])
   const [articles, setArticles] = useState<ViewerArticleSummary[]>([])
@@ -122,7 +74,6 @@ export default function ViewerPortalPage({ solutionSlug, categorySlug, preview }
   const [error, setError] = useState<unknown>()
   const [searchError, setSearchError] = useState<unknown>()
   const rootSlug = preview?.categorySlug ?? solutionSlug!
-  const rootPath = `/${rootSlug}`
   const categoryImageLoader = useCallback((category: ViewerCategoryNode, signal: AbortSignal) => preview
     ? getViewerPreviewCategoryImage(preview.categorySlug, category.categoryId, preview.accessToken, signal)
     : getViewerCategoryImage(solutionSlug!, category.categoryId, signal), [preview, solutionSlug])
@@ -136,14 +87,14 @@ export default function ViewerPortalPage({ solutionSlug, categorySlug, preview }
     })
     const requests = preview
       ? [
-          getViewerPreviewPortal(preview.categorySlug, preview.accessToken, controller.signal),
-          getViewerPreviewCategories(preview.categorySlug, preview.accessToken, controller.signal),
-          getViewerPreviewArticles(preview.categorySlug, preview.accessToken, controller.signal)
+          getViewerPreviewPortal(preview.categorySlug, preview.accessToken, activeLocale, controller.signal),
+          getViewerPreviewCategories(preview.categorySlug, preview.accessToken, activeLocale, controller.signal),
+          getViewerPreviewArticles(preview.categorySlug, preview.accessToken, activeLocale, controller.signal)
         ] as const
       : [
-          getViewerPortal(solutionSlug, controller.signal),
-          getViewerCategories(solutionSlug, controller.signal),
-          getViewerArticles(solutionSlug, controller.signal)
+          getViewerPortal(solutionSlug, activeLocale, controller.signal),
+          getViewerCategories(solutionSlug, activeLocale, controller.signal),
+          getViewerArticles(solutionSlug, activeLocale, controller.signal)
         ] as const
     Promise.all(requests).then(([portalValue, categoryRows, articleRows]) => {
       setPortal(portalValue)
@@ -155,7 +106,13 @@ export default function ViewerPortalPage({ solutionSlug, categorySlug, preview }
       if (!controller.signal.aborted) setLoading(false)
     })
     return () => controller.abort()
-  }, [preview, solutionSlug])
+  }, [activeLocale, preview, solutionSlug])
+
+  useEffect(() => {
+    if (!portal) return
+    document.documentElement.lang = portal.activeLanguage.localeCode
+    document.documentElement.dir = portal.activeLanguage.isRtl ? 'rtl' : 'ltr'
+  }, [portal])
 
   useEffect(() => {
     const trimmed = query.trim()
@@ -163,8 +120,8 @@ export default function ViewerPortalPage({ solutionSlug, categorySlug, preview }
     const controller = new AbortController()
     const timer = window.setTimeout(() => {
       const request = preview
-        ? searchViewerPreviewArticles(preview.categorySlug, trimmed, preview.accessToken, controller.signal)
-        : searchViewerArticles(solutionSlug!, trimmed, controller.signal)
+        ? searchViewerPreviewArticles(preview.categorySlug, trimmed, preview.accessToken, activeLocale, controller.signal)
+        : searchViewerArticles(solutionSlug!, trimmed, activeLocale, controller.signal)
       request.then(setSearchResults).catch(value => {
         if (!(value instanceof DOMException && value.name === 'AbortError')) setSearchError(value)
       }).finally(() => {
@@ -175,29 +132,32 @@ export default function ViewerPortalPage({ solutionSlug, categorySlug, preview }
       window.clearTimeout(timer)
       controller.abort()
     }
-  }, [preview, query, solutionSlug])
+  }, [activeLocale, preview, query, solutionSlug])
 
   const allCategories = useMemo(() => flattenCategories(categories), [categories])
+  const messages = getViewerMessages(portal?.activeLanguage.localeCode ?? activeLocale)
   const viewerRoot = categories.length === 1 ? categories[0] : null
   const currentCategory = categorySlug
     ? allCategories.find(category => category.slug === categorySlug)
     : viewerRoot
   const trail = viewerRoot && currentCategory ? findTrail(viewerRoot, currentCategory.categoryId) ?? [] : []
 
-  if (loading) return <ViewerLoading />
+  if (loading) return <ViewerLoading label={messages.loadingKnowledgeBase} />
   if (error) {
     const denied = error instanceof ApiError && error.status === 403
     const signedOut = error instanceof ApiError && error.status === 401
-    return <Alert severity={denied ? 'warning' : 'error'} action={<Button onClick={() => window.location.reload()}>Retry</Button>}>
-      {denied ? 'You do not have permission to preview this category.' : signedOut
-        ? preview ? 'Your internal session is missing or has expired.'
-          : 'Your Viewer session is missing or has expired. Open the Knowledge Base again from SwiftAssess.'
+    return <Alert severity={denied ? 'warning' : 'error'} action={<Button onClick={() => window.location.reload()}>{messages.retry}</Button>}>
+      {denied ? messages.previewPermissionDenied : signedOut
+        ? preview ? messages.internalSessionExpired
+          : messages.viewerSessionExpired
         : describeApiError(error).join(' ')}
     </Alert>
   }
-  if (!portal || !viewerRoot) return <Alert severity='error'>This Viewer portal is unavailable.</Alert>
-  if (!currentCategory) return <Alert severity='warning' action={<Button component={Link} href={rootPath}>Return home</Button>}>
-    This category is unavailable in the current knowledge base.
+  if (!portal || !viewerRoot) return <Alert severity='error'>{messages.portalUnavailable}</Alert>
+  const resolvedLocale = portal.activeLanguage.localeCode
+  const rootPath = getViewerRootPath(rootSlug, resolvedLocale, portal.languages)
+  if (!currentCategory) return <Alert severity='warning' action={<Button component={Link} href={rootPath}>{messages.returnHome}</Button>}>
+    {messages.categoryUnavailable}
   </Alert>
 
   const directArticles = articles.filter(article => article.categoryId === currentCategory.categoryId)
@@ -207,7 +167,7 @@ export default function ViewerPortalPage({ solutionSlug, categorySlug, preview }
     primaryColor: '#1976D2', pageBackgroundColor: '#F8FAFC', categoryCardBackgroundColor: '#FFFFFF', textColor: '#1E293B'
   }
 
-  return <Stack spacing={{ xs: 4, md: 6 }} sx={{
+  return <Stack dir={portal.activeLanguage.isRtl ? 'rtl' : 'ltr'} spacing={{ xs: 4, md: 6 }} sx={{
     maxInlineSize: 1240,
     mx: 'auto',
     p: { xs: 2, md: 4 },
@@ -215,14 +175,25 @@ export default function ViewerPortalPage({ solutionSlug, categorySlug, preview }
     bgcolor: appearance.pageBackgroundColor,
     color: appearance.textColor
   }}>
-    {preview && <Alert
-      severity='info'
-      action={<Button component={Link} href='/dashboard' color='inherit' size='small'>Return to dashboard</Button>}
-    >
-      Preview mode — Viewing as end user
+    <ViewerLanguageSwitcher
+      activeLocale={resolvedLocale}
+      languages={portal.languages}
+      getTarget={language => getViewerPath(rootSlug, language.localeCode, portal.languages,
+        categorySlug ? `/categories/${categorySlug}` : '')}
+    />
+
+    {articleUnavailable && <Alert severity='info'>
+      {formatViewerMessage(messages.articleUnavailable, { language: portal.activeLanguage.displayName })}
     </Alert>}
 
-    {trail.length > 1 && <Breadcrumbs aria-label='Category breadcrumb'>
+    {preview && <Alert
+      severity='info'
+      action={<Button component={Link} href='/dashboard' color='inherit' size='small'>{messages.returnDashboard}</Button>}
+    >
+      {messages.previewMode}
+    </Alert>}
+
+    {trail.length > 1 && <Breadcrumbs aria-label={messages.categoryBreadcrumb}>
       {trail.map((category, index) => index === trail.length - 1
         ? <Typography key={category.categoryId} color='text.primary'>{category.name}</Typography>
         : <Link key={category.categoryId} href={index === 0 ? rootPath : `${rootPath}/categories/${category.slug}`}>
@@ -237,7 +208,7 @@ export default function ViewerPortalPage({ solutionSlug, categorySlug, preview }
             {currentCategory.name}
           </Typography>
           <Typography color='text.secondary' sx={{ mt: 1, fontSize: { xs: '1rem', md: '1.125rem' } }}>
-            {currentCategory.description ?? portal.description ?? 'Find answers and product guidance.'}
+            {currentCategory.description ?? portal.description ?? messages.findAnswers}
           </Typography>
         </Box>
         <CustomTextField
@@ -249,8 +220,8 @@ export default function ViewerPortalPage({ solutionSlug, categorySlug, preview }
             setSearchResults(null)
             setSearching(Boolean(value.trim()))
           }}
-          placeholder={`Search ${portal.name}`}
-          aria-label={`Search ${portal.name}`}
+          placeholder={formatViewerMessage(messages.searchPlaceholder, { portal: portal.name })}
+          aria-label={formatViewerMessage(messages.searchPlaceholder, { portal: portal.name })}
           sx={{
             inlineSize: '100%',
             maxInlineSize: 760,
@@ -274,10 +245,10 @@ export default function ViewerPortalPage({ solutionSlug, categorySlug, preview }
     {searchError ? <Alert severity='error'>{describeApiError(searchError).join(' ')}</Alert> : null}
 
     {showingSearch ? <Box component='section' aria-labelledby='search-results-title'>
-      <Typography id='search-results-title' variant='h5' sx={{ mb: 2 }}>Search results</Typography>
+      <Typography id='search-results-title' variant='h5' sx={{ mb: 2 }}>{messages.searchResults}</Typography>
       {!searching && !resultRows.length ? <Box sx={{ py: 7, textAlign: 'center', border: 1, borderColor: 'divider', borderRadius: 3 }}>
-        <Search size={34} /><Typography variant='h6' sx={{ mt: 2 }}>No matching articles</Typography>
-        <Typography color='text.secondary'>Try a different word or a broader phrase.</Typography>
+        <Search size={34} /><Typography variant='h6' sx={{ mt: 2 }}>{messages.noMatchingArticles}</Typography>
+        <Typography color='text.secondary'>{messages.broadenSearch}</Typography>
       </Box> : <Stack spacing={1.5}>
         {resultRows.map(article => <Card
           key={article.articleId}
@@ -288,20 +259,21 @@ export default function ViewerPortalPage({ solutionSlug, categorySlug, preview }
             transition: 'border-color 160ms ease, transform 160ms ease', '&:hover': { borderColor: 'primary.main', transform: 'translateY(-1px)' } }}
         >
           <FileText size={20} /><Box sx={{ flex: 1 }}><Typography sx={{ fontWeight: 600 }}>{article.title}</Typography>
-            <Typography variant='body2' color='text.secondary'>{article.categoryName}</Typography></Box><ChevronRight size={18} />
+            <Typography variant='body2' color='text.secondary'>{article.categoryName}</Typography></Box><ChevronRight
+              size={18} style={{ transform: portal.activeLanguage.isRtl ? 'scaleX(-1)' : undefined }} />
         </Card>)}
       </Stack>}
     </Box> : <>
       {currentCategory.children.length > 0 && <Box component='section' aria-labelledby='categories-title'>
         <Typography id='categories-title' variant='overline' color='text.secondary' sx={{ fontWeight: 700, letterSpacing: '0.08em' }}>
-          Browse categories
+          {messages.browseCategories}
         </Typography>
         <ViewerCategoryCards categories={currentCategory.children} appearance={appearance} rootPath={rootPath}
-          getImage={categoryImageLoader} />
+          getImage={categoryImageLoader} isRtl={portal.activeLanguage.isRtl} exploreLabel={messages.explore} />
       </Box>}
 
       {directArticles.length > 0 && <Box component='section' aria-labelledby='articles-title'>
-        <Typography id='articles-title' variant='h5' sx={{ mb: 2 }}>Articles</Typography>
+        <Typography id='articles-title' variant='h5' sx={{ mb: 2 }}>{messages.articles}</Typography>
         <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 3, bgcolor: appearance.categoryCardBackgroundColor, overflow: 'hidden' }}>
           {directArticles.map((article, index) => <Box
             key={article.articleId}
@@ -313,13 +285,14 @@ export default function ViewerPortalPage({ solutionSlug, categorySlug, preview }
               '&:hover': { bgcolor: 'action.hover', color: appearance.primaryColor },
               '&:focus-visible': { outline: `2px solid ${appearance.primaryColor}`, outlineOffset: -2 }
             }}
-          ><FileText size={19} /><Typography sx={{ flex: 1, fontWeight: 500 }}>{article.title}</Typography><ChevronRight size={18} /></Box>)}
+          ><FileText size={19} /><Typography sx={{ flex: 1, fontWeight: 500 }}>{article.title}</Typography><ChevronRight
+            size={18} style={{ transform: portal.activeLanguage.isRtl ? 'scaleX(-1)' : undefined }} /></Box>)}
         </Box>
       </Box>}
 
       {!currentCategory.children.length && !directArticles.length && <Box sx={{ py: 8, textAlign: 'center', border: 1, borderColor: 'divider', borderRadius: 3 }}>
-        <FileText size={36} /><Typography variant='h6' sx={{ mt: 2 }}>Nothing published here yet</Typography>
-        <Typography color='text.secondary'>Articles and subcategories will appear here when available.</Typography>
+        <FileText size={36} /><Typography variant='h6' sx={{ mt: 2 }}>{messages.nothingPublished}</Typography>
+        <Typography color='text.secondary'>{messages.nothingPublishedDescription}</Typography>
       </Box>}
     </>}
   </Stack>

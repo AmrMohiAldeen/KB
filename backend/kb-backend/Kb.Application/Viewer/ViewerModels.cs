@@ -27,7 +27,10 @@ public sealed record ViewerDashboardCategoryCustomizationData(Guid CategoryId, i
     Guid? ViewerImageMediaId, string? ViewerIcon, string DisplayColor);
 public sealed record ViewerDashboardCustomizationData(Guid RootCategoryId, ViewerDashboardAppearanceData Appearance,
     IReadOnlyList<ViewerDashboardCategoryCustomizationData> Categories);
+public sealed record ViewerLanguageData(string LocaleCode, string DisplayName, string NativeName,
+    bool IsDefault, bool IsRtl);
 public sealed record ViewerPortalData(Guid SolutionId, string Slug, string Name, string? Description,
+    ViewerLanguageData ActiveLanguage, IReadOnlyList<ViewerLanguageData> Languages,
     ViewerDashboardAppearanceData? Appearance = null)
 {
     // In preview mode this value is the selected category ID; Viewer rendering only needs the resolved root ID.
@@ -43,10 +46,15 @@ public sealed record ViewerCategoryImageSource(string StoragePath, string MimeTy
 public sealed record ViewerCategoryImage(Stream Content, string MimeType, string FileName);
 public sealed record ViewerArticleSummary(Guid Id, string Title, string Slug, Guid CategoryId,
     string CategoryName, string CategoryPath, DateTime UpdatedAt);
+public sealed record ViewerArticleTranslation(Guid Id, string LocaleCode, string Slug);
 public sealed record ViewerArticleSource(Guid Id, string Title, string Slug, Guid CategoryId,
-    string CategoryName, string CategoryPath, DateTime UpdatedAt, string ContentJsonPath, Guid? SolutionId);
+    string CategoryName, string CategoryPath, DateTime UpdatedAt, string ContentJsonPath, Guid? SolutionId,
+    ViewerLanguageData ActiveLanguage, IReadOnlyList<ViewerLanguageData> Languages,
+    IReadOnlyList<ViewerArticleTranslation> AvailableTranslations);
 public sealed record ViewerArticle(Guid Id, string Title, string Slug, Guid CategoryId,
-    string CategoryName, string CategoryPath, DateTime UpdatedAt, JsonElement Content);
+    string CategoryName, string CategoryPath, DateTime UpdatedAt, JsonElement Content,
+    ViewerLanguageData ActiveLanguage, IReadOnlyList<ViewerLanguageData> Languages,
+    IReadOnlyList<ViewerArticleTranslation> AvailableTranslations);
 
 public sealed class ViewerAuthenticationOptions
 {
@@ -64,7 +72,8 @@ public interface IViewerRepository
     Task<ViewerSessionValidation> ValidateSessionAsync(Guid sessionId, DateTime now,
         CancellationToken cancellationToken);
     Task RevokeSessionAsync(Guid sessionId, DateTime now, string reason, CancellationToken cancellationToken);
-    Task<ViewerPortalData> GetPortalAsync(Guid sessionId, string solutionSlug, CancellationToken cancellationToken);
+    Task<ViewerPortalData> GetPortalAsync(Guid sessionId, string solutionSlug, string? locale,
+        CancellationToken cancellationToken);
     Task<ViewerDashboardAppearanceData> GetAppearanceAsync(CancellationToken cancellationToken);
     Task<ViewerDashboardAppearanceData> SaveAppearanceAsync(ViewerDashboardAppearanceData appearance, DateTime updatedAt,
         CancellationToken cancellationToken);
@@ -72,21 +81,22 @@ public interface IViewerRepository
         CancellationToken cancellationToken);
     Task<ViewerDashboardCustomizationData> SaveDashboardCustomizationAsync(ViewerDashboardCustomizationData customization,
         DateTime updatedAt, CancellationToken cancellationToken);
-    Task<IReadOnlyList<ViewerCategoryData>> GetCategoriesAsync(Guid sessionId, string solutionSlug,
+    Task<IReadOnlyList<ViewerCategoryData>> GetCategoriesAsync(Guid sessionId, string solutionSlug, string? locale,
         CancellationToken cancellationToken);
-    Task<IReadOnlyList<ViewerArticleSummary>> GetArticlesAsync(Guid sessionId, string solutionSlug, string? search,
-        Guid? categoryId, CancellationToken cancellationToken);
-    Task<ViewerArticleSource?> GetArticleAsync(Guid sessionId, string solutionSlug, string slug,
+    Task<IReadOnlyList<ViewerArticleSummary>> GetArticlesAsync(Guid sessionId, string solutionSlug, string? locale,
+        string? search, Guid? categoryId, CancellationToken cancellationToken);
+    Task<ViewerArticleSource?> GetArticleAsync(Guid sessionId, string solutionSlug, string? locale, string slug,
         Guid? articleId, CancellationToken cancellationToken);
     Task<ViewerCategoryImageSource?> GetCategoryImageAsync(Guid sessionId, string solutionSlug, Guid categoryId,
         CancellationToken cancellationToken);
-    Task<ViewerPortalData> GetPreviewPortalAsync(string rootCategorySlug, CancellationToken cancellationToken);
-    Task<IReadOnlyList<ViewerCategoryData>> GetPreviewCategoriesAsync(string rootCategorySlug,
+    Task<ViewerPortalData> GetPreviewPortalAsync(string rootCategorySlug, string? locale,
         CancellationToken cancellationToken);
-    Task<IReadOnlyList<ViewerArticleSummary>> GetPreviewArticlesAsync(string rootCategorySlug, string? search,
-        Guid? categoryId, CancellationToken cancellationToken);
-    Task<ViewerArticleSource?> GetPreviewArticleAsync(string rootCategorySlug, string slug, Guid? articleId,
+    Task<IReadOnlyList<ViewerCategoryData>> GetPreviewCategoriesAsync(string rootCategorySlug, string? locale,
         CancellationToken cancellationToken);
+    Task<IReadOnlyList<ViewerArticleSummary>> GetPreviewArticlesAsync(string rootCategorySlug, string? locale,
+        string? search, Guid? categoryId, CancellationToken cancellationToken);
+    Task<ViewerArticleSource?> GetPreviewArticleAsync(string rootCategorySlug, string? locale, string slug,
+        Guid? articleId, CancellationToken cancellationToken);
     Task<ViewerCategoryImageSource?> GetPreviewCategoryImageAsync(string rootCategorySlug, Guid categoryId,
         CancellationToken cancellationToken);
     Task RecordArticleViewAsync(ICurrentViewer viewer, ViewerArticleSource article, string? ipAddress,
@@ -96,7 +106,7 @@ public interface IViewerRepository
 public interface IViewerSearchClient
 {
     Task<IReadOnlyList<ViewerArticleSummary>> SearchAsync(Guid solutionId, string query, int limit,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken, string? localeCode = null);
     Task<IReadOnlyList<ViewerArticleSummary>> SearchPreviewAsync(Guid rootCategoryId, string query, int limit,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken, string? localeCode = null);
 }

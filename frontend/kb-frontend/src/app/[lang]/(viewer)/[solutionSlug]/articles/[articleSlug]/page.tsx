@@ -1,11 +1,17 @@
 import { getInternalPreviewAccessToken } from '@/lib/auth/serverAccessToken'
 import ViewerArticlePage from '@/views/kb/viewer/ViewerArticlePage'
 
-export default async function ViewerArticleRoute({ params }: {
-  params: Promise<{ solutionSlug: string; articleSlug: string }>
+export default async function ViewerArticleRoute({ params, searchParams }: {
+  params: Promise<{ lang: string; solutionSlug: string; articleSlug: string }>
+  searchParams?: Promise<{ __viewerDefaultLocale?: string }>
 }) {
-  const [{ solutionSlug, articleSlug }, accessToken] = await Promise.all([params, getInternalPreviewAccessToken()])
+  const [{ lang, solutionSlug, articleSlug }, query, accessToken] = await Promise.all([
+    params,
+    searchParams ?? Promise.resolve<{ __viewerDefaultLocale?: string }>({}),
+    getInternalPreviewAccessToken()
+  ])
+  const activeLocale = query.__viewerDefaultLocale === '1' ? undefined : lang
   return accessToken
-    ? <ViewerArticlePage articleSlug={articleSlug} preview={{ categorySlug: solutionSlug, accessToken }} />
-    : <ViewerArticlePage solutionSlug={solutionSlug} articleSlug={articleSlug} />
+    ? <ViewerArticlePage activeLocale={activeLocale} articleSlug={articleSlug} preview={{ categorySlug: solutionSlug, accessToken }} />
+    : <ViewerArticlePage activeLocale={activeLocale} solutionSlug={solutionSlug} articleSlug={articleSlug} />
 }

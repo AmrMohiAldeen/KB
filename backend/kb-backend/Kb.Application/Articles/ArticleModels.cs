@@ -12,7 +12,9 @@ public sealed record ArticleListData(Guid Id, string Title, string Slug, string 
     CategoryReference? Category, UserReference Owner, Guid? CurrentDraftId, Guid? CurrentPublishedVersionId,
     DateTime CreatedAt, DateTime UpdatedAt, DateTime? PublishedAt, bool IsCurrentDraftLocked,
     UserReference? LockedBy, int Position, string Visibility = "Public",
-    IReadOnlyList<CategoryReference>? Categories = null);
+    IReadOnlyList<CategoryReference>? Categories = null, string TranslationStatus = "Original",
+    int? SourceVersionNumber = null, int? CurrentSourceVersionNumber = null,
+    bool? IsTranslationCurrent = null);
 
 public sealed record ArticleData(Guid Id, string Title, string Slug, string Status, CategoryReference? Category,
     UserReference Owner, DraftData? CurrentDraft, PublishedVersionData? CurrentPublishedVersion,

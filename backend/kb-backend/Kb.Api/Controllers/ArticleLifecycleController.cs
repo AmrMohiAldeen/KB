@@ -94,7 +94,8 @@ public sealed class ArticleLifecycleController(ArticleLifecycleService lifecycle
             new(version.CreatedBy.Id, version.CreatedBy.Name),
             version.CreatedAt,
             version.PublishedBy is null ? null : new(version.PublishedBy.Id, version.PublishedBy.Name),
-            version.PublishedAt));
+            version.PublishedAt,
+            version.LocaleCode));
     }
 
     [HttpGet("versions/compare")]
@@ -235,7 +236,8 @@ public sealed class ArticleLifecycleController(ArticleLifecycleService lifecycle
             new(version.CreatedBy.Id, version.CreatedBy.Name),
             version.CreatedAt,
             version.PublishedBy is null ? null : new(version.PublishedBy.Id, version.PublishedBy.Name),
-            version.PublishedAt);
+            version.PublishedAt,
+            version.LocaleCode);
 
     private static ArticleVersionDetailsResponse ToVersionDetails(LifecycleVersionDetailsData details)
     {
@@ -255,6 +257,7 @@ public sealed class ArticleLifecycleController(ArticleLifecycleService lifecycle
             new(version.CreatedBy.Id, version.CreatedBy.Name),
             version.CreatedAt,
             version.PublishedBy is null ? null : new(version.PublishedBy.Id, version.PublishedBy.Name),
-            version.PublishedAt);
+            version.PublishedAt,
+            version.LocaleCode);
     }
 }

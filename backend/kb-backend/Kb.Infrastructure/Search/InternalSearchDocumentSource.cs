@@ -19,7 +19,7 @@ internal sealed class InternalSearchDocumentSource(
             .Where(item => item.ArticleId == id && item.DeletedAt == null && item.Status != ArticleStatuses.Deleted)
             .Select(item => new
             {
-                item.ArticleId, item.Title, item.Slug, item.Status, item.CategoryIdFk, item.AuthorIdFk,
+                item.ArticleId, item.Title, item.Slug, item.Status, item.LocaleCode, item.CategoryIdFk, item.AuthorIdFk,
                 OwnerName = item.AuthorIdFkNavigation.FullName, item.UpdatedAt,
                 PlainTextPath = item.Status == ArticleStatuses.Published && item.LastPublishedVersionIdFkNavigation != null
                     ? item.LastPublishedVersionIdFkNavigation.PlainTextStoragePath
@@ -42,7 +42,7 @@ internal sealed class InternalSearchDocumentSource(
             }).SingleOrDefaultAsync(cancellationToken);
         if (article is null) return null;
 
-        var categories = await LoadCategoriesAsync(cancellationToken);
+        var categories = await LoadCategoriesAsync(article.LocaleCode, cancellationToken);
         categories.TryGetValue(article.CategoryIdFk ?? Guid.Empty, out var category);
         var assignedCategoryIds = await ArticleCategoryIdsAsync(article.ArticleId, article.CategoryIdFk,
             cancellationToken);
@@ -58,12 +58,13 @@ internal sealed class InternalSearchDocumentSource(
             article.OwnerName, $"{article.AuthorIdFk:D}|{article.OwnerName}", ToUnixTime(article.UpdatedAt),
             CategoryIds: assignedCategoryIds.Select(value => value.ToString("D")).ToArray(),
             CategoryAncestorIds: assignedCategoryIds.Where(categories.ContainsKey)
-                .SelectMany(value => CategoryAncestorIds(categories[value], categories)).Distinct().ToArray());
+                .SelectMany(value => CategoryAncestorIds(categories[value], categories)).Distinct().ToArray(),
+            LocaleCode: article.LocaleCode);
     }
 
     public async Task<InternalSearchDocument?> GetCategoryAsync(Guid id, CancellationToken cancellationToken)
     {
-        var categories = await LoadCategoriesAsync(cancellationToken);
+        var categories = await LoadCategoriesAsync(null, cancellationToken);
         if (!categories.TryGetValue(id, out var category)) return null;
         var updatedAt = await dbContext.ArticleAuditLogs.AsNoTracking()
             .Where(log => log.EntityType == AuditEntityTypes.Category && log.EntityId == id)
@@ -81,13 +82,13 @@ internal sealed class InternalSearchDocumentSource(
                 item.Visibility == ContentVisibilities.Public && item.LastPublishedVersionIdFk != null)
             .Select(item => new
             {
-                item.ArticleId, item.Title, item.Slug, item.Status, item.CategoryIdFk, item.AuthorIdFk,
+                item.ArticleId, item.Title, item.Slug, item.Status, item.LocaleCode, item.CategoryIdFk, item.AuthorIdFk,
                 OwnerName = item.AuthorIdFkNavigation.FullName, item.UpdatedAt,
                 PlainTextPath = item.LastPublishedVersionIdFkNavigation!.PlainTextStoragePath,
                 JsonPath = item.LastPublishedVersionIdFkNavigation.ContentJsonStoragePath
             }).SingleOrDefaultAsync(cancellationToken);
         if (article is null) return null;
-        var categories = await LoadCategoriesAsync(cancellationToken);
+        var categories = await LoadCategoriesAsync(article.LocaleCode, cancellationToken);
         var assignedCategoryIds = await ArticleCategoryIdsAsync(article.ArticleId, article.CategoryIdFk,
             cancellationToken);
         var visibleCategories = assignedCategoryIds.Where(categories.ContainsKey).Select(value => categories[value])
@@ -103,12 +104,12 @@ internal sealed class InternalSearchDocumentSource(
             article.OwnerName, $"{article.AuthorIdFk:D}|{article.OwnerName}", ToUnixTime(article.UpdatedAt),
             solutionIds, true, true, false, false,
             visibleCategories.SelectMany(value => CategoryAncestorIds(value, categories)).Distinct().ToArray(),
-            visibleCategories.Select(value => value.Id.ToString("D")).ToArray());
+            visibleCategories.Select(value => value.Id.ToString("D")).ToArray(), article.LocaleCode);
     }
 
     public async Task<InternalSearchDocument?> GetPublicCategoryAsync(Guid id, CancellationToken cancellationToken)
     {
-        var categories = await LoadCategoriesAsync(cancellationToken);
+        var categories = await LoadCategoriesAsync(null, cancellationToken);
         if (!categories.TryGetValue(id, out var category) || !IsPubliclyVisible(category, categories)) return null;
         var updatedAt = await dbContext.ArticleAuditLogs.AsNoTracking()
             .Where(log => log.EntityType == AuditEntityTypes.Category && log.EntityId == id)
@@ -177,10 +178,17 @@ internal sealed class InternalSearchDocumentSource(
             foreach (var child in element.EnumerateArray()) AppendText(child, destination);
     }
 
-    private async Task<Dictionary<Guid, CategoryRow>> LoadCategoriesAsync(CancellationToken token) =>
+    private async Task<Dictionary<Guid, CategoryRow>> LoadCategoriesAsync(string? locale, CancellationToken token) =>
         await dbContext.Categories.AsNoTracking().ToDictionaryAsync(category => category.CategoryId,
-            category => new CategoryRow(category.CategoryId, category.ParentCategoryIdFk, category.Name,
-                category.Slug, category.Description, category.Status, category.Visibility, category.Path), token);
+            category => new CategoryRow(category.CategoryId, category.ParentCategoryIdFk,
+                locale == null ? category.Name : category.CategoryLocalizations
+                    .Where(item => item.LocaleCode == locale).Select(item => item.Name).FirstOrDefault() ?? category.Name,
+                category.Slug,
+                locale == null ? category.Description : category.CategoryLocalizations.Any(item => item.LocaleCode == locale)
+                    ? category.CategoryLocalizations.Where(item => item.LocaleCode == locale)
+                        .Select(item => item.Description).FirstOrDefault()
+                    : category.Description,
+                category.Status, category.Visibility, category.Path), token);
 
     private async Task<Guid[]> ArticleCategoryIdsAsync(Guid articleId, Guid? legacyCategoryId,
         CancellationToken token)

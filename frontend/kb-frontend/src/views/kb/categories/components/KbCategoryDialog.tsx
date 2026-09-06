@@ -13,6 +13,7 @@ import KbFormDialog from '@/views/shared/dialogs/KbFormDialog'
 import KbFormGrid from '@/views/shared/forms/KbFormGrid'
 import KbValidationSummary from '@/views/shared/forms/KbValidationSummary'
 import { mediaLibraryApi } from '@/lib/api/mediaApi'
+import { getCategoryLocalizationLanguages, type CategoryLocalizationLanguage } from '@/lib/api/categories'
 import { categoryViewerIcons, renderCategoryViewerIcon } from '../categoryViewerIcons'
 import {
   getCategoryOptions,
@@ -47,6 +48,8 @@ export const KbCategoryDialog = ({
   const [mediaOptions, setMediaOptions] = useState<Array<{ mediaId: string; originalFileName: string }>>([])
   const [mediaLoading, setMediaLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [localizationLanguages, setLocalizationLanguages] = useState<CategoryLocalizationLanguage[]>([])
+  const [selectedLocale, setSelectedLocale] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const categoryOptions = getCategoryOptions(categories, category)
 
@@ -79,6 +82,35 @@ export const KbCategoryDialog = ({
     })
     return () => controller.abort()
   }, [accessToken, open])
+
+  useEffect(() => {
+    if (!open || !accessToken) return
+    const controller = new AbortController()
+    getCategoryLocalizationLanguages(accessToken, controller.signal).then(languages => {
+      setLocalizationLanguages(languages)
+      setSelectedLocale(current => current || languages.find(language => language.isDefault)?.localeCode || languages[0]?.localeCode || '')
+    }).catch(error => {
+      if (!(error instanceof DOMException && error.name === 'AbortError'))
+        setClientErrors(current => [...current, 'Category languages could not be loaded.'])
+    })
+    return () => controller.abort()
+  }, [accessToken, open])
+
+  useEffect(() => {
+    if (!open || !localizationLanguages.length) return
+    setForm(current => {
+      const existing = new Map(current.localizations.map(localization => [localization.localeCode, localization]))
+      const localizations = localizationLanguages.map(language => existing.get(language.localeCode) ?? {
+        localeCode: language.localeCode,
+        name: language.isDefault ? current.name : '',
+        description: language.isDefault ? current.description : ''
+      })
+      const defaultLocalization = localizations.find(localization => localization.localeCode ===
+        localizationLanguages.find(language => language.isDefault)?.localeCode)
+      return defaultLocalization ? { ...current, localizations, name: defaultLocalization.name,
+        description: defaultLocalization.description } : { ...current, localizations }
+    })
+  }, [localizationLanguages, open])
 
   const uploadImage = async (file?: File) => {
     if (!file) return
@@ -123,8 +155,18 @@ export const KbCategoryDialog = ({
     if (validationErrors.length) return
 
     if (onSubmit)
-      await onSubmit({ ...form, name, slug, description })
+      await onSubmit({ ...form, name, slug, description, localizations: form.localizations.map(localization => ({
+        ...localization, name: localization.name.trim(), description: localization.description.trim()
+      })) })
   }
+
+  const selectedLocalization = form.localizations.find(localization => localization.localeCode === selectedLocale)
+  const selectedLanguage = localizationLanguages.find(language => language.localeCode === selectedLocale)
+  const updateSelectedLocalization = (field: 'name' | 'description', value: string) => setForm(current => {
+    const localizations = current.localizations.map(localization => localization.localeCode === selectedLocale
+      ? { ...localization, [field]: value } : localization)
+    return selectedLanguage?.isDefault ? { ...current, localizations, [field]: value } : { ...current, localizations }
+  })
 
   return (
     <KbFormDialog
@@ -141,10 +183,22 @@ export const KbCategoryDialog = ({
     >
       <KbFormGrid columns={1}>
         <KbValidationSummary errors={[...clientErrors, ...errors]} />
+        {localizationLanguages.length > 0 && <CustomTextField
+          select
+          label='Editing language'
+          value={selectedLocale}
+          onChange={event => setSelectedLocale(event.target.value)}
+          helperText='Category identity and hierarchy stay shared; this changes only the localized label.'
+          fullWidth
+        >
+          {localizationLanguages.map(language => <MenuItem key={language.localeCode} value={language.localeCode}>
+            {language.nativeName} ({language.displayName}){language.isDefault ? ' — default' : ''}
+          </MenuItem>)}
+        </CustomTextField>}
         <CustomTextField
           label='Name'
-          value={form.name}
-          onChange={event => setForm(current => ({ ...current, name: event.target.value }))}
+          value={selectedLocalization?.name ?? form.name}
+          onChange={event => updateSelectedLocalization('name', event.target.value)}
           slotProps={{ htmlInput: { maxLength: 200 } }}
           placeholder='Category name'
           required
@@ -163,8 +217,8 @@ export const KbCategoryDialog = ({
         />
         <CustomTextField
           label='Description'
-          value={form.description}
-          onChange={event => setForm(current => ({ ...current, description: event.target.value }))}
+          value={selectedLocalization?.description ?? form.description}
+          onChange={event => updateSelectedLocalization('description', event.target.value)}
           slotProps={{ htmlInput: { maxLength: 1000 } }}
           placeholder='Category description'
           fullWidth

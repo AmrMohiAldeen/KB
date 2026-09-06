@@ -15,6 +15,7 @@ export type CategoryTreeNodeResponse = {
   visibility: 'Public' | 'Internal'
   viewerImageMediaId: string | null
   viewerIcon: string | null
+  localizations: CategoryLocalization[]
   children: CategoryTreeNodeResponse[]
 }
 
@@ -32,6 +33,7 @@ export type CategoryDetailsResponse = {
   visibility: 'Public' | 'Internal'
   viewerImageMediaId: string | null
   viewerIcon: string | null
+  localizations: CategoryLocalization[]
 }
 
 export type CreateCategoryRequest = {
@@ -43,6 +45,20 @@ export type CreateCategoryRequest = {
   visibility: 'Public' | 'Internal'
   viewerImageMediaId: string | null
   viewerIcon: string | null
+}
+
+export type CategoryLocalization = { localeCode: string; name: string; description: string | null }
+export type CategoryLocalizationLanguage = {
+  localeCode: string
+  displayName: string
+  nativeName: string
+  isDefault: boolean
+  isRtl: boolean
+  sortOrder: number
+}
+
+export type UpdateCategoryLocalizationsRequest = {
+  localizations: Array<{ localeCode: string; name: string | null; description: string | null }>
 }
 
 export type UpdateCategoryRequest = {
@@ -76,6 +92,7 @@ export const mapCategoryTreeNode = (
   visibility: category.visibility,
   viewerImageMediaId: category.viewerImageMediaId,
   viewerIcon: category.viewerIcon,
+  localizations: category.localizations ?? [],
   children: category.children.map(mapCategoryTreeNode)
 })
 
@@ -103,6 +120,9 @@ export const getCategoryById = (
     { signal }
   )
 
+export const getCategoryLocalizationLanguages = (accessToken: string, signal?: AbortSignal) =>
+  apiRequest<CategoryLocalizationLanguage[]>('/api/categories/localization-languages', accessToken, { signal })
+
 export const createCategory = (
   request: CreateCategoryRequest,
   accessToken: string
@@ -125,6 +145,13 @@ export const updateCategory = (
       body: JSON.stringify(request)
     }
   )
+
+export const updateCategoryLocalizations = (id: string, request: UpdateCategoryLocalizationsRequest,
+  accessToken: string) => apiRequest<CategoryDetailsResponse>(
+  `/api/categories/${encodeURIComponent(id)}/localizations`,
+  accessToken,
+  { method: 'PUT', body: JSON.stringify(request) }
+)
 
 export const moveCategory = (
   id: string,

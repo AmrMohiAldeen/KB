@@ -7,7 +7,7 @@ public static class HelpJuicePackageReader
     private static readonly HashSet<string> KnownCsv = new(StringComparer.OrdinalIgnoreCase)
     {
         "questions.csv", "answers.csv", "categories.csv", "categorizations.csv", "uploads.csv",
-        "groups.csv", "passes.csv", "users.csv"
+        "groups.csv", "passes.csv", "users.csv", "languages.csv"
     };
 
     private static readonly HashSet<string> MediaExtensions = new(StringComparer.OrdinalIgnoreCase)

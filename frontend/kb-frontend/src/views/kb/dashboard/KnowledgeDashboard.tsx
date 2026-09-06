@@ -100,7 +100,8 @@ import {
   getCategoryTree,
   moveCategory,
   unarchiveCategory,
-  updateCategory
+  updateCategory,
+  updateCategoryLocalizations
 } from '@/lib/api/categories'
 import {
   defaultDashboardPageSize,
@@ -225,6 +226,10 @@ const ArticleBadges = ({ article }: { article: ArticleListItemResponse }) => {
       {article.visibility && <StatusChip
         label={article.visibility}
         color={article.visibility === 'Internal' ? 'warning' : 'success'}
+      />}
+      {article.translationStatus && article.translationStatus !== 'Original' && <StatusChip
+        label={article.translationStatus === 'OutOfDate' ? 'Translation out of date' : `Translation ${article.translationStatus}`}
+        color={article.translationStatus === 'OutOfDate' ? 'error' : article.translationStatus === 'Verified' ? 'success' : 'warning'}
       />}
     </Stack>
   )
@@ -777,8 +782,9 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
     setMutationErrors([])
 
     try {
+      let savedCategory
       if (editingCategory) {
-        await updateCategory(editingCategory.id, {
+        savedCategory = await updateCategory(editingCategory.id, {
           name: form.name,
           slug: form.slug,
           description: form.description || null,
@@ -794,7 +800,7 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
           }, accessToken)
         }
       } else {
-        await createCategory({
+        savedCategory = await createCategory({
           name: form.name,
           slug: form.slug || null,
           description: form.description || null,
@@ -805,6 +811,13 @@ const KnowledgeDashboard = ({ accessToken, initialCategoryId = '' }: KnowledgeDa
           viewerIcon: form.viewerIcon || null
         }, accessToken)
       }
+      await updateCategoryLocalizations(savedCategory.id, {
+        localizations: form.localizations.map(localization => ({
+          localeCode: localization.localeCode,
+          name: localization.name || null,
+          description: localization.description || null
+        }))
+      }, accessToken)
       setCategoryDialogOpen(false)
       setEditingCategory(undefined)
       setSuccessMessage(`“${form.name}” was ${editingCategory ? 'updated' : 'created'}.`)

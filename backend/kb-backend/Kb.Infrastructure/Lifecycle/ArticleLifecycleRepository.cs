@@ -34,7 +34,8 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
             version.PublishedByFkNavigation == null
                 ? null
                 : new(version.PublishedByFkNavigation.UserId, version.PublishedByFkNavigation.FullName),
-            version.PublishedAt);
+            version.PublishedAt,
+            version.ArticleIdFkNavigation.LocaleCode);
 
     public Task<LifecycleDraftData?> GetCurrentAsync(Guid articleId, CancellationToken cancellationToken) =>
         dbContext.Articles.AsNoTracking()
@@ -240,6 +241,7 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
             article.Status = ArticleStatuses.Published;
             article.LastPublishedVersionIdFk = version.VersionId;
             article.UpdatedAt = audit.CreatedAt;
+            await MarkLinkedTranslationsOutOfDateAsync(article, version, audit, token);
             draft.UpdatedByFk = audit.ActorId;
             draft.UpdatedAt = audit.CreatedAt;
             AdvanceSqliteRowVersion(draft);
@@ -569,6 +571,41 @@ public sealed class ArticleLifecycleRepository(KbDbContext dbContext) : IArticle
             }),
             CreatedAt = audit.CreatedAt
         });
+
+    // Localization state is independent of the normal draft/review/publish workflow. A source
+    // publication only marks translations that reference an older immutable source snapshot.
+    private async Task MarkLinkedTranslationsOutOfDateAsync(Article source, ArticleVersion currentSourceVersion,
+        LifecycleAuditData audit, CancellationToken cancellationToken)
+    {
+        var stale = await dbContext.ArticleTranslationMetadata.Include(metadata => metadata.Article)
+            .Where(metadata => metadata.SourceArticleId == source.ArticleId &&
+                               metadata.SourceVersionId != currentSourceVersion.VersionId &&
+                               metadata.TranslationStatus != ArticleTranslationStatuses.OutOfDate)
+            .ToListAsync(cancellationToken);
+        foreach (var metadata in stale)
+        {
+            var previousStatus = metadata.TranslationStatus;
+            metadata.TranslationStatus = ArticleTranslationStatuses.OutOfDate;
+            dbContext.ArticleAuditLogs.Add(new ArticleAuditLog
+            {
+                AuditLogId = NewId(), ArticleIdFk = metadata.ArticleId, ActorIdFk = audit.ActorId,
+                ActionType = ArticleAuditActions.TranslationMarkedOutOfDate,
+                EntityType = ArticleAuditEntityTypes.Article, EntityId = metadata.ArticleId,
+                MetaDataJson = JsonSerializer.Serialize(new
+                {
+                    sourceArticleId = source.ArticleId,
+                    translatedFromVersionId = metadata.SourceVersionId,
+                    translatedFromVersionNumber = metadata.SourceVersionNumber,
+                    currentSourceVersionId = currentSourceVersion.VersionId,
+                    currentSourceVersionNumber = currentSourceVersion.VersionNumber,
+                    localeCode = metadata.Article.LocaleCode,
+                    previousTranslationStatus = previousStatus,
+                    newTranslationStatus = ArticleTranslationStatuses.OutOfDate
+                }),
+                CreatedAt = audit.CreatedAt
+            });
+        }
+    }
 
     private void AdvanceSqliteRowVersion(ArticleDraft draft)
     {

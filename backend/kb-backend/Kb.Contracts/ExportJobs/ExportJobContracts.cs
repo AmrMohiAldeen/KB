@@ -8,6 +8,9 @@ public sealed class CreateExportRequest : IValidatableObject
     [Required, NonWhiteSpace, StringLength(30)]
     public required string ExportType { get; init; }
 
+    [StringLength(35)]
+    public string? LocaleCode { get; init; }
+
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
         if (!string.IsNullOrWhiteSpace(ExportType) && !ExportTypes.All.Contains(ExportType))

@@ -68,7 +68,7 @@ public sealed class InternalSearchTests
             CollectionAlias = "internal_kb_documents", PublicCollectionAlias = "public_kb_documents"
         }));
 
-        await ((IViewerSearchClient)client).SearchAsync(solutionId, "onboarding", 25, default);
+        await ((IViewerSearchClient)client).SearchAsync(solutionId, "onboarding", 25, default, "ar");
 
         var query = Uri.UnescapeDataString(handler.SearchUri!.Query);
         Assert.Contains($"solution_ids:={solutionId:D}", query);
@@ -77,6 +77,7 @@ public sealed class InternalSearchTests
         Assert.Contains("is_public:=true", query);
         Assert.Contains("is_archived:=false", query);
         Assert.Contains("is_deleted:=false", query);
+        Assert.Contains("locale_code:=`ar`", query);
         Assert.DoesNotContain("internal_kb_documents/documents/search", handler.SearchUri.AbsolutePath);
     }
 

@@ -79,11 +79,7 @@ public sealed class AutomaticArticleTranslationService(
             throw;
         }
 
-        await DeleteBestEffortAsync(new[]
-        {
-            snapshot.TargetContentJsonPath, snapshot.TargetRenderedHtmlPath, snapshot.TargetPlainTextPath
-        }.Where(path => !string.IsNullOrWhiteSpace(path) &&
-            !string.Equals(path, storedPath, StringComparison.Ordinal)).Select(path => path!));
+        // Commit creates a new draft. Keep every prior draft blob so manual edits remain recoverable.
         return new(sourceArticleId, committed.TargetArticleId, committed.TargetDraftId,
             snapshot.SourceLocaleCode, committed.TargetLocaleCode, committed.TranslatedTitle,
             translated.TranslatedSegmentCount, ArticleTranslationMethods.Automatic,

@@ -88,10 +88,15 @@ public sealed class ViewerRepository(KbDbContext db, TimeProvider timeProvider) 
         await db.SaveChangesAsync(token);
     }
 
-    public async Task<ViewerPortalData> GetPortalAsync(Guid sessionId, string solutionSlug, CancellationToken token)
+    public async Task<ViewerPortalData> GetPortalAsync(Guid sessionId, string solutionSlug, string? locale,
+        CancellationToken token)
     {
         var solution = await ResolveAuthorizedSolutionAsync(sessionId, solutionSlug, token);
-        return new(solution.SolutionId, solution.Slug, solution.RootCategory.Name, solution.RootCategory.Description,
+        var localization = await ResolveLocaleAsync(locale, token);
+        var rootLocalization = await GetCategoryLocalizationAsync(solution.RootCategoryIdFk, localization, token);
+        return new(solution.SolutionId, solution.Slug, rootLocalization?.Name ?? solution.RootCategory.Name,
+            rootLocalization is null ? solution.RootCategory.Description : rootLocalization.Description,
+            localization.Active, localization.Languages,
             (await GetDashboardCustomizationAsync(solution.RootCategoryIdFk, token)).Appearance);
     }
 
@@ -169,24 +174,31 @@ public sealed class ViewerRepository(KbDbContext db, TimeProvider timeProvider) 
     }
 
     public async Task<IReadOnlyList<ViewerCategoryData>> GetCategoriesAsync(Guid sessionId, string solutionSlug,
+        string? locale,
         CancellationToken token)
     {
         var solution = await ResolveAuthorizedSolutionAsync(sessionId, solutionSlug, token);
-        return await GetCategoriesForRootAsync(solution.RootCategoryIdFk, RequiredRootPath(solution), token);
+        var localization = await ResolveLocaleAsync(locale, token);
+        return await GetCategoriesForRootAsync(solution.RootCategoryIdFk, RequiredRootPath(solution),
+            localization.Active.LocaleCode, DefaultLocale(localization), token);
     }
 
     public async Task<IReadOnlyList<ViewerArticleSummary>> GetArticlesAsync(Guid sessionId, string solutionSlug,
-        string? search, Guid? categoryId, CancellationToken token)
+        string? locale, string? search, Guid? categoryId, CancellationToken token)
     {
         var solution = await ResolveAuthorizedSolutionAsync(sessionId, solutionSlug, token);
-        return await GetArticlesForRootAsync(RequiredRootPath(solution), search, categoryId, token);
+        var localization = await ResolveLocaleAsync(locale, token);
+        return await GetArticlesForRootAsync(RequiredRootPath(solution), localization.Active.LocaleCode,
+            DefaultLocale(localization), search, categoryId, token);
     }
 
-    public async Task<ViewerArticleSource?> GetArticleAsync(Guid sessionId, string solutionSlug, string slug,
-        Guid? articleId, CancellationToken token)
+    public async Task<ViewerArticleSource?> GetArticleAsync(Guid sessionId, string solutionSlug, string? locale,
+        string slug, Guid? articleId, CancellationToken token)
     {
         var solution = await ResolveAuthorizedSolutionAsync(sessionId, solutionSlug, token);
-        return await GetArticleForRootAsync(RequiredRootPath(solution), slug, articleId, solution.SolutionId, token);
+        var localization = await ResolveLocaleAsync(locale, token);
+        return await GetArticleForRootAsync(RequiredRootPath(solution), localization, slug, articleId,
+            solution.SolutionId, token);
     }
 
     public async Task<ViewerCategoryImageSource?> GetCategoryImageAsync(Guid sessionId, string solutionSlug,
@@ -196,32 +208,43 @@ public sealed class ViewerRepository(KbDbContext db, TimeProvider timeProvider) 
         return await GetCategoryImageForRootAsync(solution.RootCategoryIdFk, RequiredRootPath(solution), categoryId, token);
     }
 
-    public async Task<ViewerPortalData> GetPreviewPortalAsync(string rootCategorySlug, CancellationToken token)
+    public async Task<ViewerPortalData> GetPreviewPortalAsync(string rootCategorySlug, string? locale,
+        CancellationToken token)
     {
         var root = await ResolvePreviewRootAsync(rootCategorySlug, token);
-        return new(root.CategoryId, root.Slug, root.Name, root.Description,
+        var localization = await ResolveLocaleAsync(locale, token);
+        var rootLocalization = await GetCategoryLocalizationAsync(root.CategoryId, localization, token);
+        return new(root.CategoryId, root.Slug, rootLocalization?.Name ?? root.Name,
+            rootLocalization is null ? root.Description : rootLocalization.Description,
+            localization.Active, localization.Languages,
             (await GetDashboardCustomizationAsync(root.CategoryId, token)).Appearance);
     }
 
     public async Task<IReadOnlyList<ViewerCategoryData>> GetPreviewCategoriesAsync(string rootCategorySlug,
+        string? locale,
         CancellationToken token)
     {
         var root = await ResolvePreviewRootAsync(rootCategorySlug, token);
-        return await GetCategoriesForRootAsync(root.CategoryId, root.Path!, token);
+        var localization = await ResolveLocaleAsync(locale, token);
+        return await GetCategoriesForRootAsync(root.CategoryId, root.Path!, localization.Active.LocaleCode,
+            DefaultLocale(localization), token);
     }
 
     public async Task<IReadOnlyList<ViewerArticleSummary>> GetPreviewArticlesAsync(string rootCategorySlug,
-        string? search, Guid? categoryId, CancellationToken token)
+        string? locale, string? search, Guid? categoryId, CancellationToken token)
     {
         var root = await ResolvePreviewRootAsync(rootCategorySlug, token);
-        return await GetArticlesForRootAsync(root.Path!, search, categoryId, token);
+        var localization = await ResolveLocaleAsync(locale, token);
+        return await GetArticlesForRootAsync(root.Path!, localization.Active.LocaleCode, DefaultLocale(localization),
+            search, categoryId, token);
     }
 
-    public async Task<ViewerArticleSource?> GetPreviewArticleAsync(string rootCategorySlug, string slug,
-        Guid? articleId, CancellationToken token)
+    public async Task<ViewerArticleSource?> GetPreviewArticleAsync(string rootCategorySlug, string? locale,
+        string slug, Guid? articleId, CancellationToken token)
     {
         var root = await ResolvePreviewRootAsync(rootCategorySlug, token);
-        return await GetArticleForRootAsync(root.Path!, slug, articleId, null, token);
+        var localization = await ResolveLocaleAsync(locale, token);
+        return await GetArticleForRootAsync(root.Path!, localization, slug, articleId, null, token);
     }
 
     public async Task<ViewerCategoryImageSource?> GetPreviewCategoryImageAsync(string rootCategorySlug,
@@ -280,17 +303,29 @@ public sealed class ViewerRepository(KbDbContext db, TimeProvider timeProvider) 
     }
 
     private async Task<List<ViewerCategoryData>> GetCategoriesForRootAsync(Guid rootCategoryId, string rootPath,
-        CancellationToken token)
+        string locale, string defaultLocale, CancellationToken token)
     {
         var categories = await VisibleCategories(rootPath).OrderBy(item => item.Depth).ThenBy(item => item.SortOrder)
             .ThenBy(item => item.Name).Select(category => new ViewerCategoryData(category.CategoryId,
-                category.ParentCategoryIdFk, category.Name, category.Slug, category.Description, category.SortOrder,
+                category.ParentCategoryIdFk,
+                category.CategoryLocalizations.Where(item => item.LocaleCode == locale).Select(item => item.Name)
+                    .FirstOrDefault() ?? category.CategoryLocalizations.Where(item => item.LocaleCode == defaultLocale)
+                    .Select(item => item.Name).FirstOrDefault() ?? category.Name,
+                category.Slug,
+                category.CategoryLocalizations.Any(item => item.LocaleCode == locale)
+                    ? category.CategoryLocalizations.Where(item => item.LocaleCode == locale)
+                        .Select(item => item.Description).FirstOrDefault()
+                    : category.CategoryLocalizations.Where(item => item.LocaleCode == defaultLocale)
+                        .Select(item => item.Description).FirstOrDefault() ?? category.Description,
+                category.SortOrder,
                 category.Path, category.Depth, category.ArticleCategories.Count(link =>
                     link.Article.Visibility == ContentVisibilities.Public && link.Article.Status == ArticleStatuses.Published &&
-                    link.Article.DeletedAt == null && link.Article.LastPublishedVersionIdFk != null) +
+                    link.Article.DeletedAt == null && link.Article.LastPublishedVersionIdFk != null &&
+                    link.Article.LocaleCode == locale) +
                 category.Articles.Count(article => !article.ArticleCategories.Any() &&
                     article.Visibility == ContentVisibilities.Public && article.Status == ArticleStatuses.Published &&
-                    article.DeletedAt == null && article.LastPublishedVersionIdFk != null),
+                    article.DeletedAt == null && article.LastPublishedVersionIdFk != null &&
+                    article.LocaleCode == locale),
                 category.ViewerImageMediaIdFkNavigation != null &&
                     category.ViewerImageMediaIdFkNavigation.Status == MediaStatuses.Active &&
                     category.ViewerImageMediaIdFkNavigation.MimeType.StartsWith("image/"), category.ViewerIcon))
@@ -326,32 +361,81 @@ public sealed class ViewerRepository(KbDbContext db, TimeProvider timeProvider) 
             category.ViewerImageMediaIdFkNavigation.OriginalFileName)).SingleOrDefaultAsync(token);
     }
 
-    private async Task<IReadOnlyList<ViewerArticleSummary>> GetArticlesForRootAsync(string rootPath, string? search,
-        Guid? categoryId, CancellationToken token)
+    private async Task<IReadOnlyList<ViewerArticleSummary>> GetArticlesForRootAsync(string rootPath, string locale,
+        string defaultLocale, string? search, Guid? categoryId, CancellationToken token)
     {
-        var query = VisibleArticles(rootPath);
+        var query = VisibleArticles(rootPath).Where(article => article.LocaleCode == locale);
         if (search is not null) query = query.Where(article => article.Title.Contains(search));
         if (categoryId is { } id) query = query.Where(article =>
             article.CategoryIdFk == id || article.ArticleCategories.Any(link => link.CategoryIdFk == id));
         return await query.OrderBy(article => article.Position).ThenBy(article => article.Title)
             .Select(article => new ViewerArticleSummary(article.ArticleId, article.Title, article.Slug,
-                article.CategoryIdFk!.Value, article.CategoryIdFkNavigation!.Name,
+                article.CategoryIdFk!.Value,
+                article.CategoryIdFkNavigation!.CategoryLocalizations.Where(item => item.LocaleCode == locale)
+                    .Select(item => item.Name).FirstOrDefault() ?? article.CategoryIdFkNavigation.CategoryLocalizations
+                    .Where(item => item.LocaleCode == defaultLocale).Select(item => item.Name).FirstOrDefault()
+                    ?? article.CategoryIdFkNavigation.Name,
                 article.CategoryIdFkNavigation.Path ?? article.CategoryIdFkNavigation.Name, article.UpdatedAt))
             .ToListAsync(token);
     }
 
-    private Task<ViewerArticleSource?> GetArticleForRootAsync(string rootPath, string slug, Guid? articleId,
-        Guid? solutionId, CancellationToken token)
+    private async Task<ViewerArticleSource?> GetArticleForRootAsync(string rootPath,
+        (ViewerLanguageData Active, IReadOnlyList<ViewerLanguageData> Languages) localization, string slug,
+        Guid? articleId, Guid? solutionId, CancellationToken token)
     {
-        var query = VisibleArticles(rootPath);
+        var locale = localization.Active.LocaleCode;
+        var query = VisibleArticles(rootPath).Where(article => article.LocaleCode == locale);
         query = articleId is { } id ? query.Where(article => article.ArticleId == id) :
             query.Where(article => article.Slug == slug);
-        return query.Select(article => new ViewerArticleSource(article.ArticleId, article.Title, article.Slug,
-            article.CategoryIdFk!.Value, article.CategoryIdFkNavigation!.Name,
-            article.CategoryIdFkNavigation.Path ?? article.CategoryIdFkNavigation.Name, article.UpdatedAt,
-            article.LastPublishedVersionIdFkNavigation!.ContentJsonStoragePath, solutionId))
-            .SingleOrDefaultAsync(token);
+        var article = await query.Select(article => new
+        {
+            article.ArticleId, article.Title, article.Slug, article.TranslationGroupId,
+            CategoryId = article.CategoryIdFk!.Value,
+            CategoryName = article.CategoryIdFkNavigation!.CategoryLocalizations
+                .Where(item => item.LocaleCode == locale).Select(item => item.Name).FirstOrDefault()
+                ?? article.CategoryIdFkNavigation.CategoryLocalizations.Where(item =>
+                    item.LocaleCode == DefaultLocale(localization)).Select(item => item.Name).FirstOrDefault()
+                ?? article.CategoryIdFkNavigation.Name,
+            CategoryPath = article.CategoryIdFkNavigation.Path ?? article.CategoryIdFkNavigation.Name,
+            article.UpdatedAt,
+            ContentJsonPath = article.LastPublishedVersionIdFkNavigation!.ContentJsonStoragePath
+        }).SingleOrDefaultAsync(token);
+        if (article is null) return null;
+        var translations = await VisibleArticles(rootPath).Where(item =>
+                item.TranslationGroupId == article.TranslationGroupId)
+            .OrderBy(item => item.LocaleCode).Select(item =>
+                new ViewerArticleTranslation(item.ArticleId, item.LocaleCode, item.Slug)).ToListAsync(token);
+        return new ViewerArticleSource(article.ArticleId, article.Title, article.Slug, article.CategoryId,
+            article.CategoryName, article.CategoryPath, article.UpdatedAt, article.ContentJsonPath, solutionId,
+            localization.Active, localization.Languages, translations);
     }
+
+    private async Task<(ViewerLanguageData Active, IReadOnlyList<ViewerLanguageData> Languages)> ResolveLocaleAsync(
+        string? requestedLocale, CancellationToken token)
+    {
+        var languages = await db.KbLanguages.AsNoTracking().Where(item => item.IsEnabled)
+            .OrderByDescending(item => item.IsDefault).ThenBy(item => item.SortOrder).ThenBy(item => item.DisplayName)
+            .Select(item => new ViewerLanguageData(item.LocaleCode, item.DisplayName, item.NativeName,
+                item.IsDefault, item.IsRtl)).ToListAsync(token);
+        if (languages.Count == 0) throw new ConflictException("No Viewer language is enabled.");
+        var active = requestedLocale is null ? null : languages.FirstOrDefault(item =>
+            item.LocaleCode.Equals(requestedLocale, StringComparison.OrdinalIgnoreCase));
+        active ??= languages.FirstOrDefault(item => item.IsDefault) ?? languages[0];
+        return (active, languages);
+    }
+
+    private async Task<CategoryLocalization?> GetCategoryLocalizationAsync(Guid categoryId,
+        (ViewerLanguageData Active, IReadOnlyList<ViewerLanguageData> Languages) localization, CancellationToken token)
+    {
+        var defaultLocale = DefaultLocale(localization);
+        var rows = await db.CategoryLocalizations.AsNoTracking().Where(item => item.CategoryId == categoryId &&
+                (item.LocaleCode == localization.Active.LocaleCode || item.LocaleCode == defaultLocale)).ToListAsync(token);
+        return rows.FirstOrDefault(item => item.LocaleCode == localization.Active.LocaleCode)
+            ?? rows.FirstOrDefault(item => item.LocaleCode == defaultLocale);
+    }
+
+    private static string DefaultLocale((ViewerLanguageData Active, IReadOnlyList<ViewerLanguageData> Languages) localization) =>
+        localization.Languages.FirstOrDefault(language => language.IsDefault)?.LocaleCode ?? localization.Active.LocaleCode;
 
     private IQueryable<Category> VisibleCategories(string rootPath) => db.Categories.AsNoTracking().Where(category =>
         category.Path != null && category.Path.StartsWith(rootPath) && category.Status == CategoryStatuses.Active &&

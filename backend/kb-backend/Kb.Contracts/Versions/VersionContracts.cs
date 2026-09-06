@@ -23,7 +23,8 @@ public sealed record ArticleVersionSummaryResponse(
     UserSummaryResponse CreatedBy,
     DateTime CreatedAt,
     UserSummaryResponse? PublishedBy,
-    DateTime? PublishedAt);
+    DateTime? PublishedAt,
+    string LocaleCode = "en");
 
 public sealed record ArticleVersionDetailsResponse(
     Guid VersionId,
@@ -40,7 +41,8 @@ public sealed record ArticleVersionDetailsResponse(
     UserSummaryResponse CreatedBy,
     DateTime CreatedAt,
     UserSummaryResponse? PublishedBy,
-    DateTime? PublishedAt);
+    DateTime? PublishedAt,
+    string LocaleCode = "en");
 
 public sealed record PublishedArticleVersionResponse(
     Guid VersionId,
@@ -52,7 +54,8 @@ public sealed record PublishedArticleVersionResponse(
     UserSummaryResponse CreatedBy,
     DateTime CreatedAt,
     UserSummaryResponse? PublishedBy,
-    DateTime? PublishedAt);
+    DateTime? PublishedAt,
+    string LocaleCode = "en");
 
 public sealed record VersionDiffSegmentResponse(string ChangeType, string Text);
 

@@ -44,7 +44,10 @@ public sealed class CategoryRepository(KbDbContext dbContext) : ICategoryReposit
                 category.Status,
                 category.Visibility,
                 category.ViewerImageMediaIdFk,
-                category.ViewerIcon))
+                category.ViewerIcon,
+                category.CategoryLocalizations.OrderBy(localization => localization.LocaleCode)
+                    .Select(localization => new CategoryLocalizationData(localization.LocaleCode, localization.Name,
+                        localization.Description)).ToList()))
             .SingleOrDefaultAsync(cancellationToken);
 
     public async Task<IReadOnlyList<CategoryData>> GetAllAsync(CancellationToken cancellationToken) =>
@@ -64,7 +67,10 @@ public sealed class CategoryRepository(KbDbContext dbContext) : ICategoryReposit
                 category.Status,
                 category.Visibility,
                 category.ViewerImageMediaIdFk,
-                category.ViewerIcon))
+                category.ViewerIcon,
+                category.CategoryLocalizations.OrderBy(localization => localization.LocaleCode)
+                    .Select(localization => new CategoryLocalizationData(localization.LocaleCode, localization.Name,
+                        localization.Description)).ToList()))
             .ToListAsync(cancellationToken);
 
     public async Task<IReadOnlyList<CategoryData>> GetDescendantsAsync(string pathPrefix, Guid categoryId, CancellationToken cancellationToken) =>
@@ -87,6 +93,15 @@ public sealed class CategoryRepository(KbDbContext dbContext) : ICategoryReposit
     public Task<bool> IsActiveImageMediaAsync(Guid id, CancellationToken cancellationToken) =>
         dbContext.MediaFiles.AsNoTracking().AnyAsync(media => media.MediaId == id &&
             media.Status == MediaStatuses.Active && media.MimeType.StartsWith("image/"), cancellationToken);
+
+    public async Task<IReadOnlyList<CategoryLocalizationLanguageData>> GetEnabledLocalizationLanguagesAsync(
+        CancellationToken cancellationToken) =>
+        await dbContext.KbLanguages.AsNoTracking().Where(language => language.IsEnabled)
+            .OrderByDescending(language => language.IsDefault).ThenBy(language => language.SortOrder)
+            .ThenBy(language => language.LocaleCode)
+            .Select(language => new CategoryLocalizationLanguageData(language.LocaleCode, language.DisplayName,
+                language.NativeName, language.IsDefault, language.IsRtl, language.SortOrder))
+            .ToListAsync(cancellationToken);
 
     public async Task<CategoryData> InsertAsync(NewCategoryData category, CancellationToken cancellationToken)
     {
@@ -132,7 +147,8 @@ public sealed class CategoryRepository(KbDbContext dbContext) : ICategoryReposit
         string visibility, Guid? viewerImageMediaId, string? viewerIcon, AuditData audit,
         CancellationToken cancellationToken)
     {
-        var entity = await dbContext.Categories.SingleAsync(category => category.CategoryId == id, cancellationToken);
+        var entity = await dbContext.Categories.Include(category => category.CategoryLocalizations)
+            .SingleAsync(category => category.CategoryId == id, cancellationToken);
         entity.Name = name;
         entity.Slug = slug;
         entity.Description = description;
@@ -140,6 +156,24 @@ public sealed class CategoryRepository(KbDbContext dbContext) : ICategoryReposit
         entity.Visibility = visibility;
         entity.ViewerImageMediaIdFk = viewerImageMediaId;
         entity.ViewerIcon = viewerIcon;
+        var defaultLocale = await dbContext.KbLanguages.AsNoTracking()
+            .Where(language => language.IsEnabled && language.IsDefault).Select(language => language.LocaleCode)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (!string.IsNullOrWhiteSpace(defaultLocale))
+        {
+            var defaultLocalization = entity.CategoryLocalizations.SingleOrDefault(localization =>
+                string.Equals(localization.LocaleCode, defaultLocale, StringComparison.OrdinalIgnoreCase));
+            if (defaultLocalization is null)
+                entity.CategoryLocalizations.Add(new CategoryLocalization
+                {
+                    CategoryId = entity.CategoryId, LocaleCode = defaultLocale, Name = name, Description = description
+                });
+            else
+            {
+                defaultLocalization.Name = name;
+                defaultLocalization.Description = description;
+            }
+        }
         AddAudit(id, audit);
         var affectedIds = string.IsNullOrWhiteSpace(entity.Path)
             ? [id]
@@ -234,6 +268,84 @@ public sealed class CategoryRepository(KbDbContext dbContext) : ICategoryReposit
         return Map(entity);
     }
 
+    public async Task<CategoryData> SetLocalizationsAndAuditAsync(Guid id,
+        IReadOnlyList<CategoryLocalizationWrite> localizations, AuditData audit, CancellationToken cancellationToken)
+    {
+        var entity = await dbContext.Categories.Include(category => category.CategoryLocalizations)
+            .SingleAsync(category => category.CategoryId == id, cancellationToken);
+        var enabledLanguages = await dbContext.KbLanguages.AsNoTracking().Where(language => language.IsEnabled)
+            .ToDictionaryAsync(language => language.LocaleCode, StringComparer.OrdinalIgnoreCase, cancellationToken);
+        var defaultLanguage = enabledLanguages.Values.SingleOrDefault(language => language.IsDefault);
+        foreach (var localization in localizations)
+        {
+            if (!enabledLanguages.TryGetValue(localization.LocaleCode, out var language))
+                throw new BusinessRuleException($"Language '{localization.LocaleCode}' is not enabled.");
+            var existing = entity.CategoryLocalizations.SingleOrDefault(item =>
+                string.Equals(item.LocaleCode, language.LocaleCode, StringComparison.OrdinalIgnoreCase));
+            if (string.IsNullOrWhiteSpace(localization.Name))
+            {
+                if (language.IsDefault)
+                {
+                    if (existing is null)
+                        entity.CategoryLocalizations.Add(new CategoryLocalization
+                        {
+                            CategoryId = entity.CategoryId, LocaleCode = language.LocaleCode, Name = entity.Name,
+                            Description = entity.Description
+                        });
+                    else
+                    {
+                        existing.Name = entity.Name;
+                        existing.Description = entity.Description;
+                    }
+                }
+                else if (existing is not null)
+                    dbContext.CategoryLocalizations.Remove(existing);
+                continue;
+            }
+            if (existing is null)
+                entity.CategoryLocalizations.Add(new CategoryLocalization
+                {
+                    CategoryId = entity.CategoryId, LocaleCode = language.LocaleCode, Name = localization.Name,
+                    Description = localization.Description
+                });
+            else
+            {
+                existing.Name = localization.Name;
+                existing.Description = localization.Description;
+            }
+        }
+        if (defaultLanguage is not null && !entity.CategoryLocalizations.Any(item =>
+                string.Equals(item.LocaleCode, defaultLanguage.LocaleCode, StringComparison.OrdinalIgnoreCase)))
+            entity.CategoryLocalizations.Add(new CategoryLocalization
+            {
+                CategoryId = entity.CategoryId, LocaleCode = defaultLanguage.LocaleCode, Name = entity.Name,
+                Description = entity.Description
+            });
+        AddAudit(id, audit);
+        await EnqueueAffectedContentAsync(entity.Path, id, audit.CreatedAt, cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return Map(entity);
+    }
+
+    private async Task EnqueueAffectedContentAsync(string? path, Guid id, DateTime createdAt,
+        CancellationToken cancellationToken)
+    {
+        var affectedIds = string.IsNullOrWhiteSpace(path) ? [id] : await dbContext.Categories.AsNoTracking()
+            .Where(category => category.Path != null && category.Path.StartsWith(path))
+            .Select(category => category.CategoryId).ToArrayAsync(cancellationToken);
+        foreach (var affectedId in affectedIds)
+            await SearchIndexJobQueue.EnqueueCategoryAsync(dbContext, affectedId, SearchIndexJobTypes.Upsert,
+                createdAt, cancellationToken);
+        var articleIds = await dbContext.Articles.AsNoTracking()
+            .Where(article => (article.CategoryIdFk.HasValue && affectedIds.Contains(article.CategoryIdFk.Value) ||
+                               article.ArticleCategories.Any(link => affectedIds.Contains(link.CategoryIdFk))) &&
+                              article.DeletedAt == null && article.Status != ArticleStatuses.Deleted)
+            .Select(article => article.ArticleId).ToArrayAsync(cancellationToken);
+        foreach (var articleId in articleIds)
+            await SearchIndexJobQueue.EnqueueArticleAsync(dbContext, articleId, SearchIndexJobTypes.Upsert,
+                createdAt, cancellationToken);
+    }
+
     private void AddAudit(Guid categoryId, AuditData audit) => dbContext.ArticleAuditLogs.Add(new()
     {
         AuditLogId = dbContext.Database.IsSqlServer() ? Guid.Empty : Guid.NewGuid(),
@@ -249,7 +361,10 @@ public sealed class CategoryRepository(KbDbContext dbContext) : ICategoryReposit
     private static CategoryData Map(Category category) => new(category.CategoryId, category.ParentCategoryIdFk,
         category.Name, category.Slug, category.Description, category.SortOrder, category.Path, category.Depth,
         Status: category.Status, Visibility: category.Visibility, ViewerImageMediaId: category.ViewerImageMediaIdFk,
-        ViewerIcon: category.ViewerIcon);
+        ViewerIcon: category.ViewerIcon, Localizations: category.CategoryLocalizations
+            .OrderBy(localization => localization.LocaleCode)
+            .Select(localization => new CategoryLocalizationData(localization.LocaleCode, localization.Name,
+                localization.Description)).ToArray());
 
     private static bool IsSlugUniquenessViolation(DbUpdateException exception)
     {

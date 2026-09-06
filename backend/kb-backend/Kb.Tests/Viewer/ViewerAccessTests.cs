@@ -23,9 +23,9 @@ public sealed class ViewerAccessTests
         await using var fixture = await Fixture.CreateAsync();
         var session = await fixture.CreateSessionAsync(["swiftassess"]);
 
-        var portal = await fixture.Repository.GetPortalAsync(session.SessionId, "swiftassess", default);
+        var portal = await fixture.Repository.GetPortalAsync(session.SessionId, "swiftassess", null, default);
         Assert.Equal(fixture.SwiftSolutionId, portal.SolutionId);
-        Assert.Null(await fixture.Repository.GetArticleAsync(session.SessionId, "swiftassess", string.Empty,
+        Assert.Null(await fixture.Repository.GetArticleAsync(session.SessionId, "swiftassess", null, string.Empty,
             fixture.SynopsisArticleId, default));
         Assert.Equal(1, await fixture.Context.Users.CountAsync());
         Assert.Empty(await new PublicKnowledgeBaseRepository(fixture.Context).GetArticlesAsync(null, null, default));
@@ -42,7 +42,7 @@ public sealed class ViewerAccessTests
         var session = await fixture.CreateSessionAsync(["swiftassess"]);
 
         await Assert.ThrowsAsync<ForbiddenException>(() =>
-            fixture.Repository.GetPortalAsync(session.SessionId, "synopsis", default));
+            fixture.Repository.GetPortalAsync(session.SessionId, "synopsis", null, default));
     }
 
     [Fact]
@@ -51,12 +51,112 @@ public sealed class ViewerAccessTests
         await using var fixture = await Fixture.CreateAsync();
         var session = await fixture.CreateSessionAsync(["swiftassess"]);
 
-        var articles = await fixture.Repository.GetArticlesAsync(session.SessionId, "swiftassess", null, null, default);
+        var articles = await fixture.Repository.GetArticlesAsync(session.SessionId, "swiftassess", null, null, null, default);
 
         Assert.Equal(["swift-visible"], articles.Select(item => item.Slug));
-        Assert.Null(await fixture.Repository.GetArticleAsync(session.SessionId, "swiftassess", "swift-draft", null, default));
-        Assert.Null(await fixture.Repository.GetArticleAsync(session.SessionId, "swiftassess", "swift-archived", null, default));
-        Assert.Null(await fixture.Repository.GetArticleAsync(session.SessionId, "swiftassess", "swift-internal", null, default));
+        Assert.Null(await fixture.Repository.GetArticleAsync(session.SessionId, "swiftassess", null, "swift-draft", null, default));
+        Assert.Null(await fixture.Repository.GetArticleAsync(session.SessionId, "swiftassess", null, "swift-archived", null, default));
+        Assert.Null(await fixture.Repository.GetArticleAsync(session.SessionId, "swiftassess", null, "swift-internal", null, default));
+    }
+
+    [Fact]
+    public async Task Locale_routes_use_enabled_language_and_category_localizations()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.AddLanguageAsync("ar", "Arabic", "العربية", isRtl: true);
+        fixture.Context.CategoryLocalizations.Add(new CategoryLocalization
+        {
+            CategoryId = fixture.SwiftRootId, LocaleCode = "ar", Name = "سويفت أسيس",
+            Description = "قاعدة المعرفة"
+        });
+        await fixture.Context.SaveChangesAsync();
+        fixture.Context.ChangeTracker.Clear();
+        var session = await fixture.CreateSessionAsync(["swiftassess"]);
+
+        var portal = await fixture.Repository.GetPortalAsync(session.SessionId, "swiftassess", "ar", default);
+        var tree = await fixture.Repository.GetCategoriesAsync(session.SessionId, "swiftassess", "ar", default);
+
+        Assert.Equal("ar", portal.ActiveLanguage.LocaleCode);
+        Assert.True(portal.ActiveLanguage.IsRtl);
+        Assert.Equal("سويفت أسيس", portal.Name);
+        Assert.Equal("قاعدة المعرفة", Assert.Single(tree).Description);
+    }
+
+    [Fact]
+    public async Task Viewer_uses_the_configured_default_language_when_no_locale_is_requested()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.AddLanguageAsync("fr", "French", "Français");
+        var english = await fixture.Context.KbLanguages.SingleAsync(item => item.LocaleCode == "en");
+        var french = await fixture.Context.KbLanguages.SingleAsync(item => item.LocaleCode == "fr");
+        english.IsDefault = false;
+        await fixture.Context.SaveChangesAsync();
+        french.IsDefault = true;
+        fixture.Context.CategoryLocalizations.Add(new CategoryLocalization
+        {
+            CategoryId = fixture.SwiftRootId, LocaleCode = "fr", Name = "SwiftAssess FR",
+            Description = "Base de connaissances"
+        });
+        await fixture.Context.SaveChangesAsync();
+        fixture.Context.ChangeTracker.Clear();
+        var session = await fixture.CreateSessionAsync(["swiftassess"]);
+
+        var portal = await fixture.Repository.GetPortalAsync(session.SessionId, "swiftassess", null, default);
+
+        Assert.Equal("fr", portal.ActiveLanguage.LocaleCode);
+        Assert.Equal("SwiftAssess FR", portal.Name);
+    }
+
+    [Fact]
+    public async Task Viewer_uses_default_category_localization_when_selected_locale_has_no_label()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.AddLanguageAsync("ar", "Arabic", "العربية", isRtl: true);
+        fixture.Context.CategoryLocalizations.Add(new CategoryLocalization
+        {
+            CategoryId = fixture.SwiftRootId, LocaleCode = "en", Name = "SwiftAssess support",
+            Description = "English knowledge base"
+        });
+        await fixture.Context.SaveChangesAsync();
+        fixture.Context.ChangeTracker.Clear();
+        var session = await fixture.CreateSessionAsync(["swiftassess"]);
+
+        var portal = await fixture.Repository.GetPortalAsync(session.SessionId, "swiftassess", "ar", default);
+        var categories = await fixture.Repository.GetCategoriesAsync(session.SessionId, "swiftassess", "ar", default);
+
+        Assert.Equal("ar", portal.ActiveLanguage.LocaleCode);
+        Assert.Equal("SwiftAssess support", portal.Name);
+        Assert.Equal("English knowledge base", Assert.Single(categories).Description);
+    }
+
+    [Fact]
+    public async Task Article_translation_links_include_only_published_authorized_counterparts()
+    {
+        await using var fixture = await Fixture.CreateAsync(includeSynopsisEntitlement: true);
+        await fixture.AddLanguageAsync("ar", "Arabic", "العربية", isRtl: true);
+        await fixture.AddLanguageAsync("fr", "French", "Français");
+        await fixture.AddLanguageAsync("de", "German", "Deutsch");
+        var source = await fixture.Context.Articles.SingleAsync(item => item.ArticleId == fixture.SwiftArticleId);
+        var arId = await fixture.AddTranslationAsync(source, fixture.SwiftRootId, "ar", "swift-ar",
+            ArticleStatuses.Published);
+        _ = await fixture.AddTranslationAsync(source, fixture.SwiftRootId, "fr", "swift-fr-draft",
+            ArticleStatuses.Draft);
+        _ = await fixture.AddTranslationAsync(source, fixture.SynopsisRootId, "de", "synopsis-de",
+            ArticleStatuses.Published);
+        fixture.Context.ChangeTracker.Clear();
+        var session = await fixture.CreateSessionAsync(["swiftassess"]);
+
+        var english = await fixture.Repository.GetArticleAsync(session.SessionId, "swiftassess", "en",
+            "swift-visible", null, default);
+        var arabic = await fixture.Repository.GetArticleAsync(session.SessionId, "swiftassess", "ar",
+            "swift-ar", null, default);
+
+        Assert.NotNull(arabic);
+        Assert.Equal(arId, arabic.Id);
+        Assert.Equal(["ar", "en"], english!.AvailableTranslations.Select(item => item.LocaleCode).Order());
+        Assert.DoesNotContain(english.AvailableTranslations, item => item.LocaleCode is "fr" or "de");
+        Assert.Null(await fixture.Repository.GetArticleAsync(session.SessionId, "swiftassess", "fr",
+            "swift-fr-draft", null, default));
     }
 
     [Fact]
@@ -66,7 +166,7 @@ public sealed class ViewerAccessTests
         var session = await fixture.CreateSessionAsync(["swiftassess", "synopsis"]);
         Assert.Equal(2, session.Solutions.Count);
         Assert.Equal(fixture.SynopsisSolutionId,
-            (await fixture.Repository.GetPortalAsync(session.SessionId, "synopsis", default)).SolutionId);
+            (await fixture.Repository.GetPortalAsync(session.SessionId, "synopsis", null, default)).SolutionId);
 
         await Assert.ThrowsAsync<ConflictException>(() => fixture.CreateSessionAsync(["swiftassess"], "handoff-2"));
         await fixture.Repository.RevokeSessionAsync(session.SessionId, DateTime.UtcNow, "test", default);
@@ -111,6 +211,10 @@ public sealed class ViewerAccessTests
         public Guid SwiftSolutionId { get; private init; }
         public Guid SynopsisSolutionId { get; private init; }
         public Guid SynopsisArticleId { get; private init; }
+        public Guid SwiftArticleId { get; private init; }
+        public Guid SwiftRootId { get; private init; }
+        public Guid SynopsisRootId { get; private init; }
+        public Guid AuthorId { get; private init; }
 
         private Fixture(SqliteConnection connection, KbDbContext context, ViewerRepository repository) =>
             (this.connection, Context, Repository) = (connection, context, repository);
@@ -141,20 +245,61 @@ public sealed class ViewerAccessTests
                 context.ViewerEntitlements.Add(new ViewerEntitlement { CustomerIdFk = customerId, SolutionIdFk = synopsisSolution, CreatedAt = now });
             await context.SaveChangesAsync();
 
-            await AddArticleAsync(context, userId, swiftRoot, "swift-visible", ArticleStatuses.Published, ContentVisibilities.Public, now);
+            var swiftArticle = await AddArticleAsync(context, userId, swiftRoot, "swift-visible", ArticleStatuses.Published, ContentVisibilities.Public, now);
             await AddArticleAsync(context, userId, swiftRoot, "swift-draft", ArticleStatuses.Draft, ContentVisibilities.Public, now);
             await AddArticleAsync(context, userId, swiftRoot, "swift-archived", ArticleStatuses.Archived, ContentVisibilities.Public, now);
             await AddArticleAsync(context, userId, swiftRoot, "swift-internal", ArticleStatuses.Published, ContentVisibilities.Internal, now);
             var synopsisArticle = await AddArticleAsync(context, userId, synopsisRoot, "synopsis-visible", ArticleStatuses.Published, ContentVisibilities.Public, now);
             context.ChangeTracker.Clear();
             return new Fixture(connection, context, new ViewerRepository(context, TimeProvider.System))
-            { SwiftSolutionId = swiftSolution, SynopsisSolutionId = synopsisSolution, SynopsisArticleId = synopsisArticle };
+            {
+                SwiftSolutionId = swiftSolution, SynopsisSolutionId = synopsisSolution,
+                SynopsisArticleId = synopsisArticle, SwiftArticleId = swiftArticle, SwiftRootId = swiftRoot,
+                SynopsisRootId = synopsisRoot, AuthorId = userId
+            };
         }
 
         public Task<ViewerSessionData> CreateSessionAsync(string[] solutions, string handoffId = "handoff-1") =>
             Repository.CreateSessionAsync(new(handoffId, "external-42", "viewer@example.test", "customer-a",
                 solutions, DateTime.UtcNow.AddMinutes(-1), DateTime.UtcNow.AddMinutes(4), null, null),
                 DateTime.UtcNow.AddHours(1), default);
+
+        public async Task AddLanguageAsync(string locale, string displayName, string nativeName, bool isRtl = false)
+        {
+            Context.KbLanguages.Add(new KbLanguage
+            {
+                LanguageId = Guid.NewGuid(), LocaleCode = locale, DisplayName = displayName, NativeName = nativeName,
+                IsDefault = false, IsEnabled = true, IsRtl = isRtl, SortOrder = 10,
+                CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
+            });
+            await Context.SaveChangesAsync();
+        }
+
+        public async Task<Guid> AddTranslationAsync(Article source, Guid categoryId, string locale, string slug,
+            string status)
+        {
+            var now = DateTime.UtcNow;
+            var id = Guid.NewGuid();
+            var versionId = Guid.NewGuid();
+            var article = new Article
+            {
+                ArticleId = id, Title = slug, Slug = slug, CategoryIdFk = categoryId, AuthorIdFk = AuthorId,
+                Status = status, Visibility = ContentVisibilities.Public, LocaleCode = locale,
+                TranslationGroupId = source.TranslationGroupId, CreatedAt = now, UpdatedAt = now
+            };
+            Context.Articles.Add(article);
+            await Context.SaveChangesAsync();
+            Context.ArticleVersions.Add(new ArticleVersion
+            {
+                VersionId = versionId, ArticleIdFk = id, VersionNumber = 1, SnapshotReason = "Published",
+                ContentJsonStoragePath = $"articles/{id:N}.json", ContentSizeBytes = 2,
+                CreatedByFk = AuthorId, CreatedAt = now, PublishedByFk = AuthorId, PublishedAt = now
+            });
+            await Context.SaveChangesAsync();
+            article.LastPublishedVersionIdFk = versionId;
+            await Context.SaveChangesAsync();
+            return id;
+        }
 
         private static async Task<Guid> AddArticleAsync(KbDbContext context, Guid userId, Guid categoryId,
             string slug, string status, string visibility, DateTime now)

@@ -1,7 +1,11 @@
 namespace Kb.Application.Categories;
 
-public sealed record CategoryData(Guid Id, Guid? ParentCategoryId, string Name, string Slug, string? Description, int SortOrder, string? Path, int Depth, int ArticleCount = 0, string Status = "Active", string Visibility = "Public", Guid? ViewerImageMediaId = null, string? ViewerIcon = null);
-public sealed record CategoryTreeNode(Guid Id, Guid? ParentCategoryId, string Name, string Slug, string? Description, int SortOrder, string? Path, int Depth, int ArticleCount, IReadOnlyList<CategoryTreeNode> Children, string Status = "Active", string Visibility = "Public", Guid? ViewerImageMediaId = null, string? ViewerIcon = null);
+public sealed record CategoryLocalizationData(string LocaleCode, string Name, string? Description);
+public sealed record CategoryLocalizationLanguageData(string LocaleCode, string DisplayName, string NativeName,
+    bool IsDefault, bool IsRtl, int SortOrder);
+public sealed record CategoryLocalizationWrite(string LocaleCode, string? Name, string? Description);
+public sealed record CategoryData(Guid Id, Guid? ParentCategoryId, string Name, string Slug, string? Description, int SortOrder, string? Path, int Depth, int ArticleCount = 0, string Status = "Active", string Visibility = "Public", Guid? ViewerImageMediaId = null, string? ViewerIcon = null, IReadOnlyList<CategoryLocalizationData>? Localizations = null);
+public sealed record CategoryTreeNode(Guid Id, Guid? ParentCategoryId, string Name, string Slug, string? Description, int SortOrder, string? Path, int Depth, int ArticleCount, IReadOnlyList<CategoryTreeNode> Children, string Status = "Active", string Visibility = "Public", Guid? ViewerImageMediaId = null, string? ViewerIcon = null, IReadOnlyList<CategoryLocalizationData>? Localizations = null);
 public sealed record CreateCategoryCommand(Guid? ParentCategoryId, string Name, string? Description, int SortOrder, string? Slug = null, string Visibility = "Public", Guid? ViewerImageMediaId = null, string? ViewerIcon = null);
 public sealed record UpdateCategoryCommand(string Name, string? Description, int SortOrder, string? Slug = null, string? Visibility = null, Guid? ViewerImageMediaId = null, string? ViewerIcon = null);
 public sealed record MoveCategoryCommand(Guid? ParentCategoryId, int SortOrder);

@@ -10,6 +10,7 @@ export type CategoryFormState = {
   visibility: 'Public' | 'Internal'
   viewerImageMediaId: string
   viewerIcon: string
+  localizations: Array<{ localeCode: string; name: string; description: string }>
 }
 
 export const emptyCategoryForm: CategoryFormState = {
@@ -20,7 +21,8 @@ export const emptyCategoryForm: CategoryFormState = {
   sortOrder: 0,
   visibility: 'Public',
   viewerImageMediaId: '',
-  viewerIcon: 'folder'
+  viewerIcon: 'folder',
+  localizations: []
 }
 
 export const getInitialCategoryForm = (category?: KbCategoryNode): CategoryFormState =>
@@ -33,7 +35,10 @@ export const getInitialCategoryForm = (category?: KbCategoryNode): CategoryFormS
         sortOrder: category.sortOrder,
         visibility: category.visibility ?? 'Public',
         viewerImageMediaId: category.viewerImageMediaId ?? '',
-        viewerIcon: category.viewerIcon ?? (category.viewerImageMediaId ? '' : 'folder')
+        viewerIcon: category.viewerIcon ?? (category.viewerImageMediaId ? '' : 'folder'),
+        localizations: (category.localizations ?? []).map(localization => ({
+          localeCode: localization.localeCode, name: localization.name, description: localization.description ?? ''
+        }))
       }
     : emptyCategoryForm
 

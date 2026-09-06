@@ -10,6 +10,7 @@ public interface ICategoryRepository
     Task<bool> HasChildrenAsync(Guid id, CancellationToken cancellationToken);
     Task<bool> HasArticlesAsync(Guid id, CancellationToken cancellationToken);
     Task<bool> IsActiveImageMediaAsync(Guid id, CancellationToken cancellationToken);
+    Task<IReadOnlyList<CategoryLocalizationLanguageData>> GetEnabledLocalizationLanguagesAsync(CancellationToken cancellationToken);
     Task<CategoryData> InsertAsync(NewCategoryData category, CancellationToken cancellationToken);
     Task<CategoryData> SetPathAndAuditAsync(Guid id, string path, int depth, AuditData audit, CancellationToken cancellationToken);
     Task<CategoryData> UpdateAndAuditAsync(Guid id, string name, string slug, string? description, int sortOrder,
@@ -18,4 +19,6 @@ public interface ICategoryRepository
     Task<CategoryData> MoveAndAuditAsync(IReadOnlyList<HierarchyUpdate> updates, AuditData audit, CancellationToken cancellationToken);
     Task DeleteAndAuditAsync(Guid id, AuditData audit, CancellationToken cancellationToken);
     Task<CategoryData> SetStatusAndAuditAsync(Guid id, string status, AuditData audit, CancellationToken cancellationToken);
+    Task<CategoryData> SetLocalizationsAndAuditAsync(Guid id, IReadOnlyList<CategoryLocalizationWrite> localizations,
+        AuditData audit, CancellationToken cancellationToken);
 }

@@ -32,7 +32,8 @@ public sealed class ExportJobsController(ExportService exports) : ControllerBase
     public async Task<ActionResult<ExportJobResponse>> ExportCategory(Guid categoryId,
         CreateExportRequest request, CancellationToken cancellationToken)
     {
-        var job = await exports.RequestCategoryAsync(categoryId, request.ExportType, cancellationToken);
+        var job = await exports.RequestCategoryAsync(categoryId, request.ExportType, cancellationToken,
+            request.LocaleCode);
         return AcceptedAtAction(nameof(Get), new { jobId = job.Id }, ToResponse(job));
     }
 

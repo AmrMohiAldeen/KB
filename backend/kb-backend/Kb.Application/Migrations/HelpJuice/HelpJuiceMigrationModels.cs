@@ -97,7 +97,8 @@ public enum MigrationWriteDisposition { Imported, Updated, Skipped }
 public sealed record MigrationWriteResult(Guid InternalId, MigrationWriteDisposition Disposition,
     Guid? DraftId = null, Guid? VersionId = null, bool StagedContentConsumed = true);
 public sealed record ImportedCategoryData(string ExternalId, string Name, string Slug, Guid? ParentId, int Depth,
-    int SortOrder, string Visibility = "Public");
+    int SortOrder, string Visibility = "Public", string? LocaleCode = null,
+    string? CanonicalExternalId = null);
 public sealed record ImportedMediaData(string ExternalId, Guid Id, string OriginalFileName, string StoredFileName, string MimeType,
     string Extension, long Size, string StoragePath, string Hash, Guid UserId, DateTime UploadedAt);
 public sealed record StagedArticleContent(string JsonPath, string HtmlPath, string TextPath, string Hash, long Size,
@@ -109,7 +110,8 @@ public sealed record ImportedArticleData(string ExternalId, string Title, string
     bool CreatePublishedVersion, DateTime CreatedAt,
     DateTime UpdatedAt, DateTime? PublishedAt, StagedArticleContent Content,
     IReadOnlyDictionary<string, string>? SourceMetadata = null, int Position = 0, string Visibility = "Public",
-    IReadOnlyList<Guid>? CategoryIds = null);
+    IReadOnlyList<Guid>? CategoryIds = null, string? LocaleCode = null,
+    Guid? TranslationGroupId = null);
 
 public sealed record HelpJuiceAuthorMapping(string HelpJuiceUserId, Guid UserId, string Name);
 
@@ -124,6 +126,8 @@ public interface IHelpJuiceImportWriter
         IReadOnlyList<MigrationIssueData> issues, DateTime completedAt, CancellationToken cancellationToken);
     Task<IReadOnlySet<string>> GetActiveArticleSlugsAsync(CancellationToken cancellationToken);
     Task<IReadOnlyDictionary<string, string>> GetMappedArticleSlugsAsync(CancellationToken cancellationToken);
+    Task<IReadOnlySet<string>> GetConfiguredLocaleCodesAsync(CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlySet<string>>(new HashSet<string>(StringComparer.OrdinalIgnoreCase));
     Task<IReadOnlyDictionary<string, HelpJuiceAuthorMapping>> ResolveHelpJuiceAuthorsAsync(
         IReadOnlyCollection<string> helpJuiceUserIds, CancellationToken cancellationToken);
     Task<bool> HasCompletedUserMigrationAsync(CancellationToken cancellationToken);

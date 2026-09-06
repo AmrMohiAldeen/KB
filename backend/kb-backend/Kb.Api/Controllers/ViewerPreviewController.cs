@@ -14,17 +14,19 @@ namespace Kb.Api.Controllers;
 public sealed class ViewerPreviewController(ViewerService viewers) : ControllerBase
 {
     [HttpGet]
-    public async Task<ActionResult<ViewerPortalResponse>> Portal(string rootCategorySlug, CancellationToken token)
+    public async Task<ActionResult<ViewerPortalResponse>> Portal(string rootCategorySlug, [FromQuery] string? locale,
+        CancellationToken token)
     {
-        var portal = await viewers.GetPreviewPortalAsync(rootCategorySlug, token);
+        var portal = await viewers.GetPreviewPortalAsync(rootCategorySlug, locale, token);
         return Ok(new ViewerPortalResponse(portal.RootId, portal.Slug, portal.Name, portal.Description,
+            MapLanguage(portal.ActiveLanguage), portal.Languages.Select(MapLanguage).ToArray(),
             MapAppearance(portal.Appearance)));
     }
 
     [HttpGet("categories/tree")]
     public async Task<ActionResult<IReadOnlyList<ViewerCategoryNodeResponse>>> Categories(string rootCategorySlug,
-        CancellationToken token) =>
-        Ok((await viewers.GetPreviewTreeAsync(rootCategorySlug, token)).Select(Map).ToArray());
+        [FromQuery] string? locale, CancellationToken token) =>
+        Ok((await viewers.GetPreviewTreeAsync(rootCategorySlug, locale, token)).Select(Map).ToArray());
 
     [HttpGet("categories/{categoryId:guid}/image")]
     public async Task<IActionResult> CategoryImage(string rootCategorySlug, Guid categoryId, CancellationToken token)
@@ -36,21 +38,23 @@ public sealed class ViewerPreviewController(ViewerService viewers) : ControllerB
 
     [HttpGet("articles")]
     public async Task<ActionResult<IReadOnlyList<ViewerArticleSummaryResponse>>> Articles(string rootCategorySlug,
-        [FromQuery] string? search, [FromQuery] Guid? categoryId, CancellationToken token) =>
-        Ok((await viewers.GetPreviewArticlesAsync(rootCategorySlug, search, categoryId, token)).Select(Map).ToArray());
+        [FromQuery] string? locale, [FromQuery] string? search, [FromQuery] Guid? categoryId, CancellationToken token) =>
+        Ok((await viewers.GetPreviewArticlesAsync(rootCategorySlug, locale, search, categoryId, token)).Select(Map).ToArray());
 
     [HttpGet("search")]
     public async Task<ActionResult<IReadOnlyList<ViewerArticleSummaryResponse>>> Search(string rootCategorySlug,
-        [FromQuery] string query, CancellationToken token) =>
-        Ok((await viewers.SearchPreviewAsync(rootCategorySlug, query, token)).Select(Map).ToArray());
+        [FromQuery] string? locale, [FromQuery] string query, CancellationToken token) =>
+        Ok((await viewers.SearchPreviewAsync(rootCategorySlug, locale, query, token)).Select(Map).ToArray());
 
     [HttpGet("articles/by-id/{articleId:guid}")]
     public async Task<ActionResult<ViewerArticleResponse>> ArticleById(string rootCategorySlug, Guid articleId,
-        CancellationToken token) => Map(await viewers.GetPreviewArticleByIdAsync(rootCategorySlug, articleId, token));
+        [FromQuery] string? locale, CancellationToken token) =>
+        Map(await viewers.GetPreviewArticleByIdAsync(rootCategorySlug, articleId, locale, token));
 
     [HttpGet("articles/{articleSlug}")]
     public async Task<ActionResult<ViewerArticleResponse>> Article(string rootCategorySlug, string articleSlug,
-        CancellationToken token) => Map(await viewers.GetPreviewArticleBySlugAsync(rootCategorySlug, articleSlug, token));
+        [FromQuery] string? locale, CancellationToken token) =>
+        Map(await viewers.GetPreviewArticleBySlugAsync(rootCategorySlug, articleSlug, locale, token));
 
     private static ViewerCategoryNodeResponse Map(ViewerCategoryNode item) => new(item.Id, item.ParentId, item.Name,
         item.Slug, item.Description, item.SortOrder, item.Path, item.Depth, item.ArticleCount,
@@ -58,7 +62,12 @@ public sealed class ViewerPreviewController(ViewerService viewers) : ControllerB
     private static ViewerArticleSummaryResponse Map(ViewerArticleSummary item) => new(item.Id, item.Title,
         item.Slug, item.CategoryId, item.CategoryName, item.CategoryPath, item.UpdatedAt);
     private static ViewerArticleResponse Map(ViewerArticle item) => new(item.Id, item.Title, item.Slug,
-        item.CategoryId, item.CategoryName, item.CategoryPath, item.UpdatedAt, item.Content);
+        item.CategoryId, item.CategoryName, item.CategoryPath, item.UpdatedAt, item.Content,
+        MapLanguage(item.ActiveLanguage), item.Languages.Select(MapLanguage).ToArray(),
+        item.AvailableTranslations.Select(value => new ViewerArticleTranslationResponse(
+            value.Id, value.LocaleCode, value.Slug)).ToArray());
+    private static ViewerLanguageResponse MapLanguage(ViewerLanguageData item) => new(item.LocaleCode,
+        item.DisplayName, item.NativeName, item.IsDefault, item.IsRtl);
     private static ViewerDashboardAppearanceResponse MapAppearance(ViewerDashboardAppearanceData? appearance)
     {
         var value = appearance ?? ViewerDashboardAppearanceData.Default;

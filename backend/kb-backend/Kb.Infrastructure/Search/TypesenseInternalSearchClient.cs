@@ -113,20 +113,22 @@ internal sealed class TypesenseInternalSearchClient : IInternalSearchClient, ITy
     }
 
     public Task<IReadOnlyList<ViewerArticleSummary>> SearchAsync(Guid solutionId, string query, int limit,
-        CancellationToken cancellationToken) => SearchViewerAsync(
-        $"solution_ids:={solutionId:D}", query, limit, cancellationToken);
+        CancellationToken cancellationToken, string? localeCode = null) => SearchViewerAsync(
+        $"solution_ids:={solutionId:D}", query, limit, localeCode, cancellationToken);
 
     public Task<IReadOnlyList<ViewerArticleSummary>> SearchPreviewAsync(Guid rootCategoryId, string query, int limit,
-        CancellationToken cancellationToken) => SearchViewerAsync(
-        $"category_ancestor_ids:={rootCategoryId:D}", query, limit, cancellationToken);
+        CancellationToken cancellationToken, string? localeCode = null) => SearchViewerAsync(
+        $"category_ancestor_ids:={rootCategoryId:D}", query, limit, localeCode, cancellationToken);
 
     private async Task<IReadOnlyList<ViewerArticleSummary>> SearchViewerAsync(string scopeFilter, string query,
-        int limit, CancellationToken cancellationToken)
+        int limit, string? localeCode, CancellationToken cancellationToken)
     {
         EnsureConfigured();
         await EnsurePublicCollectionAsync(cancellationToken);
         var filter = $"record_type:={FilterValue("article")} && {scopeFilter} && " +
                      "is_published:=true && is_public:=true && is_archived:=false && is_deleted:=false";
+        if (!string.IsNullOrWhiteSpace(localeCode))
+            filter += $" && locale_code:={FilterValue(localeCode.Trim().ToLowerInvariant())}";
         var parameters = new Dictionary<string, string>
         {
             ["q"] = query, ["query_by"] = "title,category_path,body", ["query_by_weights"] = "16,5,1",
@@ -254,6 +256,7 @@ internal sealed class TypesenseInternalSearchClient : IInternalSearchClient, ITy
                 new { name = "is_public", type = "bool", facet = true, optional = true },
                 new { name = "is_archived", type = "bool", facet = true, optional = true },
                 new { name = "is_deleted", type = "bool", facet = true, optional = true },
+                new { name = "locale_code", type = "string", facet = true, optional = true },
                 new { name = "updated_at", type = "int64", sort = true }
             },
             default_sorting_field = "updated_at"

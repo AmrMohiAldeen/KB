@@ -52,7 +52,8 @@ public sealed record LifecycleVersionSummaryData(
     UserReference CreatedBy,
     DateTime CreatedAt,
     UserReference? PublishedBy,
-    DateTime? PublishedAt);
+    DateTime? PublishedAt,
+    string LocaleCode);
 
 public sealed record PagedLifecycleVersionData(
     IReadOnlyList<LifecycleVersionSummaryData> Items,

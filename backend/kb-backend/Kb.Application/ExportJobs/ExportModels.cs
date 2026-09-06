@@ -5,7 +5,9 @@ public sealed record ExportSnapshot(
     string Title,
     string Slug,
     IReadOnlyList<ExportSnapshotCategory> Categories,
-    IReadOnlyList<ExportSnapshotArticle> Articles);
+    IReadOnlyList<ExportSnapshotArticle> Articles,
+    string LocaleCode = "en",
+    bool IsRtl = false);
 
 public sealed record ExportSnapshotCategory(Guid Id, Guid? ParentId, string Name, string Slug,
     int SortOrder, int Depth);
@@ -13,7 +15,8 @@ public sealed record ExportSnapshotCategory(Guid Id, Guid? ParentId, string Name
 public sealed record ExportSnapshotArticle(Guid ArticleId, string SourceType, Guid? DraftId,
     Guid? VersionId, Guid? CategoryId,
     string Title, string Slug, int Position, string ContentJsonPath, string? RenderedHtmlPath,
-    string? PlainTextPath, DateTime? PublishedAt, IReadOnlyList<Guid>? CategoryIds = null);
+    string? PlainTextPath, DateTime? PublishedAt, IReadOnlyList<Guid>? CategoryIds = null,
+    string LocaleCode = "en");
 
 public sealed record ExportJobData(Guid Id, string EntityType, Guid? ArticleId, Guid? CategoryId,
     string? SourceType, Guid? DraftId, Guid? VersionId, string ExportType, string Status,
@@ -31,7 +34,7 @@ public interface IExportJobRepository
         Guid requestedBy,
         DateTime requestedAt, CancellationToken cancellationToken);
     Task<ExportJobData> CreateCategoryAsync(Guid categoryId, string exportType, Guid requestedBy,
-        DateTime requestedAt, CancellationToken cancellationToken);
+        DateTime requestedAt, CancellationToken cancellationToken, string? localeCode = null);
     Task<ExportJobData?> GetAsync(Guid jobId, CancellationToken cancellationToken);
     Task<bool> IsActiveUserAsync(Guid userId, CancellationToken cancellationToken);
     Task<ExportJobData?> ClaimNextAsync(DateTime startedAt, TimeSpan staleAfter,

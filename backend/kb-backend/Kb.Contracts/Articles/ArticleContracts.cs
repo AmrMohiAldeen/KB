@@ -47,7 +47,9 @@ public sealed record ArticleListItemResponse(Guid ArticleId, string Title, strin
     CategorySummaryResponse? Category, UserSummaryResponse Owner, Guid? CurrentDraftId,
     Guid? CurrentPublishedVersionId, DateTime CreatedAt, DateTime UpdatedAt, DateTime? PublishedAt,
     bool IsCurrentDraftLocked, UserSummaryResponse? LockedBy, int Position, string Visibility,
-    IReadOnlyList<CategorySummaryResponse>? Categories = null);
+    IReadOnlyList<CategorySummaryResponse>? Categories = null, string TranslationStatus = "Original",
+    int? SourceVersionNumber = null, int? CurrentSourceVersionNumber = null,
+    bool? IsTranslationCurrent = null);
 
 public sealed record ArticleDetailsResponse(Guid ArticleId, string Title, string Slug, string Status,
     CategorySummaryResponse? Category, UserSummaryResponse Owner, ArticleDraftMetadataResponse? CurrentDraft,

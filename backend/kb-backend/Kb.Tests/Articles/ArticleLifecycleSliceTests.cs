@@ -14,7 +14,9 @@ using Kb.Infrastructure.Lifecycle;
 using Kb.Infrastructure.Drafts;
 using Kb.Infrastructure.Authorization;
 using Kb.Application.Notifications;
+using Kb.Application.Translations;
 using Kb.Infrastructure.Notifications;
+using Kb.Infrastructure.Translations;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -951,6 +953,172 @@ public sealed class ArticleLifecycleSliceTests
             path => path.Contains("/restored/", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task Publishing_source_marks_only_linked_older_translations_out_of_date_and_preserves_their_versions()
+    {
+        await using var f = await Fixture.CreatePublishedAsync();
+        var translated = await f.AddLinkedTranslationAsync(ArticleStatuses.Published, true);
+        var translatedVersionCount = await f.Context.ArticleVersions.CountAsync(x => x.ArticleIdFk == translated.ArticleId);
+        f.Grant(f.AuthorId, PermissionCodes.ArticlesEditOwnDraft, PermissionCodes.ArticlesSubmitForReview,
+            PermissionCodes.VersionsRestore);
+        f.Grant(f.ReviewerId, PermissionCodes.ArticlesReview);
+        f.Grant(f.PublisherId, PermissionCodes.ArticlesPublish);
+
+        var original = await f.PublishedVersionAsync();
+        f.Current.UserId = f.AuthorId;
+        var restored = await f.Service.RestoreAsync(f.ArticleId, original.VersionId, new(f.RowVersion), default);
+        var submitted = await f.Service.SubmitAsync(f.ArticleId, new(restored.RowVersion), default);
+        f.Current.UserId = f.ReviewerId;
+        var approved = await f.Service.ApproveAsync(f.ArticleId, new(submitted.RowVersion), default);
+        f.Current.UserId = f.PublisherId;
+        var republished = await f.Service.PublishAsync(f.ArticleId, new(approved.RowVersion), default);
+
+        var metadata = await f.Context.ArticleTranslationMetadata.AsNoTracking()
+            .SingleAsync(x => x.ArticleId == translated.ArticleId);
+        Assert.Equal(ArticleTranslationStatuses.OutOfDate, metadata.TranslationStatus);
+        Assert.Equal(original.VersionId, metadata.SourceVersionId);
+        Assert.Equal(original.VersionNumber, metadata.SourceVersionNumber);
+        Assert.Equal(translated.PublishedVersionId, (await f.Context.Articles.AsNoTracking()
+            .SingleAsync(x => x.ArticleId == translated.ArticleId)).LastPublishedVersionIdFk);
+        Assert.Equal(translatedVersionCount, await f.Context.ArticleVersions.CountAsync(x => x.ArticleIdFk == translated.ArticleId));
+        var displayed = (await new ArticleTranslationRepository(f.Context).GetAllAsync(f.ArticleId, default))
+            .Single(x => x.ArticleId == translated.ArticleId);
+        Assert.Equal(original.VersionNumber, displayed.SourceVersionNumber);
+        Assert.Equal(republished.PublishedVersionNumber, displayed.CurrentSourceVersionNumber);
+        Assert.False(displayed.IsCurrent);
+        var audit = await f.Context.ArticleAuditLogs.AsNoTracking().SingleAsync(x =>
+            x.ArticleIdFk == translated.ArticleId && x.ActionType == ArticleAuditActions.TranslationMarkedOutOfDate);
+        using var auditMetadata = JsonDocument.Parse(audit.MetaDataJson!);
+        Assert.Equal(republished.PublishedVersionId, auditMetadata.RootElement.GetProperty("currentSourceVersionId").GetGuid());
+    }
+
+    [Fact]
+    public async Task Saving_source_drafts_does_not_mark_translations_out_of_date()
+    {
+        await using var f = await Fixture.CreatePublishedAsync();
+        var translated = await f.AddLinkedTranslationAsync(ArticleStatuses.Approved, false);
+        await f.UpdateDraftContentAsync("Unpublished source edit");
+
+        Assert.Equal(ArticleTranslationStatuses.Verified, (await f.Context.ArticleTranslationMetadata.AsNoTracking()
+            .SingleAsync(x => x.ArticleId == translated.ArticleId)).TranslationStatus);
+        Assert.Empty(await f.Context.ArticleAuditLogs.AsNoTracking().Where(x =>
+            x.ActionType == ArticleAuditActions.TranslationMarkedOutOfDate).ToArrayAsync());
+    }
+
+    [Fact]
+    public async Task Publishing_a_translated_article_does_not_mark_its_current_translation_out_of_date()
+    {
+        await using var f = await Fixture.CreatePublishedAsync();
+        var translated = await f.AddLinkedTranslationAsync(ArticleStatuses.Approved, false);
+        f.Grant(f.PublisherId, PermissionCodes.ArticlesPublish);
+        f.Current.UserId = f.PublisherId;
+
+        await f.Service.PublishAsync(translated.ArticleId, new(translated.RowVersion), default);
+
+        Assert.Equal(ArticleTranslationStatuses.Verified, (await f.Context.ArticleTranslationMetadata.AsNoTracking()
+            .SingleAsync(x => x.ArticleId == translated.ArticleId)).TranslationStatus);
+        Assert.Empty(await f.Context.ArticleAuditLogs.AsNoTracking().Where(x =>
+            x.ArticleIdFk == translated.ArticleId && x.ActionType == ArticleAuditActions.TranslationMarkedOutOfDate).ToArrayAsync());
+    }
+
+    [Fact]
+    public async Task Localization_sync_creates_a_missing_unpublished_copy_atomically()
+    {
+        await using var f = await Fixture.CreatePublishedAsync();
+        var now = DateTime.UtcNow;
+        f.Context.KbLanguages.Add(new KbLanguage
+        {
+            LanguageId = Guid.NewGuid(), LocaleCode = "fr", DisplayName = "French", NativeName = "Français",
+            IsEnabled = true, SortOrder = 2, CreatedAt = now, UpdatedAt = now
+        });
+        await f.Context.SaveChangesAsync();
+        var repository = new LocalizationSynchronizationRepository(f.Context);
+        var plan = await repository.GetPlanAsync(f.ArticleId, ["fr"], default);
+        var target = Assert.Single(plan.Targets);
+        Assert.Equal(LocalizationSyncStates.Missing, target.State);
+
+        var result = await repository.CommitAsync(new(plan.Source, "fr", null, null, null,
+            LocalizationSyncOperations.CreateCopy, "Lifecycle source", "sync/fr/content.json", "copy-hash", 42,
+            [], ArticleTranslationMethods.Copied, ArticleTranslationStatuses.NeedsTranslation, null, 0,
+            f.AuthorId, now), default);
+
+        var article = await f.Context.Articles.AsNoTracking().SingleAsync(x => x.ArticleId == result.TargetArticleId);
+        var metadata = await f.Context.ArticleTranslationMetadata.AsNoTracking()
+            .SingleAsync(x => x.ArticleId == result.TargetArticleId);
+        Assert.Equal(ArticleStatuses.Draft, article.Status);
+        Assert.Null(article.LastPublishedVersionIdFk);
+        Assert.Equal(plan.Source.SourceVersionId, metadata.SourceVersionId);
+        Assert.Equal(ArticleTranslationStatuses.NeedsTranslation, metadata.TranslationStatus);
+        Assert.Equal(ArticleTranslationMethods.Copied, metadata.TranslationMethod);
+        Assert.Single(await f.Context.ArticleDrafts.AsNoTracking()
+            .Where(x => x.ArticleIdFk == result.TargetArticleId).ToListAsync());
+        Assert.Single(await f.Context.ArticleAuditLogs.AsNoTracking().Where(x =>
+            x.ArticleIdFk == result.TargetArticleId && x.ActionType == ArticleAuditActions.LocalizationSynchronized)
+            .ToListAsync());
+    }
+
+    [Fact]
+    public async Task Localization_sync_updates_into_a_new_draft_and_preserves_published_history()
+    {
+        await using var f = await Fixture.CreatePublishedAsync();
+        var translated = await f.AddLinkedTranslationAsync(ArticleStatuses.Published, true);
+        var oldSource = await f.Context.ArticleVersions.AsNoTracking().Where(x => x.ArticleIdFk == f.ArticleId)
+            .OrderBy(x => x.VersionNumber).FirstAsync();
+        await f.Context.ArticleTranslationMetadata.Where(x => x.ArticleId == translated.ArticleId)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(x => x.SourceVersionId, oldSource.VersionId)
+                .SetProperty(x => x.SourceVersionNumber, oldSource.VersionNumber)
+                .SetProperty(x => x.TranslationStatus, ArticleTranslationStatuses.OutOfDate));
+        f.Context.ChangeTracker.Clear();
+        var repository = new LocalizationSynchronizationRepository(f.Context);
+        var plan = await repository.GetPlanAsync(f.ArticleId, ["ar"], default);
+        var target = Assert.Single(plan.Targets);
+        Assert.Equal(LocalizationSyncStates.OutOfDate, target.State);
+        var versionCount = await f.Context.ArticleVersions.CountAsync(x => x.ArticleIdFk == translated.ArticleId);
+
+        var result = await repository.CommitAsync(new(plan.Source, "ar", translated.ArticleId,
+            target.TargetCurrentDraftId, target.TargetDraftRowVersion,
+            LocalizationSyncOperations.UpdateAutomaticTranslation, "Arabic synchronized",
+            "sync/ar/content.json", "automatic-hash", 84, [], ArticleTranslationMethods.Automatic,
+            ArticleTranslationStatuses.NeedsVerification, "Fake", 3, f.AuthorId, DateTime.UtcNow), default);
+
+        var article = await f.Context.Articles.AsNoTracking().SingleAsync(x => x.ArticleId == translated.ArticleId);
+        var metadata = await f.Context.ArticleTranslationMetadata.AsNoTracking()
+            .SingleAsync(x => x.ArticleId == translated.ArticleId);
+        Assert.Equal(ArticleStatuses.Published, article.Status);
+        Assert.Equal(translated.PublishedVersionId, article.LastPublishedVersionIdFk);
+        Assert.NotEqual(translated.DraftId, article.CurrentDraftIdFk);
+        Assert.Equal(result.TargetDraftId, article.CurrentDraftIdFk);
+        Assert.Equal(2, await f.Context.ArticleDrafts.CountAsync(x => x.ArticleIdFk == translated.ArticleId));
+        Assert.Equal(versionCount, await f.Context.ArticleVersions.CountAsync(x => x.ArticleIdFk == translated.ArticleId));
+        Assert.Equal(plan.Source.SourceVersionId, metadata.SourceVersionId);
+        Assert.Equal(ArticleTranslationStatuses.NeedsVerification, metadata.TranslationStatus);
+        Assert.Equal(ArticleTranslationMethods.Automatic, metadata.TranslationMethod);
+    }
+
+    [Fact]
+    public async Task Legacy_automatic_translation_also_preserves_the_previous_draft()
+    {
+        await using var f = await Fixture.CreatePublishedAsync();
+        var translated = await f.AddLinkedTranslationAsync(ArticleStatuses.Draft, false);
+        await f.Context.ArticleDrafts.Where(x => x.DraftId == translated.DraftId)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.Status, ArticleStatuses.Draft));
+        f.Context.ChangeTracker.Clear();
+        var repository = new AutomaticArticleTranslationRepository(f.Context);
+        var snapshot = await repository.GetSnapshotAsync(f.ArticleId, translated.ArticleId, default);
+
+        var committed = await repository.CommitAsync(new(snapshot, "Arabic automatic",
+            "automatic/new-draft.json", "new-hash", 100, [], "Fake", 4, f.AuthorId,
+            DateTime.UtcNow), default);
+
+        Assert.NotEqual(translated.DraftId, committed.TargetDraftId);
+        Assert.Equal(2, await f.Context.ArticleDrafts.CountAsync(x => x.ArticleIdFk == translated.ArticleId));
+        Assert.Equal(committed.TargetDraftId, (await f.Context.Articles.AsNoTracking()
+            .SingleAsync(x => x.ArticleId == translated.ArticleId)).CurrentDraftIdFk);
+        Assert.True(await f.Context.ArticleDrafts.AsNoTracking().AnyAsync(x =>
+            x.DraftId == translated.DraftId && x.ContentJsonStoragePath != "automatic/new-draft.json"));
+    }
+
     private sealed class Fixture : IAsyncDisposable
     {
         private readonly SqliteConnection connection;
@@ -1102,7 +1270,7 @@ public sealed class ArticleLifecycleSliceTests
 
         public async Task<ArticleVersion> PublishedVersionAsync()
         {
-            var versionId = (await Context.Articles.AsNoTracking().SingleAsync()).LastPublishedVersionIdFk;
+            var versionId = (await Context.Articles.AsNoTracking().SingleAsync(article => article.ArticleId == ArticleId)).LastPublishedVersionIdFk;
             return await Context.ArticleVersions.AsNoTracking()
                 .SingleAsync(version => version.VersionId == versionId);
         }
@@ -1204,6 +1372,78 @@ public sealed class ArticleLifecycleSliceTests
             return version;
         }
 
+        public async Task<LinkedTranslation> AddLinkedTranslationAsync(string status, bool withPublishedVersion)
+        {
+            var source = await Context.Articles.AsNoTracking().SingleAsync(x => x.ArticleId == ArticleId);
+            var sourceVersion = await PublishedVersionAsync();
+            var articleId = Guid.NewGuid();
+            var draftId = Guid.NewGuid();
+            var now = DateTime.UtcNow;
+            var contentPath = $"articles/{articleId:N}/drafts/{draftId:N}/content.json";
+            const string document = """{"type":"doc","content":[{"type":"paragraph"}]}""";
+            var bytes = Encoding.UTF8.GetBytes(document);
+            var hash = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+            if (!await Context.KbLanguages.AnyAsync(x => x.LocaleCode == "ar"))
+            {
+                Context.KbLanguages.Add(new KbLanguage
+                {
+                    LanguageId = Guid.NewGuid(), LocaleCode = "ar", DisplayName = "Arabic", NativeName = "العربية",
+                    IsEnabled = true, IsRtl = true, SortOrder = 1, CreatedAt = now, UpdatedAt = now
+                });
+                await Context.SaveChangesAsync();
+            }
+            Context.Articles.Add(new Article
+            {
+                ArticleId = articleId, Title = "Arabic translation", Slug = $"ar-{articleId:N}",
+                CategoryIdFk = source.CategoryIdFk, AuthorIdFk = AuthorId, Status = status,
+                LocaleCode = "ar", TranslationGroupId = source.TranslationGroupId, CreatedAt = now, UpdatedAt = now,
+                ArticleTranslationMetadata = new ArticleTranslationMetadata
+                {
+                    ArticleId = articleId, SourceArticleId = ArticleId, SourceVersionId = sourceVersion.VersionId,
+                    SourceVersionNumber = sourceVersion.VersionNumber, TranslationMethod = ArticleTranslationMethods.Manual,
+                    TranslationStatus = ArticleTranslationStatuses.Verified, LastTranslatedAt = now,
+                    VerifiedAt = now, VerifiedByUserId = AuthorId
+                }
+            });
+            await Context.SaveChangesAsync();
+            var rowVersion = Guid.NewGuid().ToByteArray();
+            await Context.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO ARTICLE_DRAFTS
+                    (DraftID, ArticleID_FK, DraftNumber, ContentJsonStoragePath, ContentHash, ContentSizeBytes,
+                     RowVersion, IsLocked, CreatedBy_FK, UpdatedBy_FK, CreatedAt, UpdatedAt, Status)
+                VALUES ({draftId}, {articleId}, {1}, {contentPath}, {hash}, {bytes.LongLength}, {rowVersion},
+                        {false}, {AuthorId}, {AuthorId}, {now}, {now}, {ArticleStatuses.Approved})
+                """);
+            var submittedId = Guid.NewGuid();
+            Context.ArticleVersions.Add(new ArticleVersion
+            {
+                VersionId = submittedId, ArticleIdFk = articleId, VersionNumber = 1, SourceDraftIdFk = draftId,
+                SourceDraftNumber = 1, SnapshotReason = ArticleSnapshotReasons.SubmittedForReview,
+                ContentJsonStoragePath = contentPath, ContentHash = hash, ContentSizeBytes = bytes.LongLength,
+                CreatedByFk = AuthorId, CreatedAt = now
+            });
+            Guid? publishedVersionId = null;
+            if (withPublishedVersion)
+            {
+                publishedVersionId = Guid.NewGuid();
+                Context.ArticleVersions.Add(new ArticleVersion
+                {
+                    VersionId = publishedVersionId.Value, ArticleIdFk = articleId, VersionNumber = 2,
+                    SourceDraftIdFk = draftId, SourceDraftNumber = 1, SnapshotReason = ArticleSnapshotReasons.Published,
+                    ContentJsonStoragePath = contentPath, ContentHash = hash, ContentSizeBytes = bytes.LongLength,
+                    CreatedByFk = AuthorId, CreatedAt = now, PublishedByFk = PublisherId, PublishedAt = now
+                });
+            }
+            await Context.SaveChangesAsync();
+            var article = await Context.Articles.SingleAsync(x => x.ArticleId == articleId);
+            article.CurrentDraftIdFk = draftId;
+            article.LastPublishedVersionIdFk = publishedVersionId;
+            await Context.SaveChangesAsync();
+            Storage.Seed(contentPath, bytes);
+            Context.ChangeTracker.Clear();
+            return new(articleId, draftId, rowVersion, publishedVersionId);
+        }
+
         public ArticleDraftService CreateDraftService() => new(
             new ArticleDraftRepository(Context),
             Storage,
@@ -1231,6 +1471,8 @@ public sealed class ArticleLifecycleSliceTests
             CreatedAt = now
         };
     }
+
+    private sealed record LinkedTranslation(Guid ArticleId, Guid DraftId, byte[] RowVersion, Guid? PublishedVersionId);
 
     private sealed class MutableCurrentUser : ICurrentUser
     {

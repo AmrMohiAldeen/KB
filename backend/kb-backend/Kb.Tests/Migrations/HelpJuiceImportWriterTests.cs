@@ -195,6 +195,55 @@ public sealed class HelpJuiceImportWriterTests
         Assert.False(links[1].IsPrimary);
     }
 
+    [Fact]
+    public async Task Explicit_locales_and_translation_group_are_preserved_without_duplicate_content_on_retry()
+    {
+        await using var f = await Fixture.CreateAsync();
+        var group = Guid.NewGuid();
+        var english = await f.Writer.WriteArticleAsync(f.OperationId,
+            Article("source-en", true, f.UserId) with { LocaleCode = "en", TranslationGroupId = group },
+            MigrationConflictBehaviors.Skip, default);
+        var arabic = await f.Writer.WriteArticleAsync(f.OperationId,
+            Article("source-ar", true, f.UserId) with { LocaleCode = "ar", TranslationGroupId = group },
+            MigrationConflictBehaviors.Skip, default);
+        var retry = await f.Writer.WriteArticleAsync(Guid.NewGuid(),
+            Article("source-ar", true, f.UserId) with { LocaleCode = "ar", TranslationGroupId = group },
+            MigrationConflictBehaviors.Skip, default);
+
+        f.Context.ChangeTracker.Clear();
+        var articles = await f.Context.Articles.OrderBy(article => article.LocaleCode).ToListAsync();
+        Assert.Equal(["ar", "en"], articles.Select(article => article.LocaleCode));
+        Assert.All(articles, article => Assert.Equal(group, article.TranslationGroupId));
+        Assert.Equal(MigrationWriteDisposition.Skipped, retry.Disposition);
+        Assert.Equal(arabic.InternalId, retry.InternalId);
+        Assert.Equal(2, await f.Context.ArticleVersions.CountAsync());
+        Assert.Equal(1, await f.Context.ArticleTranslationGroups.CountAsync(item => item.TranslationGroupId == group));
+        Assert.NotEqual(english.InternalId, arabic.InternalId);
+    }
+
+    [Fact]
+    public async Task Translated_categories_reuse_the_destination_and_store_localized_metadata()
+    {
+        await using var f = await Fixture.CreateAsync();
+        f.Context.KbLanguages.Add(new KbLanguage { LanguageId = Guid.NewGuid(), LocaleCode = "ar", DisplayName = "Arabic",
+            NativeName = "العربية", IsEnabled = true, IsRtl = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
+        await f.Context.SaveChangesAsync();
+
+        var english = await f.Writer.WriteCategoryAsync(f.OperationId,
+            new("guides-en", "Guides", "guides", null, 0, 0, "Public", "en", "guides-en"),
+            MigrationConflictBehaviors.Skip, f.UserId, default);
+        var arabic = await f.Writer.WriteCategoryAsync(f.OperationId,
+            new("guides-ar", "الإرشادات", "guides-ar", null, 0, 0, "Public", "ar", "guides-en"),
+            MigrationConflictBehaviors.Skip, f.UserId, default);
+
+        f.Context.ChangeTracker.Clear();
+        Assert.Equal(english.InternalId, arabic.InternalId);
+        Assert.Single(await f.Context.Categories.ToListAsync());
+        var localization = await f.Context.CategoryLocalizations.SingleAsync(item => item.CategoryId == english.InternalId && item.LocaleCode == "ar");
+        Assert.Equal("الإرشادات", localization.Name);
+        Assert.Equal(2, await f.Context.MigrationExternalMappings.CountAsync(item => item.ExternalEntityType == "Category"));
+    }
+
     private static ImportedArticleData Article(string id,bool published,Guid actor)=>new(id,id,id,null,null,actor,actor,true,published?ArticleStatuses.Published:ArticleStatuses.Draft,published,DateTime.UtcNow.AddDays(-1),DateTime.UtcNow,null,new($"draft/{id}.json",$"draft/{id}.html",$"draft/{id}.txt","a".PadLeft(64,'0'),20,[],published?$"version/{id}.json":null,published?$"version/{id}.html":null,published?$"version/{id}.txt":null));
 
     private sealed class Fixture : IAsyncDisposable

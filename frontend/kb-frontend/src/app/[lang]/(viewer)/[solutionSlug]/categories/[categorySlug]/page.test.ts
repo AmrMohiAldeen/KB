@@ -11,18 +11,19 @@ describe('ViewerCategoryRoute', () => {
   it('passes an in-scope category slug through the external Viewer flow', async () => {
     vi.mocked(getInternalPreviewAccessToken).mockResolvedValue('')
     const element = await ViewerCategoryRoute({
-      params: Promise.resolve({ solutionSlug: 'swiftassess', categorySlug: 'getting-started' })
+      params: Promise.resolve({ lang: 'ar', solutionSlug: 'swiftassess', categorySlug: 'getting-started' })
     })
 
     expect(element.props.solutionSlug).toBe('swiftassess')
     expect(element.props.categorySlug).toBe('getting-started')
     expect(element.props.preview).toBeUndefined()
+    expect(element.props.activeLocale).toBe('ar')
   })
 
   it('retains internal preview authentication while navigating categories', async () => {
     vi.mocked(getInternalPreviewAccessToken).mockResolvedValue('internal.jwt')
     const element = await ViewerCategoryRoute({
-      params: Promise.resolve({ solutionSlug: 'root-category', categorySlug: 'child-category' })
+      params: Promise.resolve({ lang: 'en', solutionSlug: 'root-category', categorySlug: 'child-category' })
     })
 
     expect(element.props.categorySlug).toBe('child-category')

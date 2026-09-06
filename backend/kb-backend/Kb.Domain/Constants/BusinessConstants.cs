@@ -280,6 +280,7 @@ public static class CategoryAuditActions
     public const string Unarchived = "CategoryUnarchived";
     public const string Reordered = "CategoryReordered";
     public const string VisibilityChanged = "CategoryVisibilityChanged";
+    public const string LocalizationsUpdated = "CategoryLocalizationsUpdated";
 }
 
 public static class AuditEntityTypes

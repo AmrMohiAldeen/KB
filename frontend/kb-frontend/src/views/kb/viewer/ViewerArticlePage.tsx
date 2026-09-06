@@ -13,33 +13,53 @@ import { ApiError, describeApiError } from '@/lib/api/http'
 import { getViewerArticle, getViewerPreviewArticle, type ViewerArticle } from '@/lib/api/viewerKnowledgeBaseApi'
 import KnowledgeBaseViewer from '@/features/editor/core/KnowledgeBaseViewer'
 import { formatDate } from '../shared/utils/formatDate'
+import ViewerLanguageSwitcher from './ViewerLanguageSwitcher'
+import { getArticleLanguageTarget, getViewerRootPath } from './viewerLocaleRouting'
+import { formatViewerMessage, getViewerMessages } from './viewerMessages'
 
-type ViewerArticlePageProps =
+type ViewerArticlePageProps = { activeLocale?: string } & (
   | { solutionSlug: string; articleSlug: string; preview?: never }
-  | { solutionSlug?: never; articleSlug: string; preview: { categorySlug: string; accessToken: string } }
+  | { solutionSlug?: never; articleSlug: string; preview: { categorySlug: string; accessToken: string } })
 
-export default function ViewerArticlePage({ solutionSlug, articleSlug, preview }: ViewerArticlePageProps) {
+export default function ViewerArticlePage({ solutionSlug, articleSlug, preview, activeLocale }: ViewerArticlePageProps) {
   const [article, setArticle] = useState<ViewerArticle | null>(null)
   const [error, setError] = useState<unknown>()
+  const messages = getViewerMessages(article?.activeLanguage.localeCode ?? activeLocale)
 
   useEffect(() => {
     const controller = new AbortController()
     const request = preview
-      ? getViewerPreviewArticle(preview.categorySlug, articleSlug, preview.accessToken, controller.signal)
-      : getViewerArticle(solutionSlug, articleSlug, controller.signal)
+      ? getViewerPreviewArticle(preview.categorySlug, articleSlug, preview.accessToken, activeLocale, controller.signal)
+      : getViewerArticle(solutionSlug, articleSlug, activeLocale, controller.signal)
     request.then(setArticle).catch(value => {
       if (!(value instanceof DOMException && value.name === 'AbortError')) setError(value)
     })
     return () => controller.abort()
-  }, [articleSlug, preview, solutionSlug])
+  }, [activeLocale, articleSlug, preview, solutionSlug])
 
-  if (error) return <Alert severity={error instanceof ApiError && error.status === 403 ? 'warning' : 'error'}>{error instanceof ApiError && error.status === 403 ? 'You do not have access to this solution.' : describeApiError(error).join(' ')}</Alert>
-  if (!article) return <Stack direction='row' spacing={2}><CircularProgress size={24} /><Typography>Loading article…</Typography></Stack>
+  useEffect(() => {
+    if (!article) return
+    document.documentElement.lang = article.activeLanguage.localeCode
+    document.documentElement.dir = article.activeLanguage.isRtl ? 'rtl' : 'ltr'
+  }, [article])
 
-  return <Stack spacing={5} sx={{ maxInlineSize: 1040, mx: 'auto' }}>
-    {preview && <Alert severity='info'>Preview mode — Viewing as end user</Alert>}
-    <Breadcrumbs><Link href={`/${preview?.categorySlug ?? solutionSlug}`}>Knowledge Base</Link><Typography color='text.secondary'>{article.categoryName}</Typography></Breadcrumbs>
-    <Box><Typography variant='h3'>{article.title}</Typography><Typography color='text.secondary'>Updated {formatDate(article.updatedAt)}</Typography></Box>
+  if (error) return <Alert severity={error instanceof ApiError && error.status === 403 ? 'warning' : 'error'}>{error instanceof ApiError && error.status === 403 ? messages.accessDenied : describeApiError(error).join(' ')}</Alert>
+  if (!article) return <Stack direction='row' spacing={2}><CircularProgress size={24} /><Typography>{messages.loadingArticle}</Typography></Stack>
+
+  const rootSlug = preview?.categorySlug ?? solutionSlug!
+  const rootPath = getViewerRootPath(rootSlug, article.activeLanguage.localeCode, article.languages)
+
+  return <Stack dir={article.activeLanguage.isRtl ? 'rtl' : 'ltr'} spacing={5}
+    sx={{ maxInlineSize: 1040, mx: 'auto', textAlign: 'start' }}>
+    <ViewerLanguageSwitcher
+      activeLocale={article.activeLanguage.localeCode}
+      languages={article.languages}
+      getTarget={language => getArticleLanguageTarget(rootSlug, language, article.languages,
+        article.availableTranslations).href}
+    />
+    {preview && <Alert severity='info'>{messages.previewMode}</Alert>}
+    <Breadcrumbs><Link href={rootPath}>{messages.knowledgeBase}</Link><Typography color='text.secondary'>{article.categoryName}</Typography></Breadcrumbs>
+    <Box><Typography variant='h3'>{article.title}</Typography><Typography color='text.secondary'>{formatViewerMessage(messages.updated, { date: formatDate(article.updatedAt, article.activeLanguage.localeCode) })}</Typography></Box>
     <Divider /><KnowledgeBaseViewer content={article.content} />
   </Stack>
 }

@@ -24,10 +24,10 @@ public sealed class ViewerPreviewTests
         await using var fixture = await Fixture.CreateAsync();
         var before = await fixture.ViewerRowCountsAsync();
 
-        var portal = await fixture.Service.GetPreviewPortalAsync("getting-started", default);
-        var otherRoot = await fixture.Service.GetPreviewPortalAsync("advanced", default);
-        var tree = await fixture.Service.GetPreviewTreeAsync("getting-started", default);
-        var articles = await fixture.Service.GetPreviewArticlesAsync("getting-started", null, null, default);
+        var portal = await fixture.Service.GetPreviewPortalAsync("getting-started", null, default);
+        var otherRoot = await fixture.Service.GetPreviewPortalAsync("advanced", null, default);
+        var tree = await fixture.Service.GetPreviewTreeAsync("getting-started", null, default);
+        var articles = await fixture.Service.GetPreviewArticlesAsync("getting-started", null, null, null, default);
 
         Assert.Equal(fixture.SelectedId, portal.RootId);
         Assert.Equal("advanced", otherRoot.Slug);
@@ -46,14 +46,14 @@ public sealed class ViewerPreviewTests
     {
         await using var fixture = await Fixture.CreateAsync();
 
-        var visible = await fixture.Service.GetPreviewArticleBySlugAsync("getting-started", "child-visible", default);
+        var visible = await fixture.Service.GetPreviewArticleBySlugAsync("getting-started", "child-visible", null, default);
         Assert.Equal("child-visible", visible.Slug);
         await Assert.ThrowsAsync<NotFoundException>(() =>
-            fixture.Service.GetPreviewArticleByIdAsync("getting-started", fixture.SiblingArticleId, default));
+            fixture.Service.GetPreviewArticleByIdAsync("getting-started", fixture.SiblingArticleId, null, default));
         await Assert.ThrowsAsync<NotFoundException>(() =>
-            fixture.Service.GetPreviewArticleBySlugAsync("getting-started", "sibling-visible", default));
+            fixture.Service.GetPreviewArticleBySlugAsync("getting-started", "sibling-visible", null, default));
         await Assert.ThrowsAsync<NotFoundException>(() =>
-            fixture.Service.GetPreviewPortalAsync("staff", default));
+            fixture.Service.GetPreviewPortalAsync("staff", null, default));
     }
 
     [Fact]
@@ -80,7 +80,7 @@ public sealed class ViewerPreviewTests
         fixture.CurrentUser.RejectInternalIdentity = true;
 
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
-            fixture.Service.GetPreviewPortalAsync("getting-started", default));
+            fixture.Service.GetPreviewPortalAsync("getting-started", null, default));
 
         var previewAuthorization = Assert.Single(typeof(ViewerPreviewController)
             .GetCustomAttributes(typeof(AuthorizeAttribute), true).Cast<AuthorizeAttribute>());
@@ -153,7 +153,7 @@ public sealed class ViewerPreviewTests
                 ContentVisibilities.Public, now, deleted: true);
             var repository = new ViewerRepository(context, TimeProvider.System);
             var currentUser = new CurrentUser(userId);
-            var service = new ViewerService(repository, new EmptySearch(), new EmptyViewer(), storage,
+            var service = new ViewerService(repository, new EmptyViewer(), storage,
                 Options.Create(new ViewerAuthenticationOptions()), TimeProvider.System, currentUser);
             context.ChangeTracker.Clear();
             return new Fixture(connection, context, storage, service, currentUser)
@@ -249,14 +249,6 @@ public sealed class ViewerPreviewTests
         public Guid CustomerId => Guid.Empty;
         public string ExternalUserId => string.Empty;
         public string ExternalUserEmail => string.Empty;
-    }
-
-    private sealed class EmptySearch : IViewerSearchClient
-    {
-        public Task<IReadOnlyList<ViewerArticleSummary>> SearchAsync(Guid solutionId, string query, int limit,
-            CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<ViewerArticleSummary>>([]);
-        public Task<IReadOnlyList<ViewerArticleSummary>> SearchPreviewAsync(Guid rootCategoryId, string query,
-            int limit, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<ViewerArticleSummary>>([]);
     }
 
     private sealed class MemoryStorage : IObjectStorage

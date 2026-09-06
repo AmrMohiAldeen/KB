@@ -8,7 +8,7 @@ public sealed partial class HelpJuiceMigrationService
     private static readonly IReadOnlySet<string> ParsedCsvFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         "questions.csv", "answers.csv", "categories.csv", "categorizations.csv", "uploads.csv",
-        "users.csv", "passes.csv"
+        "users.csv", "passes.csv", "languages.csv"
     };
 
     public async Task<HelpJuiceDiagnosticReportFile> GenerateDiagnosticReportAsync(
@@ -135,6 +135,7 @@ public sealed partial class HelpJuiceMigrationService
         "categorizations.csv" => "Categorization",
         "uploads.csv" => "Media",
         "users.csv" => "User",
+        "languages.csv" => "Language",
         "passes.csv" => "LegacyPermission",
         _ => "Package"
     };

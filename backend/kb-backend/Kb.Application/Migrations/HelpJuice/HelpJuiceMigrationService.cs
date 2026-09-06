@@ -46,6 +46,14 @@ public sealed partial class HelpJuiceMigrationService(
             var mappedArticleSlugs = await writer.GetMappedArticleSlugsAsync(ct);
             var source = await ParseSourceAsync(
                 package, limits, timeProvider, destinationSlugs, mappedArticleSlugs, ct);
+            var localization = HelpJuiceLocalizationPlan.Build(source);
+            source = source with
+            {
+                Issues = source.Issues.Concat(localization.Diagnostics.Select(diagnostic => NewIssue("Warning",
+                    diagnostic.EntityType == "Category" ? "categories.csv" : "questions.csv", diagnostic.RowNumber,
+                    diagnostic.EntityType, diagnostic.ExternalId, diagnostic.Code, diagnostic.Message)))
+                    .Concat(await LocalizationConfigurationIssuesAsync(source, localization, ct)).ToArray()
+            };
             return HelpJuicePreviewBuilder.Build(source, articleLimit);
         }
         finally
@@ -83,6 +91,11 @@ public sealed partial class HelpJuiceMigrationService(
             var source = await ParseSourceAsync(
                 package, limits, timeProvider, destinationSlugs, mappedArticleSlugs, ct);
             var issues = source.Issues.ToList();
+            var localization = HelpJuiceLocalizationPlan.Build(source);
+            issues.AddRange(localization.Diagnostics.Select(diagnostic => NewIssue("Warning",
+                diagnostic.EntityType == "Category" ? "categories.csv" : "questions.csv", diagnostic.RowNumber,
+                diagnostic.EntityType, diagnostic.ExternalId, diagnostic.Code, diagnostic.Message)));
+            issues.AddRange(await LocalizationConfigurationIssuesAsync(source, localization, ct));
             var validation = source.Summary with
             {
                 BlockingErrorCount = issues.Count(x => x.Severity == "Error"),
@@ -137,7 +150,9 @@ public sealed partial class HelpJuiceMigrationService(
                         Guid? parent = category.ParentId is null ? null : categoryMap.GetValueOrDefault(category.ParentId);
                         var result = await writer.WriteCategoryAsync(operationId,
                             new(category.Id, category.Name, category.Slug,
-                                parent, category.Depth, category.SortOrder, category.Visibility), options.ConflictBehavior,
+                                parent, category.Depth, category.SortOrder, category.Visibility,
+                                localization.CategoryLocales.GetValueOrDefault(category.Id),
+                                localization.CanonicalCategoryIds.GetValueOrDefault(category.Id, category.Id)), options.ConflictBehavior,
                             currentUser.UserId, ct);
                         categoryMap[category.Id] = result.InternalId;
                         categoryPhase.Record(result.Disposition);
@@ -352,7 +367,8 @@ public sealed partial class HelpJuiceMigrationService(
                             question.IsArchived ? Kb.Domain.Constants.ArticleStatuses.Archived : question.IsPublished
                                 ? Kb.Domain.Constants.ArticleStatuses.Published : Kb.Domain.Constants.ArticleStatuses.Draft,
                             question.IsPublished, created, updated, null, content, question.Source, question.Position,
-                            question.Visibility, categoryIds), options.ConflictBehavior, ct);
+                            question.Visibility, categoryIds, localization.ArticleLocales.GetValueOrDefault(question.Id),
+                            localization.ArticleGroups.GetValueOrDefault(question.Id)), options.ConflictBehavior, ct);
                     articlePhase.Record(result.Disposition);
                     if (!result.StagedContentConsumed)
                         await DeletePaths(stagedPaths);
@@ -770,6 +786,23 @@ public sealed partial class HelpJuiceMigrationService(
     private static void MapMediaKeys(string file, (Guid Id, string Url) pair,
         Dictionary<string, (Guid, string)> map, IReadOnlyDictionary<string, string> uploads)
     { foreach (var key in MediaKeys(file)) map.TryAdd(key, pair); foreach (var item in uploads.Where(x => Path.GetFileName(x.Value).Equals(Path.GetFileName(file), StringComparison.OrdinalIgnoreCase))) foreach (var key in MediaKeys(item.Key)) map.TryAdd(key, pair); }
+    private async Task<IReadOnlyList<MigrationIssueData>> LocalizationConfigurationIssuesAsync(HelpJuiceSource source,
+        HelpJuiceLocalizationPlan localization, CancellationToken ct)
+    {
+        var configured = await writer.GetConfiguredLocaleCodesAsync(ct);
+        var issues = new List<MigrationIssueData>();
+        foreach (var item in localization.ArticleLocales.GroupBy(item => item.Value, StringComparer.OrdinalIgnoreCase))
+        {
+            if (configured.Contains(item.Key)) continue;
+            var question = source.Questions.First(question => question.Id.Equals(item.First().Key,
+                StringComparison.OrdinalIgnoreCase));
+            issues.Add(NewIssue("Warning", "languages.csv", question.RowNumber, "Language", item.Key,
+                "LOCALE_CONFIGURATION_MISSING",
+                $"Locale '{item.Key}' is not configured in the destination. Migration will retain it as disabled; configure its display name and enable it after review."));
+        }
+        return issues;
+    }
+
     private MigrationIssueData NewIssue(string severity, string? file, int? row, string? type,
         string? id, string code, string message, string? summary = null) => new(Guid.NewGuid(), severity, file, row, type, id, code,
             message, summary, timeProvider.GetUtcNow().UtcDateTime);

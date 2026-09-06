@@ -49,6 +49,28 @@ public sealed class MoveCategoryRequest
     public int SortOrder { get; init; }
 }
 
+public sealed class UpdateCategoryLocalizationsRequest
+{
+    [Required]
+    public IReadOnlyList<CategoryLocalizationWriteRequest> Localizations { get; init; } = [];
+}
+
+public sealed class CategoryLocalizationWriteRequest
+{
+    [Required, NonWhiteSpace, StringLength(35)]
+    public required string LocaleCode { get; init; }
+
+    [StringLength(200)]
+    public string? Name { get; init; }
+
+    [StringLength(1000)]
+    public string? Description { get; init; }
+}
+
+public sealed record CategoryLocalizationResponse(string LocaleCode, string Name, string? Description);
+public sealed record CategoryLocalizationLanguageResponse(string LocaleCode, string DisplayName, string NativeName,
+    bool IsDefault, bool IsRtl, int SortOrder);
+
 public sealed record CategoryTreeNodeResponse(
     Guid CategoryId,
     Guid? ParentCategoryId,
@@ -63,7 +85,8 @@ public sealed record CategoryTreeNodeResponse(
     string Status,
     string Visibility,
     Guid? ViewerImageMediaId,
-    string? ViewerIcon);
+    string? ViewerIcon,
+    IReadOnlyList<CategoryLocalizationResponse> Localizations);
 
 public sealed record CategoryDetailsResponse(
     Guid Id,
@@ -78,4 +101,5 @@ public sealed record CategoryDetailsResponse(
     string Status,
     string Visibility,
     Guid? ViewerImageMediaId,
-    string? ViewerIcon);
+    string? ViewerIcon,
+    IReadOnlyList<CategoryLocalizationResponse> Localizations);

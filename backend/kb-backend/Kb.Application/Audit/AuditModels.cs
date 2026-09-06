@@ -18,7 +18,7 @@ public sealed record AuditUserData(Guid Id, string Name);
 public sealed record AuditExternalActorData(string ExternalUserId, string? ExternalEmail, Guid? CustomerId,
     Guid? SessionId, Guid? SolutionId);
 
-public sealed record AuditArticleData(Guid Id, string Title, string Slug);
+public sealed record AuditArticleData(Guid Id, string Title, string Slug, string LocaleCode);
 
 public sealed record AuditLogRecordData(
     Guid Id,

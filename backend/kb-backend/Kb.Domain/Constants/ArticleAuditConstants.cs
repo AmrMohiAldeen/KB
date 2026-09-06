@@ -35,7 +35,9 @@ public static class ArticleAuditActions
     public const string TranslationUnlinked = "ArticleTranslationUnlinked";
     public const string TranslationTranslatorAssigned = "ArticleTranslationTranslatorAssigned";
     public const string TranslationVerified = "ArticleTranslationVerified";
+    public const string TranslationMarkedOutOfDate = "ArticleTranslationMarkedOutOfDate";
     public const string TranslationAutomaticallyGenerated = "ArticleTranslationAutomaticallyGenerated";
+    public const string LocalizationSynchronized = "ArticleLocalizationSynchronized";
 }
 
 public static class ArticleAuditEntityTypes

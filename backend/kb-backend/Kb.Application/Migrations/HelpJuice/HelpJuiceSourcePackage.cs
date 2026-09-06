@@ -25,6 +25,7 @@ public sealed record HelpJuiceCategory(int RowNumber, string Id, string? ParentI
 public sealed record HelpJuiceUpload(int RowNumber, string Id, string FileName, string? PreviewUrl,
     string? Checksum, string? MimeType, string Extension, long? Size, DateTime? CreatedAt,
     IReadOnlyDictionary<string, string> Source);
+public sealed record HelpJuiceLanguage(int RowNumber, int Id, string LocaleCode);
 
 public sealed record HelpJuiceSource(
     IReadOnlyList<HelpJuiceQuestion> Questions,
@@ -37,7 +38,8 @@ public sealed record HelpJuiceSource(
     IReadOnlyList<MigrationIssueData> Issues,
     HelpJuiceValidationSummary Summary,
     IReadOnlyList<HelpJuiceUpload>? Uploads = null,
-    string? PackageRootPath = null);
+    string? PackageRootPath = null,
+    IReadOnlyDictionary<int, string>? LocaleByLanguageId = null);
 
 public static class HelpJuiceSourceParser
 {
@@ -236,6 +238,7 @@ public static class HelpJuiceSourceParser
                     "automaticallyRepaired=true;field=body;source=alternate answer row"));
         }
 
+        var localeByLanguageId = await ParseLanguagesAsync(package, limits, issues, Issue, cancellationToken);
         var categories = await ParseCategoriesAsync(package, limits, issues, Issue, cancellationToken);
         var categorizations = await ParseCategorizationsAsync(package, limits, issues, Issue, cancellationToken);
         var categoryIds = categories.Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -462,7 +465,7 @@ public static class HelpJuiceSourceParser
             issues.Count(i => i.ErrorCode is "ARTICLE_CATEGORY_MISSING" or "CATEGORY_PARENT_MISSING"), missingMedia,
             package.AvailableFiles, missing, package.UnsupportedFiles, issues.Count(i => i.Severity == "Error"), issues.Count(i => i.Severity == "Warning"));
         return new(questions, answers, categories, categorizationFirst, package.MediaFiles, mediaBySource,
-            convertedAnswers, issues, summary, uploads, package.RootPath);
+            convertedAnswers, issues, summary, uploads, package.RootPath, localeByLanguageId);
     }
 
     public static IReadOnlyList<HelpJuiceCategory> OrderCategories(IReadOnlyList<HelpJuiceCategory> categories, out IReadOnlyList<string> cycleIds)
@@ -646,6 +649,33 @@ public static class HelpJuiceSourceParser
         body = string.Empty;
         source = string.Empty;
         return false;
+    }
+
+    private static async Task<Dictionary<int, string>> ParseLanguagesAsync(PackageContents package,
+        HelpJuiceMigrationLimits limits, List<MigrationIssueData> issues,
+        Func<string,string,string,string?,int?,string?,string?,string?,MigrationIssueData> issue, CancellationToken ct)
+    {
+        var result = new Dictionary<int, string>();
+        if (!package.KnownCsvFiles.TryGetValue("languages.csv", out var path)) return result;
+        var csv = await HelpJuiceCsvReader.ReadAsync(path, limits.MaxCsvRows, ct);
+        RequireColumns(csv, ["id"], issues, issue);
+        foreach (var row in csv.Rows)
+        {
+            var id = ParseInt(row["id"]);
+            var locale = First(row, "locale_code", "language_code", "locale", "code", "codename");
+            if (id is null || !IsLocaleCode(locale))
+            {
+                issues.Add(issue("Warning", "LANGUAGE_LOCALE_UNRESOLVED",
+                    "The HelpJuice language row has no valid locale code; its numeric language ID will not be guessed.",
+                    "languages.csv", row.RowNumber, "Language", row["id"], "automaticallyRepaired=false"));
+                continue;
+            }
+            if (!result.TryAdd(id.Value, locale.ToLowerInvariant()))
+                issues.Add(issue("Warning", "LANGUAGE_ID_DUPLICATE",
+                    $"HelpJuice language ID '{id}' appears more than once; only the first locale mapping is used.",
+                    "languages.csv", row.RowNumber, "Language", row["id"], "automaticallyRepaired=false"));
+        }
+        return result;
     }
 
     private static async Task<List<HelpJuiceCategory>> ParseCategoriesAsync(PackageContents package, HelpJuiceMigrationLimits limits,
@@ -931,6 +961,7 @@ public static class HelpJuiceSourceParser
         Func<string,string,string,string?,int?,string?,string?,string?,MigrationIssueData> issue){foreach(var g in values.Where(x=>x.Id.Length>0).GroupBy(x=>x.Id,StringComparer.OrdinalIgnoreCase).Where(g=>g.Count()>1)) foreach(var x in g) issues.Add(issue("Error",code,$"Duplicate {type.ToLowerInvariant()} ID '{g.Key}'.",file,x.Row,type,g.Key,null));}
     private static bool ParseBoolean(string value,out bool valid){if(string.IsNullOrWhiteSpace(value)){valid=true;return false;} if(bool.TryParse(value,out var b)){valid=true;return b;} if(value.Trim() is "1" or "yes" or "YES" or "t" or "T"){valid=true;return true;} if(value.Trim() is "0" or "no" or "NO" or "f" or "F"){valid=true;return false;} valid=false;return false;}
     private static DateTime? ParseDate(string value,out bool valid){if(string.IsNullOrWhiteSpace(value)){valid=true;return null;}var normalized=value.Trim();if(normalized.EndsWith(" UTC",StringComparison.OrdinalIgnoreCase))normalized=normalized[..^4]+" +00:00";valid=DateTimeOffset.TryParse(normalized,System.Globalization.CultureInfo.InvariantCulture,System.Globalization.DateTimeStyles.AllowWhiteSpaces,out var d);return valid?d.UtcDateTime:null;}
+    private static bool IsLocaleCode(string value) => Regex.IsMatch(value.Trim(), "^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$");
     private static string? NullIfEmpty(string value)=>string.IsNullOrWhiteSpace(value)?null:value.Trim(); private static string Limit(string value)=>value.Length<=160?value:value[..157]+"...";
-    private static HelpJuiceSource EmptySummary(PackageContents p,List<MigrationIssueData> issues,IReadOnlyList<string> missing){var s=new HelpJuiceValidationSummary(0,0,0,0,0,0,0,0,0,0,p.AvailableFiles,missing,p.UnsupportedFiles,issues.Count(i=>i.Severity=="Error"),issues.Count(i=>i.Severity=="Warning"));return new([],[],[],new Dictionary<string,string>(),p.MediaFiles,new Dictionary<string,string>(),new Dictionary<string,HelpJuiceHtmlConversion>(),issues,s,[],p.RootPath);}
+    private static HelpJuiceSource EmptySummary(PackageContents p,List<MigrationIssueData> issues,IReadOnlyList<string> missing){var s=new HelpJuiceValidationSummary(0,0,0,0,0,0,0,0,0,0,p.AvailableFiles,missing,p.UnsupportedFiles,issues.Count(i=>i.Severity=="Error"),issues.Count(i=>i.Severity=="Warning"));return new([],[],[],new Dictionary<string,string>(),p.MediaFiles,new Dictionary<string,string>(),new Dictionary<string,HelpJuiceHtmlConversion>(),issues,s,[],p.RootPath,new Dictionary<int,string>());}
 }

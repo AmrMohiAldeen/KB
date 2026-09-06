@@ -7,8 +7,8 @@ using Microsoft.Extensions.Options;
 
 namespace Kb.Application.Viewer;
 
-public sealed class ViewerService(IViewerRepository repository, IViewerSearchClient searchClient,
-    ICurrentViewer currentViewer, IObjectStorage storage, IOptions<ViewerAuthenticationOptions> options,
+public sealed class ViewerService(IViewerRepository repository, ICurrentViewer currentViewer,
+    IObjectStorage storage, IOptions<ViewerAuthenticationOptions> options,
     TimeProvider timeProvider, ICurrentUser currentUser)
 {
     public async Task<ViewerSessionData> ExchangeAsync(ViewerHandoffIdentity handoff, CancellationToken token)
@@ -35,33 +35,36 @@ public sealed class ViewerService(IViewerRepository repository, IViewerSearchCli
     public Task RevokeCurrentSessionAsync(CancellationToken token) => repository.RevokeSessionAsync(
         RequireViewer().SessionId, timeProvider.GetUtcNow().UtcDateTime, "Signed out", token);
 
-    public Task<ViewerPortalData> GetPortalAsync(string solutionSlug, CancellationToken token) =>
-        repository.GetPortalAsync(RequireViewer().SessionId, NormalizeSlug(solutionSlug), token);
+    public Task<ViewerPortalData> GetPortalAsync(string solutionSlug, string? locale, CancellationToken token) =>
+        repository.GetPortalAsync(RequireViewer().SessionId, NormalizeSlug(solutionSlug), NormalizeLocale(locale), token);
 
-    public async Task<IReadOnlyList<ViewerCategoryNode>> GetTreeAsync(string solutionSlug, CancellationToken token)
+    public async Task<IReadOnlyList<ViewerCategoryNode>> GetTreeAsync(string solutionSlug, string? locale,
+        CancellationToken token)
     {
-        var categories = await repository.GetCategoriesAsync(RequireViewer().SessionId, NormalizeSlug(solutionSlug), token);
+        var categories = await repository.GetCategoriesAsync(RequireViewer().SessionId, NormalizeSlug(solutionSlug),
+            NormalizeLocale(locale), token);
         return BuildTree(categories);
     }
 
-    public Task<IReadOnlyList<ViewerArticleSummary>> GetArticlesAsync(string solutionSlug, string? search,
+    public Task<IReadOnlyList<ViewerArticleSummary>> GetArticlesAsync(string solutionSlug, string? locale, string? search,
         Guid? categoryId, CancellationToken token) => repository.GetArticlesAsync(RequireViewer().SessionId,
-        NormalizeSlug(solutionSlug), string.IsNullOrWhiteSpace(search) ? null : search.Trim(), categoryId, token);
+        NormalizeSlug(solutionSlug), NormalizeLocale(locale), string.IsNullOrWhiteSpace(search) ? null : search.Trim(),
+        categoryId, token);
 
-    public async Task<IReadOnlyList<ViewerArticleSummary>> SearchAsync(string solutionSlug, string query,
+    public async Task<IReadOnlyList<ViewerArticleSummary>> SearchAsync(string solutionSlug, string? locale, string query,
         CancellationToken token)
     {
         if (string.IsNullOrWhiteSpace(query) || query.Trim().Length > 200)
             throw new BusinessRuleException("A Viewer search query between 1 and 200 characters is required.");
-        var portal = await GetPortalAsync(solutionSlug, token);
-        return await searchClient.SearchAsync(portal.RootId, query.Trim(), 50, token);
+        return await repository.GetArticlesAsync(RequireViewer().SessionId, NormalizeSlug(solutionSlug),
+            NormalizeLocale(locale), query.Trim(), null, token);
     }
 
-    public Task<ViewerArticle> GetArticleBySlugAsync(string solutionSlug, string articleSlug, string? ip,
-        string? userAgent, CancellationToken token) => GetArticleAsync(solutionSlug, articleSlug, null, ip, userAgent, token);
+    public Task<ViewerArticle> GetArticleBySlugAsync(string solutionSlug, string articleSlug, string? locale, string? ip,
+        string? userAgent, CancellationToken token) => GetArticleAsync(solutionSlug, articleSlug, null, locale, ip, userAgent, token);
 
-    public Task<ViewerArticle> GetArticleByIdAsync(string solutionSlug, Guid articleId, string? ip,
-        string? userAgent, CancellationToken token) => GetArticleAsync(solutionSlug, null, articleId, ip, userAgent, token);
+    public Task<ViewerArticle> GetArticleByIdAsync(string solutionSlug, Guid articleId, string? locale, string? ip,
+        string? userAgent, CancellationToken token) => GetArticleAsync(solutionSlug, null, articleId, locale, ip, userAgent, token);
 
     public async Task<ViewerCategoryImage> GetCategoryImageAsync(string solutionSlug, Guid categoryId,
         CancellationToken token)
@@ -72,53 +75,56 @@ public sealed class ViewerService(IViewerRepository repository, IViewerSearchCli
     }
 
     private async Task<ViewerArticle> GetArticleAsync(string solutionSlug, string? articleSlug, Guid? articleId,
-        string? ip, string? userAgent, CancellationToken token)
+        string? locale, string? ip, string? userAgent, CancellationToken token)
     {
         if (articleId == Guid.Empty || articleSlug is not null && string.IsNullOrWhiteSpace(articleSlug))
             throw new NotFoundException("The article was not found.");
         var viewer = RequireViewer();
         var source = await repository.GetArticleAsync(viewer.SessionId, NormalizeSlug(solutionSlug),
-            articleSlug?.Trim() ?? string.Empty, articleId, token) ?? throw new NotFoundException("The article was not found.");
+            NormalizeLocale(locale), articleSlug?.Trim() ?? string.Empty, articleId, token) ??
+            throw new NotFoundException("The article was not found.");
         var article = await LoadArticleAsync(source, token);
         await repository.RecordArticleViewAsync(viewer, source, ip, userAgent, token);
         return article;
     }
 
-    public Task<ViewerPortalData> GetPreviewPortalAsync(string rootCategorySlug, CancellationToken token)
-    {
-        RequireInternalUser();
-        return repository.GetPreviewPortalAsync(NormalizeSlug(rootCategorySlug), token);
-    }
-
-    public async Task<IReadOnlyList<ViewerCategoryNode>> GetPreviewTreeAsync(string rootCategorySlug,
+    public Task<ViewerPortalData> GetPreviewPortalAsync(string rootCategorySlug, string? locale,
         CancellationToken token)
     {
         RequireInternalUser();
-        return BuildTree(await repository.GetPreviewCategoriesAsync(NormalizeSlug(rootCategorySlug), token));
+        return repository.GetPreviewPortalAsync(NormalizeSlug(rootCategorySlug), NormalizeLocale(locale), token);
     }
 
-    public Task<IReadOnlyList<ViewerArticleSummary>> GetPreviewArticlesAsync(string rootCategorySlug, string? search,
-        Guid? categoryId, CancellationToken token)
+    public async Task<IReadOnlyList<ViewerCategoryNode>> GetPreviewTreeAsync(string rootCategorySlug, string? locale,
+        CancellationToken token)
     {
         RequireInternalUser();
-        return repository.GetPreviewArticlesAsync(NormalizeSlug(rootCategorySlug),
+        return BuildTree(await repository.GetPreviewCategoriesAsync(NormalizeSlug(rootCategorySlug),
+            NormalizeLocale(locale), token));
+    }
+
+    public Task<IReadOnlyList<ViewerArticleSummary>> GetPreviewArticlesAsync(string rootCategorySlug, string? locale,
+        string? search, Guid? categoryId, CancellationToken token)
+    {
+        RequireInternalUser();
+        return repository.GetPreviewArticlesAsync(NormalizeSlug(rootCategorySlug), NormalizeLocale(locale),
             string.IsNullOrWhiteSpace(search) ? null : search.Trim(), categoryId, token);
     }
 
-    public async Task<IReadOnlyList<ViewerArticleSummary>> SearchPreviewAsync(string rootCategorySlug, string query,
-        CancellationToken token)
+    public async Task<IReadOnlyList<ViewerArticleSummary>> SearchPreviewAsync(string rootCategorySlug, string? locale,
+        string query, CancellationToken token)
     {
         RequireInternalUser();
         ValidateSearch(query);
-        var portal = await repository.GetPreviewPortalAsync(NormalizeSlug(rootCategorySlug), token);
-        return await searchClient.SearchPreviewAsync(portal.RootId, query.Trim(), 50, token);
+        return await repository.GetPreviewArticlesAsync(NormalizeSlug(rootCategorySlug), NormalizeLocale(locale),
+            query.Trim(), null, token);
     }
 
-    public Task<ViewerArticle> GetPreviewArticleBySlugAsync(string rootCategorySlug, string articleSlug,
-        CancellationToken token) => GetPreviewArticleAsync(rootCategorySlug, articleSlug, null, token);
+    public Task<ViewerArticle> GetPreviewArticleBySlugAsync(string rootCategorySlug, string articleSlug, string? locale,
+        CancellationToken token) => GetPreviewArticleAsync(rootCategorySlug, articleSlug, null, locale, token);
 
-    public Task<ViewerArticle> GetPreviewArticleByIdAsync(string rootCategorySlug, Guid articleId,
-        CancellationToken token) => GetPreviewArticleAsync(rootCategorySlug, null, articleId, token);
+    public Task<ViewerArticle> GetPreviewArticleByIdAsync(string rootCategorySlug, Guid articleId, string? locale,
+        CancellationToken token) => GetPreviewArticleAsync(rootCategorySlug, null, articleId, locale, token);
 
     public async Task<ViewerCategoryImage> GetPreviewCategoryImageAsync(string rootCategorySlug, Guid categoryId,
         CancellationToken token)
@@ -130,13 +136,13 @@ public sealed class ViewerService(IViewerRepository repository, IViewerSearchCli
     }
 
     private async Task<ViewerArticle> GetPreviewArticleAsync(string rootCategorySlug, string? articleSlug,
-        Guid? articleId, CancellationToken token)
+        Guid? articleId, string? locale, CancellationToken token)
     {
         RequireInternalUser();
         if (articleId == Guid.Empty || articleSlug is not null && string.IsNullOrWhiteSpace(articleSlug))
             throw new NotFoundException("The article was not found.");
         var source = await repository.GetPreviewArticleAsync(NormalizeSlug(rootCategorySlug),
-            articleSlug?.Trim() ?? string.Empty, articleId, token) ??
+            NormalizeLocale(locale), articleSlug?.Trim() ?? string.Empty, articleId, token) ??
             throw new NotFoundException("The article was not found.");
         return await LoadArticleAsync(source, token);
     }
@@ -149,7 +155,8 @@ public sealed class ViewerService(IViewerRepository repository, IViewerSearchCli
                 source.ContentJsonPath, token);
             using var document = await JsonDocument.ParseAsync(stream, cancellationToken: token);
             return new(source.Id, source.Title, source.Slug, source.CategoryId, source.CategoryName,
-                source.CategoryPath, source.UpdatedAt, document.RootElement.Clone());
+                source.CategoryPath, source.UpdatedAt, document.RootElement.Clone(), source.ActiveLanguage,
+                source.Languages, source.AvailableTranslations);
         }
         catch (Exception exception) when (exception is not OperationCanceledException and not NotFoundException)
         {
@@ -211,6 +218,13 @@ public sealed class ViewerService(IViewerRepository repository, IViewerSearchCli
     private static string NormalizeSlug(string value)
     {
         if (string.IsNullOrWhiteSpace(value) || value.Length > 100) throw new NotFoundException();
+        return value.Trim().ToLowerInvariant();
+    }
+
+    private static string? NormalizeLocale(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        if (value.Length > 35) throw new NotFoundException("The language was not found.");
         return value.Trim().ToLowerInvariant();
     }
 }

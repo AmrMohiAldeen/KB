@@ -1,5 +1,5 @@
 import { apiRequest } from './http'
-import type { ArticleTranslationResponse, CreateArticleTranslationRequest, LanguageResponse } from '@/types/apps/translationTypes'
+import type { ArticleTranslationResponse, CreateArticleTranslationRequest, LanguageResponse, LocalizationSyncPreview, LocalizationSyncRequest, LocalizationSyncResult } from '@/types/apps/translationTypes'
 
 const path = (articleId: string) => `/api/articles/${encodeURIComponent(articleId)}/translations`
 export const getLanguages = (accessToken: string, signal?: AbortSignal) => apiRequest<LanguageResponse[]>('/api/languages', accessToken, { signal })
@@ -9,3 +9,5 @@ export const linkArticleTranslation = (articleId: string, targetArticleId: strin
 export const unlinkArticleTranslation = (articleId: string, accessToken: string) => apiRequest<void>(`${path(articleId)}/unlink`, accessToken, { method: 'POST' })
 export const verifyArticleTranslation = (articleId: string, accessToken: string) => apiRequest<ArticleTranslationResponse>(`${path(articleId)}/verify`, accessToken, { method: 'POST' })
 export const assignArticleTranslator = (articleId: string, translatorUserId: string | null, accessToken: string) => apiRequest<ArticleTranslationResponse>(`${path(articleId)}/translator`, accessToken, { method: 'PUT', body: JSON.stringify({ translatorUserId }) })
+export const previewLocalizationSync = (articleId: string, request: LocalizationSyncRequest, accessToken: string) => apiRequest<LocalizationSyncPreview>(`${path(articleId)}/sync/preview`, accessToken, { method: 'POST', body: JSON.stringify(request) })
+export const synchronizeLocalizations = (articleId: string, request: LocalizationSyncRequest, accessToken: string) => apiRequest<LocalizationSyncResult>(`${path(articleId)}/sync`, accessToken, { method: 'POST', body: JSON.stringify(request) })

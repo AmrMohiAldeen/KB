@@ -7,7 +7,7 @@ public sealed record NotificationData(
 public sealed record PagedNotificationData(
     IReadOnlyList<NotificationData> Items, int Page, int PageSize, long TotalCount);
 
-public sealed record ArticleNotificationContextData(string Title, Guid AuthorId);
+public sealed record ArticleNotificationContextData(string Title, Guid AuthorId, string LocaleCode);
 
 public sealed record NotificationRecipientData(Guid UserId, string FullName, string Email);
 

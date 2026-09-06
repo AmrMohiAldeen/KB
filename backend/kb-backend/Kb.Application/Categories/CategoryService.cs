@@ -25,6 +25,38 @@ public sealed class CategoryService(
     public Task<CategoryData?> GetAsync(Guid id, CancellationToken cancellationToken) =>
         repository.GetByIdAsync(id, cancellationToken);
 
+    public Task<IReadOnlyList<CategoryLocalizationLanguageData>> GetLocalizationLanguagesAsync(
+        CancellationToken cancellationToken) => repository.GetEnabledLocalizationLanguagesAsync(cancellationToken);
+
+    public Task<CategoryData> SetLocalizationsAsync(Guid id, IReadOnlyList<CategoryLocalizationWrite> localizations,
+        CancellationToken cancellationToken)
+    {
+        var normalized = localizations.Select(localization => new CategoryLocalizationWrite(
+            localization.LocaleCode?.Trim() ?? string.Empty,
+            string.IsNullOrWhiteSpace(localization.Name) ? null : localization.Name.Trim(),
+            string.IsNullOrWhiteSpace(localization.Description) ? null : localization.Description.Trim())).ToArray();
+        if (normalized.Any(localization => string.IsNullOrWhiteSpace(localization.LocaleCode) ||
+            localization.LocaleCode.Length > 35))
+            throw new BusinessRuleException("A valid locale code is required.");
+        if (normalized.GroupBy(localization => localization.LocaleCode, StringComparer.OrdinalIgnoreCase)
+            .Any(group => group.Count() > 1))
+            throw new BusinessRuleException("Each language can be localized only once.");
+        if (normalized.Any(localization => localization.Name?.Length > MaxNameLength ||
+            localization.Description?.Length > MaxDescriptionLength))
+            throw new BusinessRuleException("Localized category content exceeds the allowed length.");
+        var actorId = currentUser.UserId;
+        return repository.ExecuteSerializableAsync(async token =>
+        {
+            var category = await repository.GetByIdAsync(id, token)
+                ?? throw new NotFoundException("The category was not found.");
+            var audit = Audit(actorId, CategoryAuditActions.LocalizationsUpdated, new
+            {
+                category.Name, locales = normalized.Select(localization => localization.LocaleCode).ToArray()
+            });
+            return await repository.SetLocalizationsAndAuditAsync(id, normalized, audit, token);
+        }, cancellationToken);
+    }
+
     public async Task<IReadOnlyList<CategoryTreeNode>> GetTreeAsync(CancellationToken cancellationToken)
     {
         var categories = await repository.GetAllAsync(cancellationToken);
@@ -306,7 +338,7 @@ public sealed class CategoryService(
         active.Remove(category.Id);
         return new(category.Id, category.ParentCategoryId, category.Name, category.Slug, category.Description,
             category.SortOrder, category.Path, category.Depth, category.ArticleCount, nodes, category.Status,
-            category.Visibility, category.ViewerImageMediaId, category.ViewerIcon);
+            category.Visibility, category.ViewerImageMediaId, category.ViewerIcon, category.Localizations);
     }
 
     private static string NormalizeVisibility(string visibility)

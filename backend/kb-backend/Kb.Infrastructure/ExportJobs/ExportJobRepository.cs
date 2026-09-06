@@ -24,7 +24,7 @@ public sealed class ExportJobRepository(KbDbContext db) : IExportJobRepository
                            item.Status != ArticleStatuses.Deleted)
             .Select(item => new
             {
-                item.ArticleId, item.Title, item.Slug, item.CategoryIdFk, item.Position
+                item.ArticleId, item.Title, item.Slug, item.LocaleCode, item.CategoryIdFk, item.Position
             }).SingleOrDefaultAsync(token) ?? throw new NotFoundException("The article was not found.");
 
         SourceRecord selected;
@@ -53,13 +53,16 @@ public sealed class ExportJobRepository(KbDbContext db) : IExportJobRepository
             normalizedSourceType, source.DraftId, source.VersionId, exportType, requestedBy, token);
         if (duplicate is not null) return duplicate;
 
+        var isRtl = await db.KbLanguages.AsNoTracking().Where(language =>
+                language.LocaleCode == article.LocaleCode && language.IsEnabled)
+            .Select(language => (bool?)language.IsRtl).SingleOrDefaultAsync(token) ?? false;
         var snapshot = new ExportSnapshot(ExportEntityTypes.Article, article.Title, article.Slug, [],
         [
             new(article.ArticleId, normalizedSourceType, source.DraftId, source.VersionId,
                 article.CategoryIdFk, article.Title, article.Slug, article.Position,
                 selected.ContentJsonPath, selected.RenderedHtmlPath, selected.PlainTextPath,
-                selected.PublishedAt)
-        ]);
+                selected.PublishedAt, LocaleCode: article.LocaleCode)
+        ], article.LocaleCode, isRtl);
         var entity = NewJob(ExportEntityTypes.Article, articleId, null, normalizedSourceType,
             source.DraftId, source.VersionId, exportType, requestedBy, requestedAt, snapshot,
             FileName(article.Slug, exportType));
@@ -69,9 +72,10 @@ public sealed class ExportJobRepository(KbDbContext db) : IExportJobRepository
     }, cancellationToken);
 
     public Task<ExportJobData> CreateCategoryAsync(Guid categoryId, string exportType, Guid requestedBy,
-        DateTime requestedAt, CancellationToken cancellationToken) => InTransactionAsync(async token =>
+        DateTime requestedAt, CancellationToken cancellationToken, string? localeCode = null) => InTransactionAsync(async token =>
     {
         await EnsureActiveUserAsync(requestedBy, token);
+        var locale = await ResolveExportLocaleAsync(localeCode, token);
         var categories = await db.Categories.AsNoTracking().ToListAsync(token);
         var root = categories.SingleOrDefault(item => item.CategoryId == categoryId)
             ?? throw new NotFoundException("The category was not found.");
@@ -80,10 +84,11 @@ public sealed class ExportJobRepository(KbDbContext db) : IExportJobRepository
         var articles = await db.Articles.AsNoTracking()
             .Where(item => (item.CategoryIdFk != null && categoryIds.Contains(item.CategoryIdFk.Value) ||
                             item.ArticleCategories.Any(link => categoryIds.Contains(link.CategoryIdFk))) &&
-                           item.DeletedAt == null && item.Status != ArticleStatuses.Deleted)
+                           item.DeletedAt == null && item.Status != ArticleStatuses.Deleted &&
+                           item.LocaleCode == locale.Code)
             .Select(item => new
             {
-                item.ArticleId, item.Title, item.Slug, item.CategoryIdFk, item.Position,
+                item.ArticleId, item.Title, item.Slug, item.LocaleCode, item.CategoryIdFk, item.Position,
                 item.Status, item.CurrentDraftIdFk, item.LastPublishedVersionIdFk,
                 CategoryIds = item.ArticleCategories.OrderBy(link => link.SortOrder)
                     .Select(link => link.CategoryIdFk).ToArray(),
@@ -153,15 +158,18 @@ public sealed class ExportJobRepository(KbDbContext db) : IExportJobRepository
             null, null, null, exportType, requestedBy, token);
         if (duplicate is not null) return duplicate;
 
-        var snapshot = new ExportSnapshot(ExportEntityTypes.Category, root.Name, root.Slug,
+        var categoryNames = await LocalizedCategoryNamesAsync(included.Select(item => item.CategoryId), locale.Code, token);
+        var snapshot = new ExportSnapshot(ExportEntityTypes.Category,
+            categoryNames.GetValueOrDefault(root.CategoryId, root.Name), root.Slug,
             included.Select(item => new ExportSnapshotCategory(item.CategoryId, item.ParentCategoryIdFk,
-                item.Name, item.Slug, item.SortOrder, item.Depth)).ToArray(),
+                categoryNames.GetValueOrDefault(item.CategoryId, item.Name), item.Slug, item.SortOrder, item.Depth)).ToArray(),
             selected.Select(item => new ExportSnapshotArticle(item.Article.ArticleId, item.SourceType,
                 item.SourceType == ExportSourceTypes.Draft ? item.Source!.Id : null,
                 item.SourceType == ExportSourceTypes.Version ? item.Source!.Id : null,
                 item.Article.ExportCategoryId ?? item.Article.CategoryIdFk, item.Article.Title, item.Article.Slug, item.Article.Position,
                 item.Source!.ContentJsonPath, item.Source.RenderedHtmlPath,
-                item.Source.PlainTextPath, item.Source.PublishedAt, item.Article.CategoryIds)).ToArray());
+                item.Source.PlainTextPath, item.Source.PublishedAt, item.Article.CategoryIds,
+                item.Article.LocaleCode)).ToArray(), locale.Code, locale.IsRtl);
         var entity = NewJob(ExportEntityTypes.Category, null, categoryId, null, null, null, exportType,
             requestedBy, requestedAt, snapshot, FileName(root.Slug, exportType));
         db.ExportJobs.Add(entity);
@@ -304,6 +312,29 @@ public sealed class ExportJobRepository(KbDbContext db) : IExportJobRepository
 
     private sealed record SourceRecord(Guid Id, string ContentJsonPath, string? RenderedHtmlPath,
         string? PlainTextPath, DateTime? PublishedAt);
+
+    private async Task<(string Code, bool IsRtl)> ResolveExportLocaleAsync(string? requestedLocale,
+        CancellationToken token)
+    {
+        var code = string.IsNullOrWhiteSpace(requestedLocale) ? null : requestedLocale.Trim().ToLowerInvariant();
+        var language = await db.KbLanguages.AsNoTracking().Where(item => item.IsEnabled &&
+                (code == null ? item.IsDefault : item.LocaleCode == code))
+            .OrderByDescending(item => item.IsDefault).Select(item => new { item.LocaleCode, item.IsRtl })
+            .FirstOrDefaultAsync(token);
+        if (language is not null) return (language.LocaleCode, language.IsRtl);
+        if (code is null) return (KbLocales.DefaultLocaleCode, false);
+        throw new NotFoundException("The export language is not enabled.");
+    }
+
+    private async Task<Dictionary<Guid, string>> LocalizedCategoryNamesAsync(IEnumerable<Guid> categoryIds,
+        string localeCode, CancellationToken token)
+    {
+        var ids = categoryIds.Distinct().ToArray();
+        return await db.Categories.AsNoTracking().Where(item => ids.Contains(item.CategoryId)).ToDictionaryAsync(
+            item => item.CategoryId,
+            item => item.CategoryLocalizations.Where(localization => localization.LocaleCode == localeCode)
+                .Select(localization => localization.Name).FirstOrDefault() ?? item.Name, token);
+    }
 
     private async Task<T> InTransactionAsync<T>(Func<CancellationToken, Task<T>> action,
         CancellationToken cancellationToken)

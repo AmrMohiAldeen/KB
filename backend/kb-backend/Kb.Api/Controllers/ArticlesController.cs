@@ -96,7 +96,9 @@ public sealed class ArticlesController(ArticleService articles) : ControllerBase
         article.Title, article.Slug, article.Status, ToCategory(article.Category), ToUser(article.Owner),
         article.CurrentDraftId, article.CurrentPublishedVersionId, article.CreatedAt, article.UpdatedAt,
         article.PublishedAt, article.IsCurrentDraftLocked, ToOptionalUser(article.LockedBy), article.Position,
-        article.Visibility, article.Categories?.Select(category => ToCategory(category)!).ToArray());
+        article.Visibility, article.Categories?.Select(category => ToCategory(category)!).ToArray(),
+        article.TranslationStatus, article.SourceVersionNumber, article.CurrentSourceVersionNumber,
+        article.IsTranslationCurrent);
 
     private static ArticleDetailsResponse ToDetailsResponse(ArticleData article) => new(article.Id,
         article.Title, article.Slug, article.Status, ToCategory(article.Category), ToUser(article.Owner),

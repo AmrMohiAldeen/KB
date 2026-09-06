@@ -71,7 +71,11 @@ public sealed class ArticleRepository(KbDbContext dbContext) : IArticleRepositor
                 article.Position,
                 article.Visibility,
                 article.ArticleCategories.OrderBy(link => link.SortOrder).Select(link => new CategoryReference(
-                    link.Category.CategoryId, link.Category.Name, link.Category.Slug, link.Category.Path)).ToArray()))
+                    link.Category.CategoryId, link.Category.Name, link.Category.Slug, link.Category.Path)).ToArray(),
+                article.ArticleTranslationMetadata == null ? ArticleTranslationStatuses.Original : article.ArticleTranslationMetadata.TranslationStatus,
+                article.ArticleTranslationMetadata == null ? null : article.ArticleTranslationMetadata.SourceVersionNumber,
+                article.ArticleTranslationMetadata == null || article.ArticleTranslationMetadata.SourceArticle == null || article.ArticleTranslationMetadata.SourceArticle!.LastPublishedVersionIdFkNavigation == null ? null : article.ArticleTranslationMetadata.SourceArticle!.LastPublishedVersionIdFkNavigation!.VersionNumber,
+                article.ArticleTranslationMetadata == null || article.ArticleTranslationMetadata.SourceArticleId == null ? null : article.ArticleTranslationMetadata.SourceVersionId != null && article.ArticleTranslationMetadata.SourceVersionId == article.ArticleTranslationMetadata.SourceArticle!.LastPublishedVersionIdFk))
             .ToListAsync(cancellationToken);
         return new(items, query.Page, query.PageSize, totalCount);
     }
