@@ -225,14 +225,16 @@ public sealed class AddLocalizationPersistenceFoundation : Migration
 
         migrationBuilder.Sql("""
             INSERT INTO [ROLE_PERMISSIONS] ([RoleID_FK], [PermissionCode])
-            SELECT [role].[RoleID], N'articles.translate'
+            SELECT [role].[RoleID], [permission].[PermissionCode]
             FROM [ROLES] AS [role]
+            CROSS JOIN (VALUES (N'languages.manage'), (N'articles.translate'))
+                AS [permission]([PermissionCode])
             WHERE [role].[RoleName] = N'Admin'
               AND NOT EXISTS (
                   SELECT 1
                   FROM [ROLE_PERMISSIONS] AS [rolePermission]
                   WHERE [rolePermission].[RoleID_FK] = [role].[RoleID]
-                    AND [rolePermission].[PermissionCode] = N'articles.translate'
+                    AND [rolePermission].[PermissionCode] = [permission].[PermissionCode]
               );
             """);
 
